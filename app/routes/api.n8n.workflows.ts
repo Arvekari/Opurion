@@ -47,7 +47,7 @@ async function resolveN8nEnv(env?: Record<string, string | undefined>) {
 }
 
 export async function loader({ context }: LoaderFunctionArgs) {
-  const env = context.cloudflare?.env as Record<string, string | undefined> | undefined;
+  const env = context.cloudflare?.env as unknown as Record<string, string | undefined> | undefined;
   const resolvedEnv = await resolveN8nEnv(env);
 
   return Response.json({
@@ -56,7 +56,7 @@ export async function loader({ context }: LoaderFunctionArgs) {
 }
 
 export async function action({ request, context }: ActionFunctionArgs) {
-  const env = context.cloudflare?.env as Record<string, string | undefined> | undefined;
+  const env = context.cloudflare?.env as unknown as Record<string, string | undefined> | undefined;
   const resolvedEnv = await resolveN8nEnv(env);
 
   try {
