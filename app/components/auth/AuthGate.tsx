@@ -70,6 +70,12 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   }, [session, isSignupMode]);
 
   const saveSetup = async () => {
+    if (dbProvider === 'sqlite') {
+      setError(null);
+      setSetupComplete(true);
+      return;
+    }
+
     setSavingSetup(true);
     setError(null);
 

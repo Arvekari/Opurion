@@ -43,35 +43,51 @@ export async function action({ context, request }: ActionFunctionArgs) {
     return json({ ok: true, enabled: false });
   }
 
-  const body = await request.json<{
-    apiKeys?: Record<string, string>;
-    providerSettings?: Record<string, any>;
-    customPrompt?: { enabled?: boolean; instructions?: string };
-    dbConfig?: { provider?: 'sqlite' | 'postgres'; postgresUrl?: string };
-  }>();
+  try {
+    const body = await request.json<{
+      apiKeys?: Record<string, string>;
+      providerSettings?: Record<string, any>;
+      customPrompt?: { enabled?: boolean; instructions?: string };
+      dbConfig?: { provider?: 'sqlite' | 'postgres'; postgresUrl?: string };
+    }>();
 
-  if (user) {
-    await upsertPersistedMemoryForUser(
-      user.userId,
+    if (user) {
+      await upsertPersistedMemoryForUser(
+        user.userId,
+        {
+          apiKeys: body.apiKeys,
+          providerSettings: body.providerSettings,
+          customPrompt: body.customPrompt,
+          dbConfig: body.dbConfig,
+        },
+        env,
+      );
+    } else {
+      await upsertPersistedMemory(
+        {
+          apiKeys: body.apiKeys,
+          providerSettings: body.providerSettings,
+          customPrompt: body.customPrompt,
+          dbConfig: body.dbConfig,
+        },
+        env,
+      );
+    }
+
+    return json({ ok: true, enabled: true, scope: user ? 'user' : 'global' });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    const writableHint =
+      message.includes('EACCES') || message.includes('EPERM')
+        ? ' SQLite persistence path is not writable. Ensure /data is mounted and writable.'
+        : '';
+
+    return json(
       {
-        apiKeys: body.apiKeys,
-        providerSettings: body.providerSettings,
-        customPrompt: body.customPrompt,
-        dbConfig: body.dbConfig,
+        ok: false,
+        error: `Failed to persist setup configuration.${writableHint}`,
       },
-      env,
-    );
-  } else {
-    await upsertPersistedMemory(
-      {
-        apiKeys: body.apiKeys,
-        providerSettings: body.providerSettings,
-        customPrompt: body.customPrompt,
-        dbConfig: body.dbConfig,
-      },
-      env,
+      { status: 500 },
     );
   }
-
-  return json({ ok: true, enabled: true, scope: user ? 'user' : 'global' });
 }

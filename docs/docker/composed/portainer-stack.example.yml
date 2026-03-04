@@ -37,7 +37,7 @@ services:
     command:
       - sh
       - -lc
-      - NODE_OPTIONS=--conditions=browser PORT=5173 HOST=0.0.0.0 pnpm exec remix-serve build/server/index.js
+      - mkdir -p /data /logs && test -w /data && test -w /logs && NODE_OPTIONS=--conditions=browser PORT=5173 HOST=0.0.0.0 pnpm exec remix-serve build/server/index.js
     healthcheck:
       test: ['CMD', 'curl', '-f', 'http://localhost:5173/']
       interval: 10s

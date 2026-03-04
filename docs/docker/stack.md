@@ -26,6 +26,8 @@ The stack defines one service:
   - `command`: `NODE_OPTIONS=--conditions=browser PORT=5173 HOST=0.0.0.0 pnpm exec remix-serve build/server/index.js`
   - `healthcheck`: probes `http://localhost:5173/`
 
+The startup command includes a writable-volume preflight (`test -w /data` and `test -w /logs`) so SQLite and logging fail fast with a clear deployment signal if mounts are not writable.
+
 ## Volumes
 
 Named volumes created by the stack:
