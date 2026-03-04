@@ -16,31 +16,31 @@ Primary command:
 This protocol is mandatory for all code changes.
 
 1. **Change impact analysis**
-	- Identify affected modules/files.
-	- Identify functions/classes/components to be changed.
-	- Identify dependent or indirectly affected logic.
+   - Identify affected modules/files.
+   - Identify functions/classes/components to be changed.
+   - Identify dependent or indirectly affected logic.
 
 2. **Coverage verification**
-	- Check whether unit tests exist for normal behavior, edge cases, and error handling.
-	- Classify as:
-	  - **FULL COVERAGE**
-	  - **PARTIAL COVERAGE**
-	  - **NO COVERAGE**
+   - Check whether unit tests exist for normal behavior, edge cases, and error handling.
+   - Classify as:
+     - **FULL COVERAGE**
+     - **PARTIAL COVERAGE**
+     - **NO COVERAGE**
 
 3. **Test creation first (when needed)**
-	- If coverage is partial or missing, add/extend tests first.
-	- New tests must represent current behavior before implementation changes.
+   - If coverage is partial or missing, add/extend tests first.
+   - New tests must represent current behavior before implementation changes.
 
 4. **Validate baseline behavior**
-	- Ensure tests pass against current implementation before changing production code.
+   - Ensure tests pass against current implementation before changing production code.
 
 5. **Implement change**
-	- Only after coverage exists and baseline passes.
+   - Only after coverage exists and baseline passes.
 
 6. **Regression verification**
-	- Ensure existing tests still pass.
-	- Ensure new/updated tests pass.
-	- Fix implementation, not tests, when regressions appear.
+   - Ensure existing tests still pass.
+   - Ensure new/updated tests pass.
+   - Fix implementation, not tests, when regressions appear.
 
 ### Forbidden actions
 
