@@ -54,10 +54,10 @@ docker info
 
 For this repo Docker workflow, use:
 
-- [docs/docker/composed/Dockerfile](docs/docker/composed/Dockerfile)
-- [docs/docker/composed/docker-compose.yaml](docs/docker/composed/docker-compose.yaml)
-- [docs/docker/composed/portainer-stack.example.yml](docs/docker/composed/portainer-stack.example.yml)
-- [docs/docker/composed/README.md](docs/docker/composed/README.md)
+- [docker/composed/Dockerfile](composed/Dockerfile)
+- [docker/composed/docker-compose.yaml](composed/docker-compose.yaml)
+- [docker/composed/portainer-stack.example.yml](composed/portainer-stack.example.yml)
+- [docker/composed/README.md](composed/README.md)
 
 ## Common issues
 

@@ -6,7 +6,7 @@ This document explains the Portainer stack script used to deploy `ebolt2` from a
 
 Use:
 
-- [docs/docker/composed/portainer-stack.example.yml](docs/docker/composed/portainer-stack.example.yml)
+- [docker/composed/portainer-stack.example.yml](composed/portainer-stack.example.yml)
 
 The file is designed to run the app in production mode with:
 
@@ -56,7 +56,7 @@ If you want only local SQLite mode, keep:
 1. Open Portainer.
 2. Go to **Stacks** -> **Add stack**.
 3. Name the stack (example: `ebolt2`).
-4. Paste the contents of [docs/docker/composed/portainer-stack.example.yml](docs/docker/composed/portainer-stack.example.yml).
+4. Paste the contents of [docker/composed/portainer-stack.example.yml](composed/portainer-stack.example.yml).
 5. Replace image + environment values.
 6. Click **Deploy the stack**.
 
@@ -78,7 +78,7 @@ After pushing a new tag (for example `v1.0.1`):
 
 ## Related files
 
-- [docs/docker/composed/Dockerfile](docs/docker/composed/Dockerfile)
-- [docs/docker/composed/docker-compose.yaml](docs/docker/composed/docker-compose.yaml)
-- [docs/docker/composed/README.md](docs/docker/composed/README.md)
-- [docs/setup/docker/production.md](docs/setup/docker/production.md)
+- [docker/composed/Dockerfile](composed/Dockerfile)
+- [docker/composed/docker-compose.yaml](composed/docker-compose.yaml)
+- [docker/composed/README.md](composed/README.md)
+- [setup/docker/production.md](../setup/docker/production.md)

@@ -39,7 +39,7 @@ IMAGE_NAME=ghcr.io/<your-org>/ebolt2 IMAGE_TAG=latest docker compose -f docs/doc
 
 Use stack template:
 
-- [docs/docker/composed/portainer-stack.example.yml](docs/docker/composed/portainer-stack.example.yml)
+- [docker/composed/portainer-stack.example.yml](composed/portainer-stack.example.yml)
 
 Steps:
 
@@ -51,6 +51,6 @@ Steps:
 
 ## Related docs
 
-- [docs/docker/docker-install.md](docs/docker/docker-install.md)
-- [docs/docker/stack.md](docs/docker/stack.md)
-- [docs/docker/composed/README.md](docs/docker/composed/README.md)
+- [docker/docker-install.md](docker-install.md)
+- [docker/stack.md](stack.md)
+- [docker/composed/README.md](composed/README.md)

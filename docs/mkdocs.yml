@@ -1,6 +1,7 @@
 site_name: Bolt2.dyi Docs
 site_dir: ../site
 docs_dir: .
+exclude_docs: /README.md
 theme:
   name: material
   palette:
@@ -46,6 +47,12 @@ nav:
           - Volumes: setup/docker/volumes.md
           - External PostgreSQL/PostgREST: setup/docker/external-postgres.md
           - External OpenClaw: setup/docker/external-openclaw.md
+      - Docker Runtime:
+        - Overview: docker/README.md
+        - Install Guide: docker/docker-install.md
+        - Scripts: docker/scripts.md
+        - Stack Guide: docker/stack.md
+        - Composed Stack: docker/composed/README.md
       - Single Host:
           - Linux: setup/single-host/linux.md
           - macOS: setup/single-host/osx.md
