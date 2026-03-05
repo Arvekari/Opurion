@@ -18,9 +18,17 @@ type N8nSettings = {
   apiKey: string;
 };
 
+type OpenClawSettings = {
+  enabled: boolean;
+  baseUrl: string;
+  timeoutMs: number;
+  allowedTools: string;
+};
+
 type SystemSettings = {
   apachePhp: ApachePhpSettings;
   n8n: N8nSettings;
+  openclaw: OpenClawSettings;
 };
 
 const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
@@ -37,6 +45,12 @@ const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
     enabled: false,
     baseUrl: '',
     apiKey: '',
+  },
+  openclaw: {
+    enabled: false,
+    baseUrl: '',
+    timeoutMs: 30000,
+    allowedTools: '',
   },
 };
 
@@ -70,6 +84,7 @@ function normalizeSystemSettings(input: unknown): SystemSettings {
   const source = input && typeof input === 'object' ? (input as Record<string, any>) : {};
   const apache = source.apachePhp && typeof source.apachePhp === 'object' ? source.apachePhp : {};
   const n8n = source.n8n && typeof source.n8n === 'object' ? source.n8n : {};
+  const openclaw = source.openclaw && typeof source.openclaw === 'object' ? source.openclaw : {};
 
   return {
     apachePhp: {
@@ -85,6 +100,12 @@ function normalizeSystemSettings(input: unknown): SystemSettings {
       enabled: toBoolean(n8n.enabled, DEFAULT_SYSTEM_SETTINGS.n8n.enabled),
       baseUrl: toString(n8n.baseUrl, DEFAULT_SYSTEM_SETTINGS.n8n.baseUrl),
       apiKey: toString(n8n.apiKey, DEFAULT_SYSTEM_SETTINGS.n8n.apiKey),
+    },
+    openclaw: {
+      enabled: toBoolean(openclaw.enabled, DEFAULT_SYSTEM_SETTINGS.openclaw.enabled),
+      baseUrl: toString(openclaw.baseUrl, DEFAULT_SYSTEM_SETTINGS.openclaw.baseUrl),
+      timeoutMs: toPort(openclaw.timeoutMs, DEFAULT_SYSTEM_SETTINGS.openclaw.timeoutMs),
+      allowedTools: toString(openclaw.allowedTools, DEFAULT_SYSTEM_SETTINGS.openclaw.allowedTools),
     },
   };
 }

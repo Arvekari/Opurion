@@ -57,7 +57,7 @@ export async function upsertPersistedMemory(
   input: {
     apiKeys?: Record<string, string>;
     providerSettings?: Record<string, any>;
-    customPrompt?: { enabled?: boolean; instructions?: string };
+    customPrompt?: { enabled?: boolean; instructions?: string; mode?: 'append' | 'replace' };
     dbConfig?: { provider?: 'sqlite' | 'postgres'; postgresUrl?: string };
   },
   env?: Record<string, any>,
@@ -105,7 +105,7 @@ export async function upsertPersistedMemoryForUser(
   input: {
     apiKeys?: Record<string, string>;
     providerSettings?: Record<string, any>;
-    customPrompt?: { enabled?: boolean; instructions?: string };
+    customPrompt?: { enabled?: boolean; instructions?: string; mode?: 'append' | 'replace' };
     dbConfig?: { provider?: 'sqlite' | 'postgres'; postgresUrl?: string };
   },
   env?: Record<string, any>,

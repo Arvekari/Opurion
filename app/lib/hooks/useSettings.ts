@@ -5,6 +5,7 @@ import {
   promptStore,
   customPromptEnabledStore,
   customPromptTextStore,
+  customPromptModeStore,
   dbProviderStore,
   dbPostgresUrlStore,
   providersStore,
@@ -21,6 +22,7 @@ import {
   updatePromptId,
   updateCustomPromptEnabled,
   updateCustomPromptText,
+  updateCustomPromptMode,
   updateDbProvider,
   updateDbPostgresUrl,
 } from '~/lib/stores/settings';
@@ -65,6 +67,8 @@ export interface UseSettingsReturn {
   setCustomPromptEnabled: (enabled: boolean) => void;
   customPromptText: string;
   setCustomPromptText: (text: string) => void;
+  customPromptMode: 'append' | 'replace';
+  setCustomPromptMode: (mode: 'append' | 'replace') => void;
   dbProvider: 'sqlite' | 'postgres';
   setDbProvider: (provider: 'sqlite' | 'postgres') => void;
   dbPostgresUrl: string;
@@ -93,6 +97,7 @@ export function useSettings(): UseSettingsReturn {
   const promptId = useStore(promptStore);
   const customPromptEnabled = useStore(customPromptEnabledStore);
   const customPromptText = useStore(customPromptTextStore);
+  const customPromptMode = useStore(customPromptModeStore);
   const dbProvider = useStore(dbProviderStore);
   const dbPostgresUrl = useStore(dbPostgresUrlStore);
   const isLatestBranch = useStore(latestBranchStore);
@@ -157,6 +162,11 @@ export function useSettings(): UseSettingsReturn {
   const setCustomPromptText = useCallback((text: string) => {
     updateCustomPromptText(text);
     logStore.logSystem('Custom prompt text updated');
+  }, []);
+
+  const setCustomPromptMode = useCallback((mode: 'append' | 'replace') => {
+    updateCustomPromptMode(mode);
+    logStore.logSystem(`Custom prompt mode set to ${mode}`);
   }, []);
 
   const setDbProvider = useCallback((provider: 'sqlite' | 'postgres') => {
@@ -226,10 +236,11 @@ export function useSettings(): UseSettingsReturn {
     const customPrompt = {
       enabled: customPromptEnabled,
       instructions: customPromptText,
+      mode: customPromptMode,
     };
     Cookies.set('customPrompt', JSON.stringify(customPrompt));
     void syncServerPersistence({ customPrompt });
-  }, [customPromptEnabled, customPromptText]);
+  }, [customPromptEnabled, customPromptText, customPromptMode]);
 
   useEffect(() => {
     const dbConfig = {
@@ -256,6 +267,8 @@ export function useSettings(): UseSettingsReturn {
     setCustomPromptEnabled,
     customPromptText,
     setCustomPromptText,
+    customPromptMode,
+    setCustomPromptMode,
     dbProvider,
     setDbProvider,
     dbPostgresUrl,

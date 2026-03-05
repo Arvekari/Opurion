@@ -33,6 +33,12 @@ type AdminSystemSettings = {
     baseUrl: string;
     apiKey: string;
   };
+  openclaw: {
+    enabled: boolean;
+    baseUrl: string;
+    timeoutMs: number;
+    allowedTools: string;
+  };
 };
 
 const DEFAULT_SYSTEM_SETTINGS: AdminSystemSettings = {
@@ -49,6 +55,12 @@ const DEFAULT_SYSTEM_SETTINGS: AdminSystemSettings = {
     enabled: false,
     baseUrl: '',
     apiKey: '',
+  },
+  openclaw: {
+    enabled: false,
+    baseUrl: '',
+    timeoutMs: 30000,
+    allowedTools: '',
   },
 };
 
@@ -155,6 +167,8 @@ export default function FeaturesTab() {
     setCustomPromptEnabled,
     customPromptText,
     setCustomPromptText,
+    customPromptMode,
+    setCustomPromptMode,
     dbProvider,
     setDbProvider,
     dbPostgresUrl,
@@ -300,6 +314,21 @@ export default function FeaturesTab() {
     },
     [enableLatestBranch, setAutoSelectTemplate, enableContextOptimization, setEventLogs],
   );
+
+  const getCurrentBasePrompt = useCallback(() => {
+    return (
+      PromptLibrary.getPropmtFromLibrary(promptId || 'default', {
+        cwd: '/home/project',
+        allowedHtmlElements: [],
+        modificationTagName: 'bolt_file_modifications',
+        supabase: {
+          isConnected: false,
+          hasSelectedProject: false,
+          credentials: undefined,
+        },
+      }) || ''
+    );
+  }, [promptId]);
 
   const features = {
     stable: [
@@ -458,6 +487,52 @@ export default function FeaturesTab() {
               />
             </div>
 
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomPromptMode('append');
+                  toast.success('Prompt mode set to append');
+                }}
+                className={classNames(
+                  'px-2 py-1 text-xs rounded-lg',
+                  customPromptMode === 'append'
+                    ? 'bg-purple-500/20 text-purple-500'
+                    : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-4',
+                )}
+              >
+                Append Mode
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setCustomPromptMode('replace');
+                  toast.success('Prompt mode set to replace');
+                }}
+                className={classNames(
+                  'px-2 py-1 text-xs rounded-lg',
+                  customPromptMode === 'replace'
+                    ? 'bg-purple-500/20 text-purple-500'
+                    : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-4',
+                )}
+              >
+                Replace Mode
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const basePrompt = getCurrentBasePrompt();
+                  setCustomPromptEnabled(true);
+                  setCustomPromptMode('replace');
+                  setCustomPromptText(basePrompt);
+                  toast.success('Loaded current system prompt into editor');
+                }}
+                className="px-2 py-1 text-xs rounded-lg bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
+              >
+                Load Current System Prompt
+              </button>
+            </div>
+
             <div className="mt-3">
               <textarea
                 value={customPromptText}
@@ -473,7 +548,9 @@ export default function FeaturesTab() {
                 )}
               />
               <p className="text-xs text-bolt-elements-textSecondary mt-2">
-                This text is appended to the selected base prompt and stored in local settings and optional server SQLite memory.
+                {customPromptMode === 'replace'
+                  ? 'Replace mode: this text becomes the full system prompt.'
+                  : 'Append mode: this text is appended to the selected base prompt.'}
               </p>
             </div>
           </div>
@@ -749,6 +826,77 @@ export default function FeaturesTab() {
                         placeholder="n8n API key"
                         className={classNames(
                           'w-full p-2 rounded-lg text-sm',
+                          'bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor',
+                          'text-bolt-elements-textPrimary',
+                          'focus:outline-none focus:ring-2 focus:ring-purple-500/30',
+                        )}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-3 rounded-lg bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor">
+                    <div className="flex items-center justify-between gap-3">
+                      <h5 className="text-sm font-medium text-bolt-elements-textPrimary">OpenClaw integration</h5>
+                      <Switch
+                        checked={systemSettings.openclaw.enabled}
+                        onCheckedChange={(checked) =>
+                          setSystemSettings((prev) => ({
+                            ...prev,
+                            openclaw: { ...prev.openclaw, enabled: checked },
+                          }))
+                        }
+                      />
+                    </div>
+
+                    <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+                      <input
+                        value={systemSettings.openclaw.baseUrl}
+                        onChange={(e) =>
+                          setSystemSettings((prev) => ({
+                            ...prev,
+                            openclaw: { ...prev.openclaw, baseUrl: e.target.value },
+                          }))
+                        }
+                        placeholder="OpenClaw base URL (https://openclaw.example.com)"
+                        className={classNames(
+                          'w-full p-2 rounded-lg text-sm',
+                          'bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor',
+                          'text-bolt-elements-textPrimary',
+                          'focus:outline-none focus:ring-2 focus:ring-purple-500/30',
+                        )}
+                      />
+                      <input
+                        type="number"
+                        value={String(systemSettings.openclaw.timeoutMs)}
+                        onChange={(e) => {
+                          const parsed = Number.parseInt(e.target.value, 10);
+                          setSystemSettings((prev) => ({
+                            ...prev,
+                            openclaw: {
+                              ...prev.openclaw,
+                              timeoutMs: Number.isFinite(parsed) && parsed > 0 ? parsed : 30000,
+                            },
+                          }));
+                        }}
+                        placeholder="Timeout ms"
+                        className={classNames(
+                          'w-full p-2 rounded-lg text-sm',
+                          'bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor',
+                          'text-bolt-elements-textPrimary',
+                          'focus:outline-none focus:ring-2 focus:ring-purple-500/30',
+                        )}
+                      />
+                      <input
+                        value={systemSettings.openclaw.allowedTools}
+                        onChange={(e) =>
+                          setSystemSettings((prev) => ({
+                            ...prev,
+                            openclaw: { ...prev.openclaw, allowedTools: e.target.value },
+                          }))
+                        }
+                        placeholder="Allowed tools CSV (e.g. terminal.exec,git.status)"
+                        className={classNames(
+                          'w-full p-2 rounded-lg text-sm md:col-span-2',
                           'bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor',
                           'text-bolt-elements-textPrimary',
                           'focus:outline-none focus:ring-2 focus:ring-purple-500/30',

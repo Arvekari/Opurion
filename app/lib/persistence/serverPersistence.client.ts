@@ -1,7 +1,7 @@
 export async function syncServerPersistence(payload: {
   apiKeys?: Record<string, string>;
   providerSettings?: Record<string, any>;
-  customPrompt?: { enabled?: boolean; instructions?: string };
+  customPrompt?: { enabled?: boolean; instructions?: string; mode?: 'append' | 'replace' };
   dbConfig?: { provider?: 'sqlite' | 'postgres'; postgresUrl?: string };
 }) {
   try {

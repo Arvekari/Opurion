@@ -8,6 +8,9 @@ import { motion } from 'framer-motion';
 import { classNames } from '~/utils/classNames';
 import { toast } from 'react-toastify';
 import { providerBaseUrlEnvKeys } from '~/utils/constants';
+import Cookies from 'js-cookie';
+import { syncServerPersistence } from '~/lib/persistence/serverPersistence.client';
+import { getApiKeysFromCookies } from '~/components/chat/APIKeyManager';
 import { SiAmazon, SiGoogle, SiGithub, SiHuggingface, SiPerplexity, SiOpenai } from 'react-icons/si';
 import { BsRobot, BsCloud } from 'react-icons/bs';
 import { TbBrain, TbCloudComputing } from 'react-icons/tb';
@@ -62,8 +65,15 @@ const PROVIDER_DESCRIPTIONS: Partial<Record<ProviderName, string>> = {
 const CloudProvidersTab = () => {
   const settings = useSettings();
   const [editingProvider, setEditingProvider] = useState<string | null>(null);
+  const [editingApiKeyProvider, setEditingApiKeyProvider] = useState<string | null>(null);
   const [filteredProviders, setFilteredProviders] = useState<IProviderConfig[]>([]);
   const [categoryEnabled, setCategoryEnabled] = useState<boolean>(false);
+  const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
+  const [tempApiKey, setTempApiKey] = useState<string>('');
+
+  useEffect(() => {
+    setApiKeys(getApiKeysFromCookies());
+  }, []);
 
   // Load and filter providers
   useEffect(() => {
@@ -131,6 +141,31 @@ const CloudProvidersTab = () => {
       setEditingProvider(null);
     },
     [settings],
+  );
+
+  const handleEditApiKey = useCallback(
+    (provider: IProviderConfig) => {
+      setEditingApiKeyProvider(provider.name);
+      setTempApiKey(apiKeys[provider.name] || '');
+    },
+    [apiKeys],
+  );
+
+  const handleSaveApiKey = useCallback(
+    (provider: IProviderConfig) => {
+      const next = {
+        ...apiKeys,
+        [provider.name]: tempApiKey.trim(),
+      };
+
+      setApiKeys(next);
+      Cookies.set('apiKeys', JSON.stringify(next));
+      void syncServerPersistence({ apiKeys: next });
+      setEditingApiKeyProvider(null);
+      setTempApiKey('');
+      toast.success(`${provider.name} API key updated`);
+    },
+    [apiKeys, tempApiKey],
   );
 
   return (
@@ -282,6 +317,74 @@ const CloudProvidersTab = () => {
                             <div className="i-ph:info" />
                             <span>Environment URL set in .env file</span>
                           </div>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+
+                  {provider.settings.enabled && (
+                    <motion.div
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.2 }}
+                      className="mt-3"
+                    >
+                      <div className="text-xs text-bolt-elements-textSecondary mb-2">API Key</div>
+
+                      {editingApiKeyProvider === provider.name ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="password"
+                            value={tempApiKey}
+                            onChange={(e) => setTempApiKey(e.target.value)}
+                            placeholder={`Enter ${provider.name} API key`}
+                            className={classNames(
+                              'flex-1 px-3 py-1.5 rounded-lg text-sm',
+                              'bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor',
+                              'text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary',
+                              'focus:outline-none focus:ring-2 focus:ring-purple-500/30',
+                            )}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                handleSaveApiKey(provider);
+                              } else if (e.key === 'Escape') {
+                                setEditingApiKeyProvider(null);
+                                setTempApiKey('');
+                              }
+                            }}
+                            autoFocus
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleSaveApiKey(provider)}
+                            className="px-2 py-1.5 text-xs rounded-lg bg-purple-500/20 text-purple-500 hover:bg-purple-500/30"
+                          >
+                            Save
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingApiKeyProvider(null);
+                              setTempApiKey('');
+                            }}
+                            className="px-2 py-1.5 text-xs rounded-lg bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-4"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs text-bolt-elements-textSecondary">
+                            {apiKeys[provider.name] ? 'Set via Settings' : 'Not set in Settings'}
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleEditApiKey(provider)}
+                            className="px-2 py-1.5 text-xs rounded-lg bg-blue-500/10 text-blue-500 hover:bg-blue-500/20"
+                          >
+                            {apiKeys[provider.name] ? 'Edit Key' : 'Add Key'}
+                          </button>
                         </div>
                       )}
                     </motion.div>

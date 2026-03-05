@@ -259,6 +259,7 @@ const SETTINGS_KEYS = {
   PROMPT_ID: 'promptId',
   CUSTOM_PROMPT_ENABLED: 'customPromptEnabled',
   CUSTOM_PROMPT_TEXT: 'customPromptText',
+  CUSTOM_PROMPT_MODE: 'customPromptMode',
   DEVELOPER_MODE: 'isDeveloperMode',
 } as const;
 
@@ -290,6 +291,7 @@ const getInitialSettings = () => {
     promptId: isBrowser ? localStorage.getItem(SETTINGS_KEYS.PROMPT_ID) || 'default' : 'default',
     customPromptEnabled: getStoredBoolean(SETTINGS_KEYS.CUSTOM_PROMPT_ENABLED, false),
     customPromptText: isBrowser ? localStorage.getItem(SETTINGS_KEYS.CUSTOM_PROMPT_TEXT) || '' : '',
+    customPromptMode: isBrowser ? (localStorage.getItem(SETTINGS_KEYS.CUSTOM_PROMPT_MODE) || 'append') : 'append',
     developerMode: getStoredBoolean(SETTINGS_KEYS.DEVELOPER_MODE, false),
   };
 };
@@ -304,6 +306,9 @@ export const isEventLogsEnabled = atom<boolean>(initialSettings.eventLogs);
 export const promptStore = atom<string>(initialSettings.promptId);
 export const customPromptEnabledStore = atom<boolean>(initialSettings.customPromptEnabled);
 export const customPromptTextStore = atom<string>(initialSettings.customPromptText);
+export const customPromptModeStore = atom<'append' | 'replace'>(
+  initialSettings.customPromptMode === 'replace' ? 'replace' : 'append',
+);
 export const dbProviderStore = atom<'sqlite' | 'postgres'>(
   isBrowser && localStorage.getItem('dbProvider') === 'postgres' ? 'postgres' : 'sqlite',
 );
@@ -343,6 +348,11 @@ export const updateCustomPromptEnabled = (enabled: boolean) => {
 export const updateCustomPromptText = (text: string) => {
   customPromptTextStore.set(text);
   localStorage.setItem(SETTINGS_KEYS.CUSTOM_PROMPT_TEXT, text);
+};
+
+export const updateCustomPromptMode = (mode: 'append' | 'replace') => {
+  customPromptModeStore.set(mode);
+  localStorage.setItem(SETTINGS_KEYS.CUSTOM_PROMPT_MODE, mode);
 };
 
 export const updateDbProvider = (provider: 'sqlite' | 'postgres') => {

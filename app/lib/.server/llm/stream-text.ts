@@ -69,6 +69,7 @@ export async function streamText(props: {
   customPrompt?: {
     enabled: boolean;
     instructions: string;
+    mode?: 'append' | 'replace';
   };
 }) {
   const {
@@ -184,11 +185,17 @@ export async function streamText(props: {
     }) ?? getSystemPrompt();
 
   if (customPrompt?.enabled && customPrompt.instructions.trim().length > 0) {
-    systemPrompt = `${systemPrompt}
+    const customPromptBody = customPrompt.instructions.trim();
+
+    if (customPrompt.mode === 'replace') {
+      systemPrompt = customPromptBody;
+    } else {
+      systemPrompt = `${systemPrompt}
 
 <custom_system_prompt>
-${customPrompt.instructions.trim()}
+${customPromptBody}
 </custom_system_prompt>`;
+    }
   }
 
   if (chatMode === 'build' && contextFiles && contextOptimization) {

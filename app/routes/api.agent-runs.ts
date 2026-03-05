@@ -2,6 +2,7 @@ import { type ActionFunctionArgs, type LoaderFunctionArgs } from '@remix-run/clo
 import { executeCoreChatStream } from '~/core/chat-engine';
 import { resolveExecutionEngine } from '~/core/model-router';
 import { AgentRunService } from '~/lib/.server/agents/agentRunService';
+import { readPersistedMemory } from '~/lib/.server/persistence';
 import {
   cancelOpenClawRun,
   executeOpenClawAgent,
@@ -11,6 +12,44 @@ import {
 import { createScopedLogger } from '~/utils/logger';
 
 const logger = createScopedLogger('api.agent-runs');
+
+async function resolveOpenClawEnv(env?: Record<string, string | undefined>) {
+  const resolved: Record<string, string | undefined> = {
+    ...(env || {}),
+  };
+
+  if (resolved.OPENCLAW_BASE_URL) {
+    return resolved;
+  }
+
+  try {
+    const memory = await readPersistedMemory(resolved as Record<string, any>);
+    const rawOpenClaw = memory?.providerSettings?.__systemSettings?.openclaw as
+      | { enabled?: unknown; baseUrl?: unknown; timeoutMs?: unknown; allowedTools?: unknown }
+      | undefined;
+
+    const enabled = rawOpenClaw?.enabled === true;
+    const baseUrl = typeof rawOpenClaw?.baseUrl === 'string' ? rawOpenClaw.baseUrl.trim() : '';
+    const timeoutMs = typeof rawOpenClaw?.timeoutMs === 'number' ? String(rawOpenClaw.timeoutMs) : '';
+    const allowedTools = typeof rawOpenClaw?.allowedTools === 'string' ? rawOpenClaw.allowedTools.trim() : '';
+
+    if (enabled && baseUrl) {
+      resolved.OPENCLAW_BASE_URL = resolved.OPENCLAW_BASE_URL || baseUrl;
+
+      if (timeoutMs) {
+        resolved.OPENCLAW_TIMEOUT_MS = resolved.OPENCLAW_TIMEOUT_MS || timeoutMs;
+      }
+
+      if (allowedTools) {
+        resolved.OPENCLAW_ALLOWED_TOOLS = resolved.OPENCLAW_ALLOWED_TOOLS || allowedTools;
+      }
+    }
+  } catch (error) {
+    logger.warn('failed to read persisted openclaw settings', error);
+  }
+
+  return resolved;
+}
 
 async function readTextStream(stream: any) {
   let output = '';
@@ -67,7 +106,8 @@ export async function loader({ request }: LoaderFunctionArgs) {
 
 export async function action({ request, context }: ActionFunctionArgs) {
   const service = AgentRunService.getInstance();
-  const env = context.cloudflare?.env as any;
+  const rawEnv = context.cloudflare?.env as unknown as Record<string, string | undefined> | undefined;
+  const env = await resolveOpenClawEnv(rawEnv);
   service.setEnvironment(env);
 
   try {

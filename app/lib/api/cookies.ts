@@ -32,11 +32,15 @@ export function getProviderSettingsFromCookie(cookieHeader: string | null): Reco
   return cookies.providers ? JSON.parse(cookies.providers) : {};
 }
 
-export function getCustomPromptFromCookie(cookieHeader: string | null): { enabled: boolean; instructions: string } {
+export function getCustomPromptFromCookie(cookieHeader: string | null): {
+  enabled: boolean;
+  instructions: string;
+  mode: 'append' | 'replace';
+} {
   const cookies = parseCookies(cookieHeader);
 
   if (!cookies.customPrompt) {
-    return { enabled: false, instructions: '' };
+    return { enabled: false, instructions: '', mode: 'append' };
   }
 
   try {
@@ -44,9 +48,10 @@ export function getCustomPromptFromCookie(cookieHeader: string | null): { enable
     return {
       enabled: !!parsed?.enabled,
       instructions: typeof parsed?.instructions === 'string' ? parsed.instructions : '',
+      mode: parsed?.mode === 'replace' ? 'replace' : 'append',
     };
   } catch {
-    return { enabled: false, instructions: '' };
+    return { enabled: false, instructions: '', mode: 'append' };
   }
 }
 
@@ -127,16 +132,19 @@ export async function resolveProviderSettings(
 export async function resolveCustomPrompt(
   cookieHeader: string | null,
   env?: Record<string, any>,
-): Promise<{ enabled: boolean; instructions: string }> {
+): Promise<{ enabled: boolean; instructions: string; mode: 'append' | 'replace' }> {
   const cookieCustomPrompt = getCustomPromptFromCookie(cookieHeader);
   const userId = getUserIdFromCookie(cookieHeader);
 
   const { readPersistedMemory, readPersistedMemoryForUser, upsertPersistedMemory, upsertPersistedMemoryForUser } =
     await import('../.server/persistence');
   const persisted = userId ? await readPersistedMemoryForUser(userId, env) : await readPersistedMemory(env);
+  const persistedMode = (persisted?.customPrompt as { mode?: 'append' | 'replace' } | undefined)?.mode;
+  const mode: 'append' | 'replace' = cookieCustomPrompt.mode === 'replace' || persistedMode === 'replace' ? 'replace' : 'append';
   const merged = {
     enabled: cookieCustomPrompt.enabled || !!persisted?.customPrompt?.enabled,
     instructions: cookieCustomPrompt.instructions || persisted?.customPrompt?.instructions || '',
+    mode,
   };
 
   if (merged.enabled || merged.instructions) {
