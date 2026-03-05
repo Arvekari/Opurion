@@ -113,10 +113,13 @@ describe('/api/system-settings route', () => {
     expect(upsertPersistedMemory).toHaveBeenCalledWith(
       {
         providerSettings: {
-          __systemSettings: {
+          __systemSettings: expect.objectContaining({
             apachePhp: payload.settings.apachePhp,
             n8n: payload.settings.n8n,
-          },
+            openclaw: expect.objectContaining({
+              enabled: false,
+            }),
+          }),
         },
       },
       {},
