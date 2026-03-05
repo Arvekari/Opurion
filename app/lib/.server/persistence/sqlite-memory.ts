@@ -77,7 +77,7 @@ async function ensureContext(env?: Record<string, any>): Promise<SqliteContext |
     sqliteContextPromise = (async () => {
       try {
         const [sqlJsModule, fsModule, pathModule, moduleModule] = await Promise.all([
-          import('sql.js'),
+          import('sql.js/dist/sql-wasm.js'),
           import('node:fs/promises'),
           import('node:path'),
           import('node:module'),
@@ -89,15 +89,23 @@ async function ensureContext(env?: Record<string, any>): Promise<SqliteContext |
         const createRequire = (moduleModule as any).createRequire as (filename: string) => NodeRequire;
         const requireFromHere = createRequire(import.meta.url);
 
-        let SQL: any;
+        const sqlWasmJsPath = requireFromHere.resolve('sql.js/dist/sql-wasm.js');
+        const sqlJsDistDir = path.dirname(sqlWasmJsPath);
+        const wasmPath = path.join(sqlJsDistDir, 'sql-wasm.wasm');
+
+        let wasmBinary: Uint8Array | undefined;
 
         try {
-          const wasmPath = requireFromHere.resolve('sql.js/dist/sql-wasm.wasm');
-          const wasmBinary = await fs.readFile(wasmPath);
-          SQL = await initSqlJs({ wasmBinary: new Uint8Array(wasmBinary) });
-        } catch {
-          SQL = await initSqlJs({});
+          const wasmBytes = await fs.readFile(wasmPath);
+          wasmBinary = new Uint8Array(wasmBytes);
+        } catch (error) {
+          logger.warn('Failed to preload sql.js wasm binary, falling back to locateFile loader', error);
         }
+
+        const SQL = await initSqlJs({
+          locateFile: (file: string) => path.join(sqlJsDistDir, file),
+          ...(wasmBinary ? { wasmBinary } : {}),
+        });
         const sqlitePath = getSqlitePath(env);
 
         await fs.mkdir(path.dirname(sqlitePath), { recursive: true });
