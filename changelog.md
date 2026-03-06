@@ -10,7 +10,23 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Added
 
-- Pending next release.
+- Internal AI SDK MCP compatibility regression unit test to catch missing MCP exports/subpaths before commit/push.
+
+### Changed
+
+- MCP service imports were migrated from legacy `ai` subpaths to `@ai-sdk/mcp` and `@ai-sdk/mcp/mcp-stdio` for AI SDK v6 compatibility.
+- CI workflow changelog gate now runs with direct Node script execution in the test job, removing early-step `pnpm` dependency ordering issues.
+
+### Fixed
+
+- Unit test failures caused by missing `ai/mcp-stdio` export path in AI SDK v6.
+- Outdated stream tool-guard expectation that assumed OpenAI tool-calling must always be disabled.
+
+### Verification
+
+- `pnpm exec vitest run unit-tests/lib/services/services.mcp-service.test.ts unit-tests/architecture/layer-structure.test.ts unit-tests/lib/server/stream-text.tools.test.ts unit-tests/lib/services/services.ai-sdk-mcp-compat.test.ts`
+- `pnpm run test:unit`
+- `pnpm typecheck`
 
 ## [0.1.1] - 2026-03-06
 

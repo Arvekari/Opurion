@@ -24,8 +24,8 @@ describe('stream-text tool option guards', () => {
     expect(hasToolDefinitions('tools')).toBe(false);
   });
 
-  it('disables tool calling for OpenAI provider', () => {
-    expect(isToolCallingDisabledForProvider('OpenAI')).toBe(true);
+  it('keeps tool calling enabled for OpenAI provider', () => {
+    expect(isToolCallingDisabledForProvider('OpenAI')).toBe(false);
     expect(isToolCallingDisabledForProvider('Anthropic')).toBe(false);
   });
 });

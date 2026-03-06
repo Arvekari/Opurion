@@ -47,3 +47,6 @@ changelogUI.md
 docs/instructions/Roadmap.md
 .cursorrules
 .qodo
+
+# local interruption-safe WIP notes (never commit)
+.ongoing-work.md
