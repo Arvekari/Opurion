@@ -109,7 +109,7 @@ export async function selectContext(props: {
 
   const extractTextContent = (message: Message) =>
     Array.isArray(message.content)
-      ? (message.content.find((item) => item.type === 'text')?.text as string) || ''
+      ? (message.content.find((item: any) => item.type === 'text')?.text as string) || ''
       : message.content;
 
   const lastUserMessage = processedMessages.filter((x) => x.role == 'user').pop();

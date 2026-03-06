@@ -18,6 +18,8 @@
     "test:unit": "vitest --run unit-tests",
     "test:unit:watch": "vitest unit-tests",
     "test:unit:changed": "node scripts/verify-unit-tests.mjs",
+    "lint:staged": "node scripts/verify-lint-staged.mjs",
+    "verify:changelog:ci": "node scripts/verify-changelog-ci.mjs",
     "test:coverage": "vitest --run --coverage",
     "test:watch": "vitest",
     "lint": "eslint --cache --cache-location ./node_modules/.cache/eslint app",

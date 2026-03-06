@@ -8,7 +8,8 @@ describe('lib/.server/llm/stream-text baseline', () => {
     expect(hasToolDefinitions({ toolA: {} })).toBe(true);
   });
 
-  it('disables tool-calling for OpenAI provider', () => {
-    expect(isToolCallingDisabledForProvider('OpenAI')).toBe(true);
+  it('keeps tool-calling enabled by default for providers', () => {
+    expect(isToolCallingDisabledForProvider('OpenAI')).toBe(false);
+    expect(isToolCallingDisabledForProvider('Anthropic')).toBe(false);
   });
 });

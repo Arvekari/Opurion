@@ -133,7 +133,7 @@ export const ChatImpl = memo(
       data: chatData,
       setData,
       addToolResult,
-    } = useChat({
+    } = (useChat as any)({
       api: '/api/chat',
       body: {
         apiKeys,
@@ -153,11 +153,11 @@ export const ChatImpl = memo(
         maxLLMSteps: mcpSettings.maxLLMSteps,
       },
       sendExtraMessageFields: true,
-      onError: (e) => {
+      onError: (e: unknown) => {
         setFakeLoading(false);
         handleError(e, 'chat');
       },
-      onFinish: (message, response) => {
+      onFinish: (message: any, response: any) => {
         const usage = response.usage;
         setData(undefined);
 
@@ -169,7 +169,7 @@ export const ChatImpl = memo(
             model,
             provider: provider.name,
             usage,
-            messageLength: message.content.length,
+            messageLength: String(message?.content || '').length,
           });
         }
 
@@ -751,7 +751,7 @@ export const ChatImpl = memo(
         description={description}
         importChat={importChat}
         exportChat={exportChat}
-        messages={messages.map((message, i) => {
+        messages={messages.map((message: Message, i: number) => {
           if (message.role === 'user') {
             return message;
           }

@@ -3,7 +3,7 @@ import {
   type ToolSet,
   type Message,
   type DataStreamWriter,
-  convertToCoreMessages,
+  convertToModelMessages,
   formatDataStreamPart,
 } from 'ai';
 import { Experimental_StdioMCPTransport } from 'ai/mcp-stdio';
@@ -383,7 +383,7 @@ export class MCPService {
     }
 
     const processedParts = await Promise.all(
-      parts.map(async (part) => {
+      parts.map(async (part: any) => {
         // Only process tool invocations parts
         if (part.type !== 'tool-invocation') {
           return part;
@@ -406,8 +406,9 @@ export class MCPService {
             logger.debug(`calling tool "${toolName}" with args: ${JSON.stringify(toolInvocation.args)}`);
 
             try {
-              result = await toolInstance.execute(toolInvocation.args, {
-                messages: convertToCoreMessages(messages),
+              const modelMessages = await convertToModelMessages(messages as any);
+              result = await (toolInstance.execute as any)(toolInvocation.args as any, {
+                messages: modelMessages,
                 toolCallId,
               });
             } catch (error) {

@@ -96,7 +96,7 @@ ${summary.summary}`;
 
   const extractTextContent = (message: Message) =>
     Array.isArray(message.content)
-      ? (message.content.find((item) => item.type === 'text')?.text as string) || ''
+      ? (message.content.find((item: any) => item.type === 'text')?.text as string) || ''
       : message.content;
 
   // select files from the list of code file from the project that might be useful for the current request from the user

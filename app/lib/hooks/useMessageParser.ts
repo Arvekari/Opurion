@@ -51,7 +51,7 @@ const messageParser = new EnhancedStreamingMessageParser({
 });
 const extractTextContent = (message: Message) =>
   Array.isArray(message.content)
-    ? (message.content.find((item) => item.type === 'text')?.text as string) || ''
+    ? (message.content.find((item: any) => item.type === 'text')?.text as string) || ''
     : message.content;
 
 export function useMessageParser() {

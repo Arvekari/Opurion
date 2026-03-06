@@ -14,6 +14,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -29,6 +31,12 @@ jobs:
 
       - name: Run unit tests
         run: pnpm run test:unit
+
+      - name: Enforce changelog update
+        run: pnpm run verify:changelog:ci
+        env:
+          CHANGELOG_BASE_REF: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          CHANGELOG_HEAD_REF: ${{ github.sha }}
 
       - name: Verify changed files have tests
         run: pnpm run test:unit:changed

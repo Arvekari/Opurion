@@ -2,7 +2,7 @@ import { type ActionFunctionArgs } from '@remix-run/cloudflare';
 import { createDataStream, generateId } from 'ai';
 import { MAX_RESPONSE_SEGMENTS, MAX_TOKENS, type FileMap } from '~/lib/.server/llm/constants';
 import { CONTINUE_PROMPT } from '~/lib/common/prompts/prompts';
-import { streamText, type Messages, type StreamingOptions } from '~/lib/.server/llm/stream-text';
+import { streamText, type Messages } from '~/lib/.server/llm/stream-text';
 import SwitchableStream from '~/lib/.server/llm/switchable-stream';
 import type { IProviderSetting } from '~/types/model';
 import { createScopedLogger } from '~/utils/logger';
@@ -91,7 +91,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     let lastChunk: string | undefined = undefined;
 
     const dataStream = createDataStream({
-      async execute(dataStream) {
+      async execute(dataStream: any) {
         const emitAgentRun = () => {
           const currentRun = agentRunService.getRun(agentRun.runId);
 
@@ -157,9 +157,11 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             onFinish(resp) {
               if (resp.usage) {
                 logger.debug('createSummary token usage', JSON.stringify(resp.usage));
-                cumulativeUsage.completionTokens += resp.usage.completionTokens || 0;
-                cumulativeUsage.promptTokens += resp.usage.promptTokens || 0;
-                cumulativeUsage.totalTokens += resp.usage.totalTokens || 0;
+
+                const usage: any = resp.usage;
+                cumulativeUsage.completionTokens += usage.completionTokens || usage.outputTokens || 0;
+                cumulativeUsage.promptTokens += usage.promptTokens || usage.inputTokens || 0;
+                cumulativeUsage.totalTokens += usage.totalTokens || 0;
               }
             },
           });
@@ -201,9 +203,11 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             onFinish(resp) {
               if (resp.usage) {
                 logger.debug('selectContext token usage', JSON.stringify(resp.usage));
-                cumulativeUsage.completionTokens += resp.usage.completionTokens || 0;
-                cumulativeUsage.promptTokens += resp.usage.promptTokens || 0;
-                cumulativeUsage.totalTokens += resp.usage.totalTokens || 0;
+
+                const usage: any = resp.usage;
+                cumulativeUsage.completionTokens += usage.completionTokens || usage.outputTokens || 0;
+                cumulativeUsage.promptTokens += usage.promptTokens || usage.inputTokens || 0;
+                cumulativeUsage.totalTokens += usage.totalTokens || 0;
               }
             },
           });
@@ -242,28 +246,30 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
         const executeStepId = agentRunService.beginStep(agentRun.runId, 'execute', 'Execute LLM run');
         emitAgentRun();
 
-        const options: StreamingOptions = {
+        const options: any = {
           supabaseConnection: supabase,
           toolChoice: 'auto',
           tools: mcpService.toolsWithoutExecute,
           maxSteps: maxLLMSteps,
-          onStepFinish: ({ toolCalls }) => {
+          onStepFinish: ({ toolCalls }: any) => {
             // add tool call annotations for frontend processing
-            toolCalls.forEach((toolCall) => {
+            (toolCalls || []).forEach((toolCall: any) => {
               mcpService.processToolCall(toolCall, dataStream);
             });
           },
-          onFinish: async ({ text: content, finishReason, usage }) => {
+          onFinish: async ({ text: content, finishReason, usage }: any) => {
             logger.debug('usage', JSON.stringify(usage));
 
             if (usage) {
-              cumulativeUsage.completionTokens += usage.completionTokens || 0;
-              cumulativeUsage.promptTokens += usage.promptTokens || 0;
-              cumulativeUsage.totalTokens += usage.totalTokens || 0;
+              const usageAny: any = usage;
+              cumulativeUsage.completionTokens += usageAny.completionTokens || usageAny.outputTokens || 0;
+              cumulativeUsage.promptTokens += usageAny.promptTokens || usageAny.inputTokens || 0;
+              cumulativeUsage.totalTokens += usageAny.totalTokens || 0;
             }
 
             if (finishReason !== 'length') {
               agentRunService.completeStep(agentRun.runId, executeStepId, content.slice(0, 2000));
+
               const verifyStepId = agentRunService.beginStep(agentRun.runId, 'verify', 'Verify output');
               agentRunService.completeStep(agentRun.runId, verifyStepId, 'Output validated');
               agentRunService.completeRun(agentRun.runId);
@@ -324,7 +330,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               customPrompt,
             });
 
-            result.mergeIntoDataStream(dataStream);
+            (result as any).mergeIntoDataStream(dataStream);
 
             (async () => {
               for await (const part of result.fullStream) {
@@ -389,10 +395,11 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           }
           streamRecovery.stop();
         })();
-        result.mergeIntoDataStream(dataStream);
+        (result as any).mergeIntoDataStream(dataStream);
       },
       onError: (error: any) => {
         agentRunService.failRun(agentRun.runId, error);
+
         // Provide more specific error messages for common issues
         const errorMessage = error.message || 'Unknown error';
 

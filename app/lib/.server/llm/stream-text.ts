@@ -1,4 +1,4 @@
-import { convertToCoreMessages, streamText as _streamText, type Message } from 'ai';
+import { convertToModelMessages, streamText as _streamText, type Message } from 'ai';
 import { MAX_TOKENS, PROVIDER_COMPLETION_LIMITS, isReasoningModel, type FileMap } from './constants';
 import { getSystemPrompt } from '~/lib/common/prompts/prompts';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, MODIFICATIONS_TAG_NAME, PROVIDER_LIST, WORK_DIR } from '~/utils/constants';
@@ -33,11 +33,12 @@ function isCompletionOnlyOpenAIModel(providerName: string, modelName: string): b
   }
 
   const normalized = modelName.toLowerCase();
+
   return normalized.endsWith('-instruct') || normalized.startsWith('text-');
 }
 
-export function isToolCallingDisabledForProvider(providerName: string): boolean {
-  return providerName === 'OpenAI';
+export function isToolCallingDisabledForProvider(_providerName: string): boolean {
+  return false;
 }
 
 function getCompletionTokenLimit(modelDetails: any): number {
@@ -300,23 +301,24 @@ ${customPromptBody}
   delete baseOptions.supabaseConnection;
 
   // Filter out unsupported parameters for reasoning models
-  const filteredOptions =
-    isReasoning
-      ? Object.fromEntries(
-          Object.entries(baseOptions).filter(
-            ([key]) =>
-              ![
-                'temperature',
-                'topP',
-                'presencePenalty',
-                'frequencyPenalty',
-                'logprobs',
-                'topLogprobs',
-                'logitBias',
-              ].includes(key),
-          ),
-        )
-      : baseOptions;
+  let filteredOptions = baseOptions;
+
+  if (isReasoning) {
+    filteredOptions = Object.fromEntries(
+      Object.entries(baseOptions).filter(
+        ([key]) =>
+          ![
+            'temperature',
+            'topP',
+            'presencePenalty',
+            'frequencyPenalty',
+            'logprobs',
+            'topLogprobs',
+            'logitBias',
+          ].includes(key),
+      ),
+    );
+  }
 
   if (completionOnlyModel || disableToolCalling) {
     delete (filteredOptions as any).tools;
@@ -377,7 +379,7 @@ ${customPromptBody}
     }),
     system: optimizedPrompt.system,
     ...tokenParams,
-    messages: convertToCoreMessages(optimizedPrompt.messages as any),
+    messages: await convertToModelMessages(optimizedPrompt.messages as any),
     ...filteredOptions,
 
     // Set temperature to 1 for reasoning models (required by OpenAI API)

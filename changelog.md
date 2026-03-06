@@ -10,6 +10,12 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Added
 
+- Pending next release.
+
+## [0.1.1] - 2026-03-06
+
+### Added
+
 - n8n integration endpoint for workflow deployment via `/api/n8n/workflows`.
 - Admin-settings fallback support for n8n credentials when environment variables are not set.
 - First-run setup guard that requires database selection before first user creation.
@@ -28,6 +34,9 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - AI SDK dependency stack was upgraded to latest major versions (`ai` and `@ai-sdk/*` family).
 - Pre-commit workflow now requires `changelog.md` to be staged for every commit.
 - Unit-test mapping script now allows same-commit baseline test file creation instead of hard-failing resolved sequence violations.
+- CI workflows now enforce `changelog.md` updates for push/PR change sets and block on lint failures.
+- Tool-calling is now kept enabled by default across providers, including OpenAI-compatible routes.
+- Pre-commit lint check now validates staged `app/` files to enforce quality gates on the change set without blocking on unrelated repository-wide baseline formatting debt.
 
 ### Fixed
 
@@ -35,12 +44,15 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - First-use auth flow behavior that could surface generic network errors during signup/login scenarios.
 - Stream parameter handling for OpenAI-based requests now avoids completion-only misclassification for codex models.
 - Collaboration panel sidebar contrast and disabled interaction states were improved for readability/usability.
+- AI SDK v6 migration regressions were resolved across chat client/server typing, MCP invocation message conversion, and import/export message shape handling.
 
 ### Verification
 
 - Targeted unit tests passed for OpenAI provider routing, stream-tools guard behavior, and update API/client flows.
 - Live smoke checks validated current SDK behavior for `gpt-4o` and `gpt-5.3-codex` (`responses` path for codex).
 - Added explicit unit tests for update check/self-update client behavior and codex `responses` provider routing.
+- Expanded provider unit coverage now validates model factory behavior and dynamic-model parsing for Anthropic, Google, DeepSeek, Cohere, and Mistral.
+- TypeScript `pnpm typecheck` passes clean after the migration fixes.
 
 ### Known possible issues
 
