@@ -61,4 +61,36 @@ if (ageMs > maxAgeMs) {
   );
 }
 
+const lines = content.split(/\r?\n/);
+const uncategorizedStart = lines.findIndex((line) => line.startsWith('## Uncategorized and not yet id:t TODO Work'));
+
+if (uncategorizedStart !== -1) {
+  let uncategorizedEnd = lines.length;
+
+  for (let index = uncategorizedStart + 1; index < lines.length; index++) {
+    if (lines[index].startsWith('## ')) {
+      uncategorizedEnd = index;
+      break;
+    }
+  }
+
+  const uncategorizedBody = lines.slice(uncategorizedStart + 1, uncategorizedEnd);
+  const actionable = uncategorizedBody.filter((line) => {
+    const bullet = line.match(/^\s*-\s+(.+)$/);
+
+    if (!bullet) {
+      return false;
+    }
+
+    const body = bullet[1].trim();
+    return !/^`?TODO`?\s+None\.?$/i.test(body) && !/^None\.?$/i.test(body);
+  });
+
+  if (actionable.length > 0) {
+    fail(
+      '❌ Uncategorized TODO entries detected. Move them into prioritized P0-P5 with [taskId: ...] (run: pnpm run ongoing:normalize).',
+    );
+  }
+}
+
 console.log('✅ Ongoing-work check passed.');

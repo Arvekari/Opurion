@@ -4,6 +4,7 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const FILE_PATH = resolve('.ongoing-work.md');
+const TASK_ID_PREFIX_PATTERN = /^\[taskId:\s*([a-zA-Z0-9._:-]+)\]\s*(.*)$/i;
 
 function parseStatusLine(line) {
   const match = line.match(/^\s*-\s*`(PARTIAL|TODO|BLOCKED)`\s+(.+)$/);
@@ -12,9 +13,14 @@ function parseStatusLine(line) {
     return null;
   }
 
+  const taskIdMatch = match[2].trim().match(TASK_ID_PREFIX_PATTERN);
+  const taskId = taskIdMatch ? taskIdMatch[1] : '';
+  const objectiveText = taskIdMatch ? taskIdMatch[2].trim() : match[2].trim();
+
   return {
     status: match[1],
-    text: match[2].trim(),
+    taskId,
+    text: objectiveText,
   };
 }
 
@@ -52,9 +58,14 @@ function extractObjectives(markdown) {
       continue;
     }
 
+    if (/^none\.?$/i.test(parsed.text)) {
+      continue;
+    }
+
     objectives.push({
       priority: currentPriority || 'UNSPECIFIED',
       status: parsed.status,
+      taskId: parsed.taskId,
       text: parsed.text,
     });
   }
@@ -75,12 +86,12 @@ function toCopilotPrompt(next, objectives) {
   const shortlist = objectives
     .filter((item) => item.status === 'PARTIAL' || item.status === 'TODO')
     .slice(0, 4)
-    .map((item, index) => `${index + 1}. [${item.priority}] ${item.status} ${item.text}`)
+    .map((item, index) => `${index + 1}. [${item.priority}] ${item.status}${item.taskId ? ` (${item.taskId})` : ''} ${item.text}`)
     .join('\n');
 
   return [
     'Continue execution from .ongoing-work.md using this next objective:',
-    `[${next.priority}] ${next.status} ${next.text}`,
+    `[${next.priority}] ${next.status}${next.taskId ? ` (${next.taskId})` : ''} ${next.text}`,
     '',
     'Top open objectives:',
     shortlist,

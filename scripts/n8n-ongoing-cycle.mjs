@@ -11,6 +11,8 @@ const ORCHESTRATOR_STATE = resolve('.n8n-dev-workflows.json');
 const ORCHESTRATION_STATS_FILE = resolve('bolt.work/n8n/orchestration-stats.latest.json');
 const OPEN_TASKS_FALLBACK_FILE = resolve('bolt.work/n8n/open-tasks-table.json');
 const TASK_STATUS_TABLE_MAX_ROWS = 100;
+const EMPTY_SCAN_STOP_THRESHOLD = 2;
+const TASK_ID_PREFIX_PATTERN = /^\[taskId:\s*([a-zA-Z0-9._:-]+)\]\s*(.*)$/i;
 
 function readMarkdown() {
   return readFileSync(FILE_PATH, 'utf8');
@@ -50,10 +52,19 @@ function parseObjectives(markdown) {
       continue;
     }
 
+    const taskIdMatch = entry[2].trim().match(TASK_ID_PREFIX_PATTERN);
+    const taskId = taskIdMatch ? taskIdMatch[1] : '';
+    const objectiveText = taskIdMatch ? taskIdMatch[2].trim() : entry[2].trim();
+
+    if (/^none\.?$/i.test(objectiveText)) {
+      continue;
+    }
+
     objectives.push({
       priority: currentPriority || 'UNSPECIFIED',
       status: entry[1],
-      text: entry[2].trim(),
+      taskId,
+      text: objectiveText,
     });
   }
 
@@ -118,17 +129,43 @@ function nextObjective(objectives) {
 
 function loadState() {
   if (!existsSync(LOOP_STATE)) {
-    return { completed: [] };
+    return { completed: [], emptyScanStreak: 0, cycleStopRecommended: false };
   }
 
   const parsed = JSON.parse(readFileSync(LOOP_STATE, 'utf8'));
   return {
     completed: Array.isArray(parsed.completed) ? parsed.completed : [],
+    emptyScanStreak: Number.isInteger(parsed.emptyScanStreak) ? parsed.emptyScanStreak : 0,
+    cycleStopRecommended: Boolean(parsed.cycleStopRecommended),
   };
 }
 
 function saveState(state) {
   writeFileSync(LOOP_STATE, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
+}
+
+function updateCycleGuardState(state, { hasOpenObjectives, command }) {
+  if (hasOpenObjectives) {
+    state.emptyScanStreak = 0;
+    state.cycleStopRecommended = false;
+    return {
+      emptyScanStreak: state.emptyScanStreak,
+      cycleStopRecommended: state.cycleStopRecommended,
+    };
+  }
+
+  if (command === 'scan') {
+    state.emptyScanStreak = Math.max(0, Number(state.emptyScanStreak || 0)) + 1;
+  } else {
+    state.emptyScanStreak = 0;
+  }
+
+  state.cycleStopRecommended = state.emptyScanStreak >= EMPTY_SCAN_STOP_THRESHOLD;
+
+  return {
+    emptyScanStreak: state.emptyScanStreak,
+    cycleStopRecommended: state.cycleStopRecommended,
+  };
 }
 
 function toSlotKey(index) {
@@ -150,14 +187,17 @@ function loadCompletedEntries() {
 
 function buildTaskStatusTableRows(objectives, measuredAt) {
   const activeRows = objectives
-    .filter((item) => item.status === 'PARTIAL' || item.status === 'TODO')
+    .filter((item) => item.status === 'PARTIAL' || item.status === 'TODO' || item.status === 'BLOCKED')
     .map((item, index) => ({
-      taskRef: `active-${sanitizeRefPart(item.priority)}-${index + 1}-${sanitizeRefPart(item.text)}`,
+      taskRef:
+        item.taskId && item.taskId.trim().length > 0
+          ? `active-${sanitizeRefPart(item.taskId)}`
+          : `active-${sanitizeRefPart(item.priority)}-${index + 1}-${sanitizeRefPart(item.text)}`,
       priority: item.priority,
       status: item.status,
       objective: item.text,
-      isActive: true,
-      rowType: 'active',
+      isActive: item.status !== 'BLOCKED',
+      rowType: item.status === 'BLOCKED' ? 'blocked' : 'active',
       completedAt: '',
       updatedAt: measuredAt,
     }));
@@ -215,7 +255,9 @@ function buildTaskStatusTableRows(objectives, measuredAt) {
 function buildCheckupTable(eventType, nextObjectiveItem, measuredAt) {
   const checkupId = `checkup-${Date.now()}`;
   const linkedTaskRef = nextObjectiveItem
-    ? `active-${sanitizeRefPart(nextObjectiveItem.priority)}-${sanitizeRefPart(nextObjectiveItem.text)}`
+    ? nextObjectiveItem.taskId && nextObjectiveItem.taskId.trim().length > 0
+      ? `active-${sanitizeRefPart(nextObjectiveItem.taskId)}`
+      : `active-${sanitizeRefPart(nextObjectiveItem.priority)}-${sanitizeRefPart(nextObjectiveItem.text)}`
     : 'queue-empty';
 
   return [
@@ -311,6 +353,107 @@ function validateOpenTaskRows(rows) {
   }
 }
 
+function assertTaskStatusSemantics(taskStatusTable, openTasksTable) {
+  if (!Array.isArray(taskStatusTable) || taskStatusTable.length === 0) {
+    throw new Error('taskStatusTable must be a non-empty array.');
+  }
+
+  const activeRows = taskStatusTable.filter((row) => row?.rowType === 'active');
+  const blockedRows = taskStatusTable.filter((row) => row?.rowType === 'blocked');
+  const completedRows = taskStatusTable.filter((row) => row?.rowType === 'completed');
+  const placeholderRows = taskStatusTable.filter((row) => row?.rowType === 'placeholder');
+
+  for (const row of activeRows) {
+    if (row.isActive !== true) {
+      throw new Error(`Active row ${row.taskKey || row.taskRef || 'unknown'} must have isActive=true.`);
+    }
+
+    if (row.status !== 'PARTIAL' && row.status !== 'TODO') {
+      throw new Error(`Active row ${row.taskKey || row.taskRef || 'unknown'} has invalid status=${row.status}.`);
+    }
+  }
+
+  for (const row of blockedRows) {
+    if (row.isActive !== false) {
+      throw new Error(`Blocked row ${row.taskKey || row.taskRef || 'unknown'} must have isActive=false.`);
+    }
+
+    if (row.status !== 'BLOCKED') {
+      throw new Error(`Blocked row ${row.taskKey || row.taskRef || 'unknown'} has invalid status=${row.status}.`);
+    }
+  }
+
+  for (const row of completedRows) {
+    if (row.isActive !== false) {
+      throw new Error(`Completed row ${row.taskKey || row.taskRef || 'unknown'} must have isActive=false.`);
+    }
+
+    if (row.status !== 'COMPLETED') {
+      throw new Error(`Completed row ${row.taskKey || row.taskRef || 'unknown'} has invalid status=${row.status}.`);
+    }
+  }
+
+  const firstCompletedIndex = taskStatusTable.findIndex((row) => row?.rowType === 'completed');
+  const firstPlaceholderIndex = taskStatusTable.findIndex((row) => row?.rowType === 'placeholder');
+  const placeholderStart = firstPlaceholderIndex === -1 ? taskStatusTable.length : firstPlaceholderIndex;
+
+  if (firstCompletedIndex !== -1) {
+    for (let index = firstCompletedIndex; index < placeholderStart; index++) {
+      if (taskStatusTable[index]?.rowType !== 'completed') {
+        throw new Error('Completed rows must be contiguous and appear before placeholders.');
+      }
+    }
+  }
+
+  if (firstPlaceholderIndex !== -1) {
+    for (let index = firstPlaceholderIndex; index < taskStatusTable.length; index++) {
+      if (taskStatusTable[index]?.rowType !== 'placeholder') {
+        throw new Error('Placeholder rows must stay at the end of taskStatusTable.');
+      }
+    }
+  }
+
+  for (let index = 1; index < completedRows.length; index++) {
+    const previous = Date.parse(completedRows[index - 1]?.completedAt || '');
+    const current = Date.parse(completedRows[index]?.completedAt || '');
+
+    if (Number.isFinite(previous) && Number.isFinite(current) && previous < current) {
+      throw new Error('Completed rows must be ordered by completedAt descending (sliding window behavior).');
+    }
+  }
+
+  const expectedActiveRows = openTasksTable.filter((row) => row.status === 'PARTIAL' || row.status === 'TODO').length;
+  const expectedBlockedRows = openTasksTable.filter((row) => row.status === 'BLOCKED').length;
+
+  if (activeRows.length !== expectedActiveRows) {
+    throw new Error(`Active row count mismatch: expected=${expectedActiveRows}, actual=${activeRows.length}.`);
+  }
+
+  if (blockedRows.length !== expectedBlockedRows) {
+    throw new Error(`Blocked row count mismatch: expected=${expectedBlockedRows}, actual=${blockedRows.length}.`);
+  }
+
+  return {
+    ok: true,
+    activeRows: activeRows.length,
+    blockedRows: blockedRows.length,
+    completedRows: completedRows.length,
+    placeholderRows: placeholderRows.length,
+  };
+}
+
+function buildOpenTasksTableRows(objectives, measuredAt) {
+  return objectives
+    .filter((item) => item.status === 'PARTIAL' || item.status === 'TODO' || item.status === 'BLOCKED')
+    .map((item, index) => ({
+      taskKey: item.taskId && item.taskId.trim().length > 0 ? item.taskId.trim() : `${item.priority}-${index + 1}`,
+      priority: item.priority,
+      status: item.status,
+      objective: item.text,
+      updatedAt: measuredAt,
+    }));
+}
+
 function validateStatsPayload(stats) {
   if (!stats || typeof stats !== 'object') {
     throw new Error('orchestrationStats must be an object.');
@@ -336,6 +479,17 @@ function bridgeEmit() {
   }
 
   return JSON.parse(result.stdout);
+}
+
+function normalizeOngoingWork() {
+  const result = spawnSync(process.execPath, ['scripts/ongoing-work-normalize.mjs'], {
+    cwd: resolve('.'),
+    encoding: 'utf8',
+  });
+
+  if (result.status !== 0) {
+    throw new Error(result.stderr || result.stdout || 'ongoing-work normalize failed');
+  }
 }
 
 function loadManagedWorkflowIds() {
@@ -679,7 +833,7 @@ function resolveStructuredDispatchResponse(responseBody, hasOpenObjectives) {
   return translateLegacyDispatchResponse(raw, hasOpenObjectives);
 }
 
-function buildNextRequest(nextObjectiveItem, notified) {
+function buildNextRequest(nextObjectiveItem, notified, cycleGuard = { emptyScanStreak: 0, cycleStopRecommended: false }) {
   const hasOpenObjectives = Boolean(nextObjectiveItem);
   const structured = resolveStructuredDispatchResponse(notified?.body, hasOpenObjectives);
 
@@ -699,6 +853,27 @@ function buildNextRequest(nextObjectiveItem, notified) {
         ...structured,
         gpt41RequiresAction: isGpt41,
       },
+      cycleGuard,
+    };
+  }
+
+  if (cycleGuard.cycleStopRecommended) {
+    return {
+      message: 'No unfinished objectives detected for two consecutive scan cycles.',
+      finalRemark: 'Stop this check job now. If new unfinished work appears later, run a new cycle start command.',
+      orchestrationPulse: {
+        jobPulse: 'stop-ongoing-check-job',
+        restartCommand: '',
+        reason: `Queue remained empty for ${cycleGuard.emptyScanStreak} consecutive scans; stopping until new work appears.`,
+      },
+      response: {
+        ...structured,
+        action: 'stop-cycle',
+        queueState: 'empty',
+        commands: [{ type: 'cycle.stop' }],
+        gpt41RequiresAction: isGpt41,
+      },
+      cycleGuard,
     };
   }
 
@@ -714,6 +889,7 @@ function buildNextRequest(nextObjectiveItem, notified) {
       ...structured,
       gpt41RequiresAction: isGpt41,
     },
+    cycleGuard,
   };
 }
 
@@ -722,43 +898,44 @@ function printJson(data) {
 }
 
 async function commandNext() {
+  normalizeOngoingWork();
+  const state = loadState();
   const markdown = readMarkdown();
   const policy = readOrchestrationPolicy(markdown);
-  const objectives = parseObjectives(markdown).filter((item) => item.status !== 'BLOCKED');
-  const next = nextObjective(objectives);
+  const objectives = parseObjectives(markdown);
+  const actionableObjectives = objectives.filter((item) => item.status !== 'BLOCKED');
+  const next = nextObjective(actionableObjectives);
+  const cycleGuard = updateCycleGuardState(state, { hasOpenObjectives: Boolean(next), command: 'next' });
+  saveState(state);
   const emitted = bridgeEmit();
   const orchestrationStats = persistOrchestrationStats(await collectOrchestrationStats());
   const measuredAt = orchestrationStats.measuredAt || new Date().toISOString();
-  const openTasksTable = objectives.filter((item) => item.status === 'PARTIAL' || item.status === 'TODO').map((item, idx) => ({
-    taskKey: `${item.priority}-${idx + 1}`,
-    priority: item.priority,
-    status: item.status,
-    objective: item.text,
-    updatedAt: measuredAt,
-  }));
+  const openTasksTable = buildOpenTasksTableRows(objectives, measuredAt);
   const taskStatusTable = buildTaskStatusTableRows(objectives, measuredAt);
   const checkupTable = buildCheckupTable('objective.next', next, measuredAt);
   const failureTable = buildFailureTable(checkupTable, orchestrationStats, measuredAt);
+  const rowSemantics = assertTaskStatusSemantics(taskStatusTable, openTasksTable);
   validateStatsPayload(orchestrationStats);
   validateOpenTaskRows(openTasksTable);
   const openTasksPersisted = persistOpenTasksTable(openTasksTable, orchestrationStats);
   const notify = await notifyN8n('objective.next', {
     next,
-    openCount: objectives.length,
+    openCount: openTasksTable.length,
     emitted,
     openTasksTable,
     orchestrationStats,
     taskStatusTable,
     checkupTable,
     failureTable,
+    rowSemantics,
   });
   enforceOrchestrationDelivery(notify, policy);
-  const request = buildNextRequest(next, notify);
+  const request = buildNextRequest(next, notify, cycleGuard);
 
   printJson({
     action: 'next',
     next,
-    openCount: objectives.length,
+    openCount: openTasksTable.length,
     emitted,
     notified: notify,
     request,
@@ -767,12 +944,15 @@ async function commandNext() {
     taskStatusTable,
     checkupTable,
     failureTable,
+    rowSemantics,
+    cycleGuard,
     orchestrationPolicy: policy,
     ...openTasksPersisted,
   });
 }
 
 async function commandDone(args) {
+  normalizeOngoingWork();
   const state = loadState();
   const text = args.join(' ').trim();
 
@@ -784,47 +964,44 @@ async function commandDone(args) {
     text,
     completedAt: new Date().toISOString(),
   });
-  saveState(state);
-
   const markdown = readMarkdown();
   const policy = readOrchestrationPolicy(markdown);
-  const objectives = parseObjectives(markdown).filter((item) => item.status !== 'BLOCKED');
-  const next = nextObjective(objectives);
+  const objectives = parseObjectives(markdown);
+  const actionableObjectives = objectives.filter((item) => item.status !== 'BLOCKED');
+  const next = nextObjective(actionableObjectives);
+  const cycleGuard = updateCycleGuardState(state, { hasOpenObjectives: Boolean(next), command: 'done' });
+  saveState(state);
   const emitted = bridgeEmit();
   const orchestrationStats = persistOrchestrationStats(await collectOrchestrationStats());
   const measuredAt = orchestrationStats.measuredAt || new Date().toISOString();
-  const openTasksTable = objectives.filter((item) => item.status === 'PARTIAL' || item.status === 'TODO').map((item, idx) => ({
-    taskKey: `${item.priority}-${idx + 1}`,
-    priority: item.priority,
-    status: item.status,
-    objective: item.text,
-    updatedAt: measuredAt,
-  }));
+  const openTasksTable = buildOpenTasksTableRows(objectives, measuredAt);
   const taskStatusTable = buildTaskStatusTableRows(objectives, measuredAt);
   const checkupTable = buildCheckupTable('objective.done', next, measuredAt);
   const failureTable = buildFailureTable(checkupTable, orchestrationStats, measuredAt);
+  const rowSemantics = assertTaskStatusSemantics(taskStatusTable, openTasksTable);
   validateStatsPayload(orchestrationStats);
   validateOpenTaskRows(openTasksTable);
   const openTasksPersisted = persistOpenTasksTable(openTasksTable, orchestrationStats);
   const notify = await notifyN8n('objective.done', {
     done: text,
     next,
-    openCount: objectives.length,
+    openCount: openTasksTable.length,
     emitted,
     openTasksTable,
     orchestrationStats,
     taskStatusTable,
     checkupTable,
     failureTable,
+    rowSemantics,
   });
   enforceOrchestrationDelivery(notify, policy);
-  const request = buildNextRequest(next, notify);
+  const request = buildNextRequest(next, notify, cycleGuard);
 
   printJson({
     action: 'done',
     done: text,
     next,
-    openCount: objectives.length,
+    openCount: openTasksTable.length,
     completedCount: state.completed.length,
     emitted,
     notified: notify,
@@ -834,47 +1011,51 @@ async function commandDone(args) {
     taskStatusTable,
     checkupTable,
     failureTable,
+    rowSemantics,
+    cycleGuard,
     orchestrationPolicy: policy,
     ...openTasksPersisted,
   });
 }
 
 async function commandLoop() {
+  normalizeOngoingWork();
+  const state = loadState();
   const markdown = readMarkdown();
   const policy = readOrchestrationPolicy(markdown);
-  const objectives = parseObjectives(markdown).filter((item) => item.status === 'PARTIAL' || item.status === 'TODO');
+  const objectives = parseObjectives(markdown);
+  const actionableObjectives = objectives.filter((item) => item.status === 'PARTIAL' || item.status === 'TODO');
+  const next = nextObjective(actionableObjectives);
+  const cycleGuard = updateCycleGuardState(state, { hasOpenObjectives: Boolean(next), command: 'scan' });
+  saveState(state);
   const emitted = bridgeEmit();
   const orchestrationStats = persistOrchestrationStats(await collectOrchestrationStats());
   const measuredAt = orchestrationStats.measuredAt || new Date().toISOString();
-  const openTasksTable = objectives.map((item, idx) => ({
-    taskKey: `${item.priority}-${idx + 1}`,
-    priority: item.priority,
-    status: item.status,
-    objective: item.text,
-    updatedAt: measuredAt,
-  }));
+  const openTasksTable = buildOpenTasksTableRows(objectives, measuredAt);
   const taskStatusTable = buildTaskStatusTableRows(objectives, measuredAt);
-  const checkupTable = buildCheckupTable('objective.scan', nextObjective(objectives), measuredAt);
+  const checkupTable = buildCheckupTable('objective.scan', next, measuredAt);
   const failureTable = buildFailureTable(checkupTable, orchestrationStats, measuredAt);
+  const rowSemantics = assertTaskStatusSemantics(taskStatusTable, openTasksTable);
   validateStatsPayload(orchestrationStats);
   validateOpenTaskRows(openTasksTable);
   const openTasksPersisted = persistOpenTasksTable(openTasksTable, orchestrationStats);
   const notify = await notifyN8n('objective.scan', {
-    openCount: objectives.length,
+    openCount: openTasksTable.length,
     emitted,
     openTasksTable,
     orchestrationStats,
     taskStatusTable,
     checkupTable,
     failureTable,
+    rowSemantics,
   });
   enforceOrchestrationDelivery(notify, policy);
-  const request = buildNextRequest(nextObjective(objectives), notify);
+  const request = buildNextRequest(next, notify, cycleGuard);
 
   printJson({
     action: 'loop-scan',
-    openCount: objectives.length,
-    hasOpenObjectives: objectives.length > 0,
+    openCount: openTasksTable.length,
+    hasOpenObjectives: openTasksTable.length > 0,
     emitted,
     notified: notify,
     request,
@@ -883,8 +1064,32 @@ async function commandLoop() {
     taskStatusTable,
     checkupTable,
     failureTable,
+    rowSemantics,
+    cycleGuard,
     orchestrationPolicy: policy,
     ...openTasksPersisted,
+  });
+}
+
+async function commandAssert() {
+  normalizeOngoingWork();
+  const markdown = readMarkdown();
+  const objectives = parseObjectives(markdown);
+  const orchestrationStats = persistOrchestrationStats(await collectOrchestrationStats());
+  const measuredAt = orchestrationStats.measuredAt || new Date().toISOString();
+  const openTasksTable = buildOpenTasksTableRows(objectives, measuredAt);
+  const taskStatusTable = buildTaskStatusTableRows(objectives, measuredAt);
+  validateStatsPayload(orchestrationStats);
+  validateOpenTaskRows(openTasksTable);
+  const rowSemantics = assertTaskStatusSemantics(taskStatusTable, openTasksTable);
+
+  printJson({
+    action: 'assert',
+    assertions: {
+      rowSemantics,
+    },
+    openCount: openTasksTable.length,
+    orchestrationStats,
   });
 }
 
@@ -903,6 +1108,11 @@ async function main() {
 
   if (command === 'scan') {
     await commandLoop();
+    return;
+  }
+
+  if (command === 'assert') {
+    await commandAssert();
     return;
   }
 

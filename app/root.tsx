@@ -52,13 +52,15 @@ const inlineThemeCode = stripIndents`
   setTutorialKitTheme();
 
   function setTutorialKitTheme() {
-    let theme = localStorage.getItem('bolt_theme');
+    const storedThemeMode = localStorage.getItem('bolt_theme');
+    const resolvedTheme =
+      !storedThemeMode || storedThemeMode === 'system'
+        ? window.matchMedia('(prefers-color-scheme: dark)').matches
+          ? 'dark'
+          : 'light'
+        : storedThemeMode;
 
-    if (!theme) {
-      theme = window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-    }
-
-    document.querySelector('html')?.setAttribute('data-theme', theme);
+    document.querySelector('html')?.setAttribute('data-theme', resolvedTheme);
   }
 `;
 
@@ -162,6 +164,7 @@ export default function App() {
           }
 
           const parsed = JSON.parse(raw) as { notifications?: boolean };
+
           return parsed.notifications !== false;
         } catch {
           return true;
@@ -236,6 +239,7 @@ export default function App() {
     };
 
     void runUpdateCheck();
+
     const intervalId = window.setInterval(() => {
       void runUpdateCheck();
     }, UPDATE_CHECK_INTERVAL_MS);

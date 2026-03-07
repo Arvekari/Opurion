@@ -10,15 +10,18 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Added
 
-- None yet.
+- Chat streaming stall guard utilities in `app/components/chat/streamingGuard.ts` with timeout-based stall detection and effective streaming-state resolution.
+- Targeted regression tests in `unit-tests/components/chat/streamingGuard.test.ts` for timeout and stalled-UI behavior.
+- Explicit three-mode theme selector (Light/Dark/System) in the sidebar theme control.
 
 ### Changed
 
-- None yet.
+- Theme persistence/runtime now supports `system` mode and follows OS color scheme changes while keeping resolved light/dark rendering for existing consumers.
+- Initial page theme bootstrap in `app/root.tsx` now resolves persisted `system` mode correctly before hydration.
 
 ### Fixed
 
-- None yet.
+- P0 chat incident where streaming could stall indefinitely on the three-dot loader and block normal input/send recovery paths.
 
 ## [0.1.2] - 2026-03-07
 

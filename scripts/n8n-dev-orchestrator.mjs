@@ -78,27 +78,37 @@ const WORKFLOWS = [
         {
           id: 'node-upsert-open-tasks-table',
           name: 'Upsert Open Tasks Table',
-          type: 'n8n-nodes-base.dataTable',
+          type: 'n8n-nodes-base.set',
           typeVersion: 1,
           position: [900, 260],
           parameters: {
-            operation: 'upsert',
-            table: 'Project-bolt2-open-tasks',
-            data: '={{ $json.payload.taskStatusTable || $json.body.payload.taskStatusTable || $json.payload.openTasksTable || $json.body.payload.openTasksTable }}',
-            key: 'taskKey',
+            keepOnlySet: false,
+            values: {
+              string: [
+                {
+                  name: 'openTasksTableFlowStatus',
+                  value: "={{ ((($json.payload || {}).openTasksTable || (($json.body || {}).payload || {}).openTasksTable) ? 'payload-ready' : 'payload-missing') }}",
+                },
+              ],
+            },
           },
         },
         {
           id: 'node-upsert-orchestration-stats',
           name: 'Upsert Orchestration Stats',
-          type: 'n8n-nodes-base.dataTable',
+          type: 'n8n-nodes-base.set',
           typeVersion: 1,
           position: [1100, 260],
           parameters: {
-            operation: 'upsert',
-            table: 'Project-bolt2-orchestration-stats',
-            data: '={{ [$json.payload.orchestrationStats || $json.body.payload.orchestrationStats] }}',
-            key: 'measuredAt',
+            keepOnlySet: false,
+            values: {
+              string: [
+                {
+                  name: 'orchestrationStatsFlowStatus',
+                  value: "={{ ((($json.payload || {}).orchestrationStats || (($json.body || {}).payload || {}).orchestrationStats) ? 'payload-ready' : 'payload-missing') }}",
+                },
+              ],
+            },
           },
         },
       ],
@@ -140,6 +150,355 @@ const WORKFLOWS = [
       settings: {},
     },
     aliases: ['ongoing-work-dispatch', 'Project-bolt2-ongoing-work-dispatch'],
+  },
+  {
+    key: 'ongoing-work-dispatch-data-table',
+    name: 'Project-bolt2-ongoing-work-dispatch-data-table',
+    webhookPath: 'ongoing-work-dispatch-data-table',
+    purpose:
+      'Native Data Table variant: writes one row per open task to Data Tables using workflow nodes for UI-visible orchestration state.',
+    activateOnDeploy: false,
+    definition: {
+      name: 'Project-bolt2-ongoing-work-dispatch-data-table',
+      nodes: [
+        {
+          id: 'node-ongoing-dispatch-dt-webhook',
+          name: 'Ongoing Work Dispatch DataTable Webhook',
+          webhookId: 'project-bolt2-ongoing-work-dispatch-data-table',
+          type: 'n8n-nodes-base.webhook',
+          typeVersion: 1,
+          position: [320, 460],
+          parameters: {
+            path: 'ongoing-work-dispatch-data-table',
+            httpMethod: 'POST',
+            responseMode: 'lastNode',
+          },
+        },
+        {
+          id: 'node-ongoing-dispatch-dt-ack',
+          name: 'Ongoing Work Dispatch DataTable Ack',
+          type: 'n8n-nodes-base.set',
+          typeVersion: 1,
+          position: [620, 460],
+          parameters: {
+            keepOnlySet: false,
+            values: {
+              string: [
+                {
+                  name: 'status',
+                  value: 'accepted',
+                },
+                {
+                  name: 'workflow',
+                  value: 'ongoing-work-dispatch-data-table',
+                },
+                {
+                  name: 'action',
+                  value:
+                    "={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? 'restart-cycle' : 'continue-objective') }}",
+                },
+              ],
+            },
+          },
+        },
+        {
+          id: 'node-upsert-open-tasks-data-table',
+          name: 'Upsert Open Tasks DataTable',
+          type: 'n8n-nodes-base.dataTable',
+          typeVersion: 1,
+          position: [900, 460],
+          parameters: {
+            operation: 'upsert',
+            table: 'Project-bolt2-open-tasks',
+            data: '={{ ($json.payload || {}).openTasksTable || (($json.body || {}).payload || {}).openTasksTable || [] }}',
+            key: 'taskKey',
+          },
+        },
+        {
+          id: 'node-upsert-orchestration-stats-data-table',
+          name: 'Upsert Orchestration Stats DataTable',
+          type: 'n8n-nodes-base.dataTable',
+          typeVersion: 1,
+          position: [1120, 460],
+          parameters: {
+            operation: 'upsert',
+            table: 'Project-bolt2-orchestration-stats',
+            data: '={{ [($json.payload || {}).orchestrationStats || (($json.body || {}).payload || {}).orchestrationStats].filter(Boolean) }}',
+            key: 'measuredAt',
+          },
+        },
+      ],
+      connections: {
+        'Ongoing Work Dispatch DataTable Webhook': {
+          main: [
+            [
+              {
+                node: 'Ongoing Work Dispatch DataTable Ack',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+        'Ongoing Work Dispatch DataTable Ack': {
+          main: [
+            [
+              {
+                node: 'Upsert Open Tasks DataTable',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+        'Upsert Open Tasks DataTable': {
+          main: [
+            [
+              {
+                node: 'Upsert Orchestration Stats DataTable',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+      },
+      settings: {},
+    },
+    aliases: ['ongoing-work-dispatch-data-table', 'Project-bolt2-ongoing-work-dispatch-data-table'],
+  },
+  {
+    key: 'task-orchestrator-queue',
+    name: 'Project-bolt2-task-orchestrator-queue',
+    webhookPath: 'bolt2-task-orchestrator',
+    purpose:
+      'Data Table backed task queue: upsert incoming task rows, mark completed tasks, select highest-priority open task, return next task response.',
+    activateOnDeploy: false,
+    definition: {
+      name: 'Project-bolt2-task-orchestrator-queue',
+      nodes: [
+        {
+          id: 'node-task-queue-webhook',
+          name: 'Task Queue Webhook',
+          webhookId: 'project-bolt2-task-orchestrator-queue',
+          type: 'n8n-nodes-base.webhook',
+          typeVersion: 1,
+          position: [260, 680],
+          parameters: {
+            path: 'bolt2-task-orchestrator',
+            httpMethod: 'POST',
+            responseMode: 'lastNode',
+          },
+        },
+        {
+          id: 'node-has-completed-task',
+          name: 'Completed Task?',
+          type: 'n8n-nodes-base.if',
+          typeVersion: 1,
+          position: [500, 680],
+          parameters: {
+            conditions: {
+              string: [
+                {
+                  value1: '={{ $json.body.completedTaskId || "" }}',
+                  operation: 'notEqual',
+                  value2: '',
+                },
+              ],
+            },
+          },
+        },
+        {
+          id: 'node-mark-completed',
+          name: 'Mark Completed Task Row',
+          type: 'n8n-nodes-base.dataTable',
+          typeVersion: 1,
+          position: [740, 580],
+          parameters: {
+            operation: 'upsert',
+            dataTableId: 'orchestration_tasks',
+            matchType: 'allConditions',
+            filters: {
+              conditions: [
+                {
+                  keyName: 'taskId',
+                  condition: 'eq',
+                  keyValue: '={{ $json.body.completedTaskId }}',
+                },
+              ],
+            },
+            columns: {
+              mappingMode: 'defineBelow',
+              value: {
+                taskId: '={{ $json.body.completedTaskId }}',
+                status: 'completed',
+              },
+              matchingColumns: ['taskId'],
+              attemptToConvertTypes: false,
+              convertFieldsToString: false,
+            },
+            options: {},
+          },
+        },
+        {
+          id: 'node-upsert-task-row',
+          name: 'Upsert Incoming Task Row',
+          type: 'n8n-nodes-base.dataTable',
+          typeVersion: 1,
+          position: [740, 760],
+          parameters: {
+            operation: 'upsert',
+            dataTableId: 'orchestration_tasks',
+            matchType: 'allConditions',
+            filters: {
+              conditions: [
+                {
+                  keyName: 'taskId',
+                  condition: 'eq',
+                  keyValue: '={{ $json.body.task.taskId }}',
+                },
+              ],
+            },
+            columns: {
+              mappingMode: 'defineBelow',
+              value: {
+                taskId: '={{ $json.body.task.taskId }}',
+                title: '={{ $json.body.task.title }}',
+                description: '={{ $json.body.task.description }}',
+                priority: '={{ $json.body.task.priority }}',
+                status: '={{ $json.body.task.status || "open" }}',
+                agent: '={{ $json.body.task.agent || "" }}',
+                createdTime: '',
+                updatedTime: '={{ $now }}',
+              },
+              matchingColumns: ['taskId'],
+              attemptToConvertTypes: false,
+              convertFieldsToString: false,
+            },
+            options: {},
+          },
+        },
+        {
+          id: 'node-get-open-tasks',
+          name: 'Get Open Task Rows',
+          type: 'n8n-nodes-base.dataTable',
+          typeVersion: 1,
+          position: [980, 760],
+          parameters: {
+            operation: 'get',
+            dataTableId: 'orchestration_tasks',
+            matchType: 'allConditions',
+            filters: {
+              conditions: [
+                {
+                  keyName: 'status',
+                  condition: 'eq',
+                  keyValue: 'open',
+                },
+              ],
+            },
+          },
+        },
+        {
+          id: 'node-sort-priority',
+          name: 'Sort by Priority',
+          type: 'n8n-nodes-base.function',
+          typeVersion: 1,
+          position: [1220, 760],
+          parameters: {
+            functionCode: 'const tasks = items\n  .map((item) => item.json)\n  .filter((task) => String(task.status || "").toLowerCase() === "open");\n\ntasks.sort((a, b) => Number(b.priority || 0) - Number(a.priority || 0));\n\nif (tasks.length === 0) return [{ json: { __empty: true } }];\n\nreturn tasks.map((task) => ({ json: task }));',
+          },
+        },
+        {
+          id: 'node-return-next-task',
+          name: 'Return Next Task',
+          type: 'n8n-nodes-base.function',
+          typeVersion: 1,
+          position: [1460, 760],
+          parameters: {
+            functionCode:
+              'const first = items[0]?.json || null;\n\nif (!first || first.__empty) {\n  return [{ json: { status: "empty", message: "no open tasks", nextTask: null } }];\n}\n\nreturn [{ json: { status: "ok", nextTask: first } }];',
+          },
+        },
+      ],
+      connections: {
+        'Task Queue Webhook': {
+          main: [
+            [
+              {
+                node: 'Completed Task?',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+        'Completed Task?': {
+          main: [
+            [
+              {
+                node: 'Mark Completed Task Row',
+                type: 'main',
+                index: 0,
+              },
+            ],
+            [
+              {
+                node: 'Upsert Incoming Task Row',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+        'Mark Completed Task Row': {
+          main: [
+            [
+              {
+                node: 'Upsert Incoming Task Row',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+        'Upsert Incoming Task Row': {
+          main: [
+            [
+              {
+                node: 'Get Open Task Rows',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+        'Get Open Task Rows': {
+          main: [
+            [
+              {
+                node: 'Sort by Priority',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+        'Sort by Priority': {
+          main: [
+            [
+              {
+                node: 'Return Next Task',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+      },
+      settings: {},
+    },
+    aliases: ['task-orchestrator-queue', 'Project-bolt2-task-orchestrator-queue', 'bolt2-task-orchestrator'],
   },
   {
     key: 'ci-publish-watch-sync',
@@ -293,6 +652,7 @@ function readRetiredWorkflowNamesFromOngoingWork() {
 }
 
 function parseOngoingObjectives(markdown) {
+  const taskIdPrefixPattern = /^\[taskId:\s*([a-zA-Z0-9._:-]+)\]\s*(.*)$/i;
   const lines = markdown.split(/\r?\n/);
   const objectives = [];
   let inPrioritized = false;
@@ -326,10 +686,20 @@ function parseOngoingObjectives(markdown) {
       continue;
     }
 
+    const rawObjective = statusMatch[2].trim();
+    const taskIdMatch = rawObjective.match(taskIdPrefixPattern);
+    const taskId = taskIdMatch ? taskIdMatch[1].trim() : '';
+    const objectiveText = taskIdMatch ? taskIdMatch[2].trim() : rawObjective;
+
+    if (/^none(\s+currently)?\.?$/i.test(objectiveText)) {
+      continue;
+    }
+
     objectives.push({
       priority: currentPriority,
       status: statusMatch[1],
-      text: statusMatch[2].trim(),
+      taskId,
+      text: objectiveText,
     });
   }
 
@@ -423,7 +793,7 @@ function buildOpenTaskRows(openObjectives) {
   const now = new Date().toISOString();
 
   return openObjectives.map((objective, index) => ({
-    taskKey: `${objective.priority}-${index + 1}`,
+    taskKey: objective.taskId && objective.taskId.length > 0 ? objective.taskId : `${objective.priority}-${index + 1}`,
     priority: objective.priority,
     status: objective.status,
     objective: objective.text,
@@ -894,8 +1264,12 @@ async function deployAll({ activate }) {
       throw new Error(`Unable to resolve workflow id for ${spec.name}`);
     }
 
-    if (activate) {
+    const shouldActivate = Boolean(activate) && spec.activateOnDeploy !== false;
+
+    if (shouldActivate) {
       await setWorkflowActive(baseUrl, apiKey, workflowId, true);
+    } else {
+      await setWorkflowActive(baseUrl, apiKey, workflowId, false);
     }
 
     state.workflows[spec.key] = {
@@ -903,11 +1277,11 @@ async function deployAll({ activate }) {
       name: spec.name,
       purpose: spec.purpose,
       webhookPath: spec.webhookPath,
-      active: Boolean(activate),
+      active: shouldActivate,
       deployedAt: now,
     };
 
-    console.log(`${existing ? 'UPDATED' : 'CREATED'} ${spec.name} id=${workflowId} active=${Boolean(activate)}`);
+    console.log(`${existing ? 'UPDATED' : 'CREATED'} ${spec.name} id=${workflowId} active=${shouldActivate}`);
 
     try {
       const details = await fetchWorkflow(baseUrl, apiKey, workflowId);

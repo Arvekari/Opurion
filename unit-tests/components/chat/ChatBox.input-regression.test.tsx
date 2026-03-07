@@ -153,4 +153,66 @@ describe('chat input regression guard', () => {
 
     expect(handleSendMessage).toHaveBeenCalledTimes(1);
   });
+
+  it('supports mid-text insertion without losing edit flow', () => {
+    function Wrapper() {
+      const [input, setInput] = useState('hello world');
+
+      return (
+        <ChatBox
+          {...buildBaseProps({
+            input,
+            handleInputChange: (event: React.ChangeEvent<HTMLTextAreaElement>) => setInput(event.target.value),
+          })}
+        />
+      );
+    }
+
+    render(<Wrapper />);
+
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    textarea.focus();
+    textarea.setSelectionRange(5, 5);
+    textarea.setRangeText('-', 5, 5, 'end');
+    fireEvent.change(textarea, { target: { value: textarea.value } });
+
+    expect(textarea.value).toBe('hello- world');
+  });
+
+  it('keeps send flow safe for Shift+Enter and streaming Enter', () => {
+    const handleSendMessage = vi.fn();
+    const handleStop = vi.fn();
+
+    const { rerender } = render(
+      <ChatBox
+        {...buildBaseProps({
+          input: 'line one',
+          handleSendMessage,
+          handleStop,
+          isStreaming: false,
+        })}
+      />,
+    );
+
+    const textarea = screen.getByRole('textbox');
+
+    fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter', shiftKey: true });
+    expect(handleSendMessage).toHaveBeenCalledTimes(0);
+    expect(handleStop).toHaveBeenCalledTimes(0);
+
+    rerender(
+      <ChatBox
+        {...buildBaseProps({
+          input: 'line one',
+          handleSendMessage,
+          handleStop,
+          isStreaming: true,
+        })}
+      />,
+    );
+
+    fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' });
+    expect(handleSendMessage).toHaveBeenCalledTimes(0);
+    expect(handleStop).toHaveBeenCalledTimes(1);
+  });
 });

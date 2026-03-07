@@ -29,6 +29,7 @@ import type { TextUIPart, FileUIPart, Attachment } from '@ai-sdk/ui-utils';
 import { useMCPStore } from '~/lib/stores/mcp';
 import type { LlmErrorAlertType } from '~/types/actions';
 import { collabStore } from '~/lib/stores/collab';
+import { DEFAULT_STREAM_STALL_TIMEOUT_MS, isStreamingStalled, resolveEffectiveStreamingState } from './streamingGuard';
 
 const logger = createScopedLogger('Chat');
 
@@ -116,6 +117,8 @@ export const ChatImpl = memo(
     const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
     const [chatMode, setChatMode] = useState<'discuss' | 'build'>('build');
     const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(null);
+    const [isStalledStream, setIsStalledStream] = useState(false);
+    const streamStartedAtRef = useRef<number | null>(null);
     const mcpSettings = useMCPStore((state) => state.settings);
     const collab = useStore(collabStore);
 
@@ -123,7 +126,6 @@ export const ChatImpl = memo(
       messages,
       isLoading,
       input,
-      handleInputChange,
       setInput,
       stop,
       append,
@@ -267,6 +269,48 @@ export const ChatImpl = memo(
         toast.error('Failed to load shared conversation messages');
       });
     }, [collab.selectedConversationId, collab.branchMode, collab.refreshToken]);
+
+    useEffect(() => {
+      const currentlyStreaming = isLoading || fakeLoading;
+      let stallTimer: ReturnType<typeof setTimeout> | undefined;
+
+      if (!currentlyStreaming) {
+        streamStartedAtRef.current = null;
+
+        if (isStalledStream) {
+          setIsStalledStream(false);
+        }
+      } else {
+        if (!streamStartedAtRef.current) {
+          streamStartedAtRef.current = Date.now();
+        }
+
+        stallTimer = setTimeout(() => {
+          if (isStreamingStalled(streamStartedAtRef.current, Date.now(), DEFAULT_STREAM_STALL_TIMEOUT_MS)) {
+            logger.warn('Detected stalled chat streaming state; auto-aborting stream guard path triggered');
+            stop();
+            setFakeLoading(false);
+            setIsStalledStream(true);
+            chatStore.setKey('aborted', true);
+            setLlmErrorAlert({
+              type: 'error',
+              title: 'Response Timed Out',
+              description:
+                'The model response stalled for too long. Streaming was auto-stopped so you can type and send again.',
+              provider: provider.name,
+              errorType: 'network',
+            });
+            toast.error('Response timed out and was stopped. You can type and resend now.');
+          }
+        }, DEFAULT_STREAM_STALL_TIMEOUT_MS);
+      }
+
+      return () => {
+        if (stallTimer) {
+          clearTimeout(stallTimer);
+        }
+      };
+    }, [isLoading, fakeLoading, isStalledStream, provider.name, stop]);
 
     const scrollTextArea = () => {
       const textarea = textareaRef.current;
@@ -452,8 +496,16 @@ export const ChatImpl = memo(
       }
 
       if (isLoading) {
-        abort();
-        return;
+        if (isStalledStream) {
+          stop();
+        } else {
+          abort();
+          return;
+        }
+      }
+
+      if (isStalledStream) {
+        setIsStalledStream(false);
       }
 
       let finalMessageContent = messageContent;
@@ -677,7 +729,7 @@ export const ChatImpl = memo(
      * @param event - The change event from the textarea.
      */
     const onTextareaChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      handleInputChange(event);
+      setInput(event.target.value);
     };
 
     /**
@@ -715,14 +767,16 @@ export const ChatImpl = memo(
         const currentInput = input || '';
         const newInput = currentInput.length > 0 ? `${result}\n\n${currentInput}` : result;
 
-        // Update the input via the same mechanism as handleInputChange
-        const syntheticEvent = {
-          target: { value: newInput },
-        } as React.ChangeEvent<HTMLTextAreaElement>;
-        handleInputChange(syntheticEvent);
+        setInput(newInput);
       },
-      [input, handleInputChange],
+      [input, setInput],
     );
+
+    const effectiveStreaming = resolveEffectiveStreamingState({
+      isLoading,
+      fakeLoading,
+      stalled: isStalledStream,
+    });
 
     return (
       <BaseChat
@@ -731,7 +785,7 @@ export const ChatImpl = memo(
         input={input}
         showChat={showChat}
         chatStarted={chatStarted}
-        isStreaming={isLoading || fakeLoading}
+        isStreaming={effectiveStreaming}
         onStreamingChange={(streaming) => {
           streamingState.set(streaming);
         }}

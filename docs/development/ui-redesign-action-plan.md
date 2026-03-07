@@ -4,6 +4,8 @@ Version: 1.0
 Date: 2026-03-07  
 Source of truth: `docs/development/ui-design-directive.md`
 
+Execution tickets: `docs/development/ui-redesign-implementation-tickets.md`
+
 This plan converts the UI directive into actionable, trackable execution tasks for the Bolt2 UI look-and-feel redesign.
 
 ## Program Goals
