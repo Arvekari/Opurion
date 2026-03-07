@@ -685,8 +685,8 @@ export const ChatImpl = memo(
      * Caches the trimmed value of the textarea input after a delay to optimize performance.
      */
     const debouncedCachePrompt = useCallback(
-      debounce((event: React.ChangeEvent<HTMLTextAreaElement>) => {
-        const trimmedValue = event.target.value.trim();
+      debounce((value: string) => {
+        const trimmedValue = value.trim();
         Cookies.set(PROMPT_COOKIE_KEY, trimmedValue, { expires: 30 });
       }, 1000),
       [],
@@ -745,7 +745,7 @@ export const ChatImpl = memo(
         providerList={activeProviders}
         handleInputChange={(e) => {
           onTextareaChange(e);
-          debouncedCachePrompt(e);
+          debouncedCachePrompt(e.target.value);
         }}
         handleStop={abort}
         description={description}
