@@ -10,6 +10,20 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Added
 
+- None yet.
+
+### Changed
+
+- None yet.
+
+### Fixed
+
+- None yet.
+
+## [0.1.2] - 2026-03-07
+
+### Added
+
 - Internal AI SDK MCP compatibility regression unit test to catch missing MCP exports/subpaths before commit/push.
 - Push-phase SDK regression command (`test:unit:sdk-regressions`) for repeatable pre-push validation.
 - GitHub Actions watcher script to monitor workflow outcomes for pushed SHA (`scripts/watch-gh-actions.mjs`).
