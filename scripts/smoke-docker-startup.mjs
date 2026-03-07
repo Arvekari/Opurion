@@ -10,6 +10,7 @@ const dockerContainerName = process.env.DOCKER_SMOKE_CONTAINER_NAME || `bolt2-dy
 const dockerTarget = process.env.DOCKER_SMOKE_TARGET || 'bolt2-dyi-production';
 const dockerfilePath = process.env.DOCKER_SMOKE_DOCKERFILE || 'docs/docker/composed/Dockerfile';
 const dockerBuildContext = process.env.DOCKER_SMOKE_CONTEXT || '.';
+const composedOutputDir = resolve(process.env.DOCKER_SMOKE_COMPOSED_OUTPUT_DIR || '..', 'composed');
 const hostLogDir = resolve(process.env.DOCKER_SMOKE_LOG_DIR || 'bolt.work/docker-test/logs');
 const containerLogDir = process.env.DOCKER_SMOKE_CONTAINER_LOG_DIR || '/bolt-work/docker-test/logs';
 const maxLogRotations = Math.max(1, Number(process.env.DOCKER_SMOKE_MAX_LOG_ROTATIONS || 3));
@@ -221,6 +222,22 @@ function buildDockerImage() {
   }
 }
 
+function exportComposedImageArtifact() {
+  mkdirSync(composedOutputDir, { recursive: true });
+
+  const archiveName = `${safeName(dockerImageTag)}.tar`;
+  const archivePath = resolve(composedOutputDir, archiveName);
+
+  const saveResult = runCommand('docker', ['save', '-o', archivePath, dockerImageTag]);
+
+  if ((saveResult.status ?? 1) !== 0) {
+    console.error(`❌ Failed to export smoke Docker image archive to composed directory: ${archivePath}`);
+    process.exit(saveResult.status ?? 1);
+  }
+
+  console.log(`Composed image artifact saved: ${archivePath}`);
+}
+
 function removeDockerContainer(containerRef = dockerContainerName) {
   runCommandCapture('docker', ['rm', '-f', containerRef]);
 }
@@ -304,6 +321,7 @@ async function main() {
   runBuild();
   runStartupSmoke();
   buildDockerImage();
+  exportComposedImageArtifact();
   await runDockerContainerSmoke();
 }
 

@@ -43,6 +43,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Managed n8n ongoing-work workflow template now emits structured command fields and includes flow-wired Data Table upserts for open-tasks and orchestration-stats payloads.
 - Ongoing cycle runtime now validates response/table payload structures and always persists both `bolt.work/n8n/orchestration-stats.latest.json` and `bolt.work/n8n/open-tasks-table.json` on `next`, `done`, and `scan` commands.
 - Ongoing cycle now enforces orchestration delivery whenever managed workflows are defined; non-orchestrated cycle commands fail unless an explicit `## Orchestration Enforcement` exception is set in `.ongoing-work.md`.
+- Docker startup smoke now exports the locally built smoke image archive to the workspace `composed` directory (`../composed/<image-tag>.tar`) before runtime container validation.
 
 ### Fixed
 
