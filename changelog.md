@@ -20,12 +20,15 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - CI workflow changelog gate now runs with direct Node script execution in the test job, removing early-step `pnpm` dependency ordering issues.
 - Added mandatory `pre-push` guardrail hook: runs typecheck, changed-file test mapping, SDK regression tests, and starts background GH Actions monitoring.
 - CI test workflow ESLint step now scopes to changed `app/**/*.ts(x)` files between base/head refs and uses staged lint flow, preventing baseline-lint debt from failing unrelated pushes while still enforcing regression linting.
+- Chat streaming now uses an internal AI SDK v6 compatibility data-stream adapter (`app/lib/.server/llm/data-stream.ts`) instead of removed `ai.createDataStream`/`mergeIntoDataStream` APIs.
+- MCP tool-stream formatting now uses `@ai-sdk/ui-utils` data-stream helpers instead of removed `ai.formatDataStreamPart` exports.
 
 ### Fixed
 
 - Unit test failures caused by missing `ai/mcp-stdio` export path in AI SDK v6.
 - Outdated stream tool-guard expectation that assumed OpenAI tool-calling must always be disabled.
 - Unit Tests CI regression where `api.llmcall-errors` mock omitted `isOpenAIResponsesModel`, causing incorrect `500` status instead of token-limit `400` path.
+- Runtime server startup crash `The requested module 'ai' does not provide an export named 'createDataStream'` after AI SDK v6 upgrade.
 
 ### Verification
 

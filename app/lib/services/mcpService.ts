@@ -1,9 +1,11 @@
-import { type ToolSet, type Message, type DataStreamWriter, convertToModelMessages, formatDataStreamPart } from 'ai';
+import { type ToolSet, type Message, convertToModelMessages } from 'ai';
+import { formatDataStreamPart } from '@ai-sdk/ui-utils';
 import { experimental_createMCPClient } from '@ai-sdk/mcp';
 import { Experimental_StdioMCPTransport } from '@ai-sdk/mcp/mcp-stdio';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 import { z } from 'zod';
 import type { ToolCallAnnotation } from '~/types/context';
+import type { DataStreamWriter } from '~/lib/.server/llm/data-stream';
 import {
   TOOL_EXECUTION_APPROVAL,
   TOOL_EXECUTION_DENIED,

@@ -1,5 +1,5 @@
 import { type ActionFunctionArgs } from '@remix-run/cloudflare';
-import { createDataStream, generateId } from 'ai';
+import { generateId } from 'ai';
 import { MAX_RESPONSE_SEGMENTS, MAX_TOKENS, type FileMap } from '~/lib/.server/llm/constants';
 import { CONTINUE_PROMPT } from '~/lib/common/prompts/prompts';
 import { streamText, type Messages } from '~/lib/.server/llm/stream-text';
@@ -18,6 +18,7 @@ import { resolveApiKeys, resolveCustomPrompt, resolveProviderSettings } from '~/
 import { AgentRunService } from '~/lib/.server/agents/agentRunService';
 import { processMcpMessagesForRequest } from '~/integrations/mcp/adapter';
 import { getRequestId } from '~/platform/http/request-context';
+import { createDataStream, writeStreamPartToDataStream, type DataStreamWriter } from '~/lib/.server/llm/data-stream';
 
 export async function action(args: ActionFunctionArgs) {
   return chatAction(args);
@@ -91,7 +92,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
     let lastChunk: string | undefined = undefined;
 
     const dataStream = createDataStream({
-      async execute(dataStream: any) {
+      async execute(dataStream: DataStreamWriter) {
         const emitAgentRun = () => {
           const currentRun = agentRunService.getRun(agentRun.runId);
 
@@ -330,10 +331,10 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               customPrompt,
             });
 
-            (result as any).mergeIntoDataStream(dataStream);
-
-            (async () => {
+            void (async () => {
               for await (const part of result.fullStream) {
+                writeStreamPartToDataStream(part, dataStream);
+
                 if (part.type === 'error') {
                   const error: any = part.error;
                   logger.error(`${error}`);
@@ -374,6 +375,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
         (async () => {
           for await (const part of result.fullStream) {
+            writeStreamPartToDataStream(part, dataStream);
             streamRecovery.updateActivity();
 
             if (part.type === 'error') {
@@ -395,7 +397,6 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           }
           streamRecovery.stop();
         })();
-        (result as any).mergeIntoDataStream(dataStream);
       },
       onError: (error: any) => {
         agentRunService.failRun(agentRun.runId, error);
