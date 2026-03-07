@@ -39,6 +39,8 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Pre-push guardrail flow now includes Docker startup smoke and conditional live AI smoke before allowing push.
 - n8n operational workflow naming now enforces `Project-bolt2-` prefix, with retired-workflow pruning and local JSON backup exports under `bolt.arva/n8n`.
 - Pre-push Docker publish monitoring now always runs as a background watcher and tracks only final success/fail state via status JSON output.
+- Ongoing-cycle receiver now applies project-side response translation so legacy narrative n8n replies are normalized into strict command payloads (`status`, `workflow`, `action`, `queueState`, `commands`) before execution decisions.
+- Managed n8n ongoing-work workflow template now emits structured command fields and includes flow-wired Data Table upserts for open-tasks and orchestration-stats payloads.
 
 ### Fixed
 

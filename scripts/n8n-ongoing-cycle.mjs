@@ -263,6 +263,10 @@ async function notifyN8n(eventType, payload) {
   // If model is GPT-4.1, always require the receiving party to act (managed/physical changes)
   if (isGpt41) {
     payload.orchestratorInstruction = 'Model is GPT-4.1: Receiving party MUST perform the required managed work or physical changes, even if not triggered manually.';
+    payload.responseFormat = {
+      required: true,
+      fields: ['status', 'workflow', 'action', 'queueState', 'commands'],
+    };
   }
 
   const body = {
@@ -323,58 +327,111 @@ async function notifyN8n(eventType, payload) {
   };
 }
 
+function normalizeDispatchResponse(responseBody) {
+  if (!responseBody || typeof responseBody !== 'object' || Array.isArray(responseBody)) {
+    return null;
+  }
+
+  const candidate =
+    responseBody.response && typeof responseBody.response === 'object' && !Array.isArray(responseBody.response)
+      ? responseBody.response
+      : responseBody;
+
+  return candidate && typeof candidate === 'object' && !Array.isArray(candidate) ? candidate : null;
+}
+
+function translateLegacyDispatchResponse(raw, hasOpenObjectives) {
+  const queueIsEmptyByLegacySignals =
+    String(raw?.jobPulse || '').trim() === 'start-new-ongoing-check-job' ||
+    (typeof raw?.restartCommand === 'string' && raw.restartCommand.trim().length > 0);
+
+  const queueState = hasOpenObjectives && !queueIsEmptyByLegacySignals ? 'open' : 'empty';
+  const action = queueState === 'empty' ? 'restart-cycle' : 'continue-objective';
+  const commands =
+    action === 'restart-cycle'
+      ? [{ type: 'cycle.restart', command: (raw?.restartCommand || 'pnpm run ongoing:cycle -- scan').trim() }]
+      : [{ type: 'objective.executeNext' }];
+
+  return {
+    status: typeof raw?.status === 'string' && raw.status.trim().length > 0 ? raw.status.trim() : 'accepted',
+    workflow: typeof raw?.workflow === 'string' && raw.workflow.trim().length > 0 ? raw.workflow.trim() : 'ongoing-work-dispatch',
+    action,
+    queueState,
+    commands,
+    translatedFromLegacy: true,
+  };
+}
+
+function resolveStructuredDispatchResponse(responseBody, hasOpenObjectives) {
+  const raw = normalizeDispatchResponse(responseBody);
+
+  if (!raw) {
+    return {
+      status: 'accepted',
+      workflow: 'ongoing-work-dispatch',
+      action: hasOpenObjectives ? 'continue-objective' : 'restart-cycle',
+      queueState: hasOpenObjectives ? 'open' : 'empty',
+      commands: hasOpenObjectives
+        ? [{ type: 'objective.executeNext' }]
+        : [{ type: 'cycle.restart', command: 'pnpm run ongoing:cycle -- scan' }],
+      translatedFromLegacy: false,
+    };
+  }
+
+  const hasStructuredFields =
+    typeof raw?.action === 'string' &&
+    typeof raw?.queueState === 'string' &&
+    Array.isArray(raw?.commands) &&
+    raw.commands.length > 0;
+
+  if (hasStructuredFields) {
+    return {
+      status: typeof raw?.status === 'string' && raw.status.trim().length > 0 ? raw.status.trim() : 'accepted',
+      workflow: typeof raw?.workflow === 'string' && raw.workflow.trim().length > 0 ? raw.workflow.trim() : 'ongoing-work-dispatch',
+      action: raw.action,
+      queueState: raw.queueState,
+      commands: raw.commands,
+      translatedFromLegacy: false,
+    };
+  }
+
+  return translateLegacyDispatchResponse(raw, hasOpenObjectives);
+}
+
 function buildNextRequest(nextObjectiveItem, notified) {
-  const responseBody = notified?.body;
+  const hasOpenObjectives = Boolean(nextObjectiveItem);
+  const structured = resolveStructuredDispatchResponse(notified?.body, hasOpenObjectives);
 
-  const n8nNext =
-    responseBody && typeof responseBody === 'object' && !Array.isArray(responseBody) && typeof responseBody.nextAction === 'string'
-      ? responseBody.nextAction
-      : null;
-
-  const n8nFinal =
-    responseBody && typeof responseBody === 'object' && !Array.isArray(responseBody) && typeof responseBody.finalRemark === 'string'
-      ? responseBody.finalRemark
-      : null;
-
-  const n8nJobPulse =
-    responseBody && typeof responseBody === 'object' && !Array.isArray(responseBody) && typeof responseBody.jobPulse === 'string'
-      ? responseBody.jobPulse
-      : null;
-
-  const n8nRestartCommand =
-    responseBody && typeof responseBody === 'object' && !Array.isArray(responseBody) && typeof responseBody.restartCommand === 'string'
-      ? responseBody.restartCommand
-      : null;
-
-  const n8nReason =
-    responseBody && typeof responseBody === 'object' && !Array.isArray(responseBody) && typeof responseBody.reason === 'string'
-      ? responseBody.reason
-      : null;
+  const model = process.env.OPENAI_MODEL || process.env.MODEL || '';
+  const isGpt41 = typeof model === 'string' && model.toLowerCase().includes('gpt-4.1');
 
   if (nextObjectiveItem) {
     return {
-      message:
-        n8nNext ||
-        `Please continue with next objective: [${nextObjectiveItem.priority}] ${nextObjectiveItem.status} ${nextObjectiveItem.text}`,
-      finalRemark:
-        n8nFinal ||
-        'After finishing this objective, notify done and request the next one from the queue.',
+      message: `Execute objective: [${nextObjectiveItem.priority}] ${nextObjectiveItem.status} ${nextObjectiveItem.text}`,
+      finalRemark: 'After finishing this objective, notify done and request the next one from the queue.',
       orchestrationPulse: {
-        jobPulse: n8nJobPulse || 'continue-current-ongoing-job',
-        restartCommand: n8nRestartCommand || '',
-        reason: n8nReason || 'Unfinished objectives remain in queue.',
+        jobPulse: structured.queueState === 'empty' ? 'start-new-ongoing-check-job' : 'continue-current-ongoing-job',
+        restartCommand: structured.queueState === 'empty' ? 'pnpm run ongoing:cycle -- scan' : '',
+        reason: structured.queueState === 'empty' ? 'Queue drained in this cycle; restart as a new job.' : 'Unfinished objectives remain in queue.',
+      },
+      response: {
+        ...structured,
+        gpt41RequiresAction: isGpt41,
       },
     };
   }
 
   return {
-    message: n8nNext || 'All listed unfinished objectives appear completed.',
-    finalRemark:
-      n8nFinal || 'Please check .ongoing-work.md again for newly added unfinished work and restart the cycle if found.',
+    message: 'All listed unfinished objectives appear completed.',
+    finalRemark: 'Please check .ongoing-work.md again for newly added unfinished work and restart the cycle if found.',
     orchestrationPulse: {
-      jobPulse: n8nJobPulse || 'start-new-ongoing-check-job',
-      restartCommand: n8nRestartCommand || 'pnpm run ongoing:cycle -- scan',
-      reason: n8nReason || 'Queue drained in this cycle; start a fresh check as a new orchestration job.',
+      jobPulse: 'start-new-ongoing-check-job',
+      restartCommand: 'pnpm run ongoing:cycle -- scan',
+      reason: 'Queue drained in this cycle; start a fresh check as a new orchestration job.',
+    },
+    response: {
+      ...structured,
+      gpt41RequiresAction: isGpt41,
     },
   };
 }

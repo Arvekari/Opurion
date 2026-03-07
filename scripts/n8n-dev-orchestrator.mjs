@@ -47,7 +47,7 @@ const WORKFLOWS = [
           parameters: {
             keepOnlySet: true,
             values: {
-              string: [
+              json: [
                 {
                   name: 'status',
                   value: 'accepted',
@@ -57,32 +57,48 @@ const WORKFLOWS = [
                   value: 'ongoing-work-dispatch',
                 },
                 {
-                  name: 'nextAction',
+                  name: 'action',
                   value:
-                    '={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? "No open objectives in this cycle. Start a new ongoing-work check job immediately." : "Continue with next unfinished objective in priority order.") }}',
+                    "={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? 'restart-cycle' : 'continue-objective') }}",
                 },
                 {
-                  name: 'finalRemark',
+                  name: 'queueState',
                   value:
-                    '={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? "Cycle finished. Trigger a fresh ongoing-work scan as a new job to detect newly added unfinished tasks." : "After finishing this objective, emit done and keep the cycle moving.") }}',
+                    "={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? 'empty' : 'open') }}",
                 },
                 {
-                  name: 'jobPulse',
+                  name: 'commands',
                   value:
-                    '={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? "start-new-ongoing-check-job" : "continue-current-ongoing-job") }}',
-                },
-                {
-                  name: 'restartCommand',
-                  value:
-                    '={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? "pnpm run ongoing:cycle -- scan" : "") }}',
-                },
-                {
-                  name: 'reason',
-                  value:
-                    '={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? "Queue drained in this cycle; restart check as a new orchestration job." : "Unfinished objectives remain in queue.") }}',
+                    "={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? [{ type: 'cycle.restart', command: 'pnpm run ongoing:cycle -- scan' }] : [{ type: 'objective.executeNext' }] ) }}",
                 },
               ],
             },
+          },
+        },
+        {
+          id: 'node-upsert-open-tasks-table',
+          name: 'Upsert Open Tasks Table',
+          type: 'n8n-nodes-base.dataTable',
+          typeVersion: 1,
+          position: [900, 260],
+          parameters: {
+            operation: 'upsert',
+            table: 'Project-bolt2-open-tasks',
+            data: '={{ $json.payload.openTasksTable || $json.body.payload.openTasksTable }}',
+            key: 'taskKey',
+          },
+        },
+        {
+          id: 'node-upsert-orchestration-stats',
+          name: 'Upsert Orchestration Stats',
+          type: 'n8n-nodes-base.dataTable',
+          typeVersion: 1,
+          position: [1100, 260],
+          parameters: {
+            operation: 'upsert',
+            table: 'Project-bolt2-orchestration-stats',
+            data: '={{ [$json.payload.orchestrationStats || $json.body.payload.orchestrationStats] }}',
+            key: 'measuredAt',
           },
         },
       ],
@@ -92,6 +108,28 @@ const WORKFLOWS = [
             [
               {
                 node: 'Ongoing Work Dispatch Ack',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+        'Ongoing Work Dispatch Ack': {
+          main: [
+            [
+              {
+                node: 'Upsert Open Tasks Table',
+                type: 'main',
+                index: 0,
+              },
+            ],
+          ],
+        },
+        'Upsert Open Tasks Table': {
+          main: [
+            [
+              {
+                node: 'Upsert Orchestration Stats',
                 type: 'main',
                 index: 0,
               },
