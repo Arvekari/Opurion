@@ -41,6 +41,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Pre-push Docker publish monitoring now always runs as a background watcher and tracks only final success/fail state via status JSON output.
 - Ongoing-cycle receiver now applies project-side response translation so legacy narrative n8n replies are normalized into strict command payloads (`status`, `workflow`, `action`, `queueState`, `commands`) before execution decisions.
 - Managed n8n ongoing-work workflow template now emits structured command fields and includes flow-wired Data Table upserts for open-tasks and orchestration-stats payloads.
+- Ongoing cycle runtime now validates response/table payload structures and always persists both `bolt.work/n8n/orchestration-stats.latest.json` and `bolt.work/n8n/open-tasks-table.json` on `next`, `done`, and `scan` commands.
 
 ### Fixed
 

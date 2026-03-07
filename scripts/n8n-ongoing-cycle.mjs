@@ -9,6 +9,7 @@ const LOOP_STATE = resolve('.n8n-ongoing-cycle.json');
 const LOOP_LOG = resolve('bolt.work/n8n/copilot-inbox/cycle.log');
 const ORCHESTRATOR_STATE = resolve('.n8n-dev-workflows.json');
 const ORCHESTRATION_STATS_FILE = resolve('bolt.work/n8n/orchestration-stats.latest.json');
+const OPEN_TASKS_FALLBACK_FILE = resolve('bolt.work/n8n/open-tasks-table.json');
 
 function readMarkdown() {
   return readFileSync(FILE_PATH, 'utf8');
@@ -90,6 +91,53 @@ function persistOrchestrationStats(stats) {
     ...stats,
     statsFile: ORCHESTRATION_STATS_FILE,
   };
+}
+
+function persistOpenTasksTable(rows, stats) {
+  mkdirSync(resolve('bolt.work', 'n8n'), { recursive: true });
+
+  const payload = {
+    tableName: 'Project-bolt2-open-tasks',
+    generatedAt: new Date().toISOString(),
+    rows,
+    stats,
+  };
+
+  writeFileSync(OPEN_TASKS_FALLBACK_FILE, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+
+  return {
+    openTasksFile: OPEN_TASKS_FALLBACK_FILE,
+  };
+}
+
+function validateOpenTaskRows(rows) {
+  if (!Array.isArray(rows)) {
+    throw new Error('openTasksTable must be an array.');
+  }
+
+  for (const row of rows) {
+    if (!row || typeof row !== 'object') {
+      throw new Error('openTasksTable entries must be objects.');
+    }
+
+    if (!row.taskKey || !row.priority || !row.status || !row.objective) {
+      throw new Error('openTasksTable entries must include taskKey, priority, status, and objective.');
+    }
+  }
+}
+
+function validateStatsPayload(stats) {
+  if (!stats || typeof stats !== 'object') {
+    throw new Error('orchestrationStats must be an object.');
+  }
+
+  if (stats.available === true && !stats.measuredAt) {
+    throw new Error('orchestrationStats.available=true requires measuredAt.');
+  }
+
+  if (stats.available === false && !stats.reason) {
+    throw new Error('orchestrationStats.available=false requires reason.');
+  }
 }
 
 function bridgeEmit() {
@@ -452,6 +500,9 @@ async function commandNext() {
     objective: item.text,
     updatedAt: orchestrationStats.measuredAt,
   }));
+  validateStatsPayload(orchestrationStats);
+  validateOpenTaskRows(openTasksTable);
+  const openTasksPersisted = persistOpenTasksTable(openTasksTable, orchestrationStats);
   const notify = await notifyN8n('objective.next', { next, openCount: objectives.length, emitted, openTasksTable, orchestrationStats });
   const request = buildNextRequest(next, notify);
 
@@ -464,6 +515,7 @@ async function commandNext() {
     request,
     orchestrationStats,
     openTasksTable,
+    ...openTasksPersisted,
   });
 }
 
@@ -492,6 +544,9 @@ async function commandDone(args) {
     objective: item.text,
     updatedAt: orchestrationStats.measuredAt,
   }));
+  validateStatsPayload(orchestrationStats);
+  validateOpenTaskRows(openTasksTable);
+  const openTasksPersisted = persistOpenTasksTable(openTasksTable, orchestrationStats);
   const notify = await notifyN8n('objective.done', { done: text, next, openCount: objectives.length, emitted, openTasksTable, orchestrationStats });
   const request = buildNextRequest(next, notify);
 
@@ -506,6 +561,7 @@ async function commandDone(args) {
     request,
     orchestrationStats,
     openTasksTable,
+    ...openTasksPersisted,
   });
 }
 
@@ -520,6 +576,9 @@ async function commandLoop() {
     objective: item.text,
     updatedAt: orchestrationStats.measuredAt,
   }));
+  validateStatsPayload(orchestrationStats);
+  validateOpenTaskRows(openTasksTable);
+  const openTasksPersisted = persistOpenTasksTable(openTasksTable, orchestrationStats);
   const notify = await notifyN8n('objective.scan', { openCount: objectives.length, emitted, openTasksTable, orchestrationStats });
   const request = buildNextRequest(nextObjective(objectives), notify);
 
@@ -532,6 +591,7 @@ async function commandLoop() {
     request,
     orchestrationStats,
     openTasksTable,
+    ...openTasksPersisted,
   });
 }
 
