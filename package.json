@@ -22,7 +22,7 @@
     "verify:ongoing-work": "node scripts/verify-ongoing-work.mjs",
     "smoke:docker-startup": "node scripts/smoke-docker-startup.mjs",
     "smoke:ai": "node scripts/smoke-ai-modules.mjs",
-    "ci:watch:head": "node scripts/watch-gh-actions.mjs --sha HEAD",
+    "ci:watch:head": "node scripts/watch-gh-actions.mjs --sha HEAD --require-image-publish --image ghcr.io/arvekari/ebolt2",
     "lint:staged": "node scripts/verify-lint-staged.mjs",
     "verify:changelog:ci": "node scripts/verify-changelog-ci.mjs",
     "test:coverage": "vitest --run --coverage",

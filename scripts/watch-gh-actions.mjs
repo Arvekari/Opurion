@@ -14,6 +14,9 @@ function parseArgs(argv) {
     timeoutSeconds: 1800,
     detach: false,
     logFile: '',
+    requireImagePublish: false,
+    image: 'ghcr.io/arvekari/ebolt2',
+    imageTag: '',
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -31,6 +34,12 @@ function parseArgs(argv) {
       args.detach = true;
     } else if (arg === '--log-file' && argv[i + 1]) {
       args.logFile = argv[++i];
+    } else if (arg === '--require-image-publish') {
+      args.requireImagePublish = true;
+    } else if (arg === '--image' && argv[i + 1]) {
+      args.image = argv[++i];
+    } else if (arg === '--image-tag' && argv[i + 1]) {
+      args.imageTag = argv[++i];
     }
   }
 
@@ -101,6 +110,14 @@ function resolveSha(rawSha) {
   return rawSha;
 }
 
+function resolveImageTag(args, sha) {
+  if (args.imageTag) {
+    return args.imageTag;
+  }
+
+  return `sha-${sha.slice(0, 7)}`;
+}
+
 async function fetchRuns(repo, sha) {
   const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
   const headers = {
@@ -135,6 +152,35 @@ function summarizeFailures(runs) {
       conclusion: runItem.conclusion,
       url: runItem.html_url,
     }));
+}
+
+function imageExists(imageRef) {
+  try {
+    run(`docker manifest inspect ${imageRef}`);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForPublishedImage(args, sha, log) {
+  const imageTag = resolveImageTag(args, sha);
+  const imageRef = `${args.image}:${imageTag}`;
+  const start = Date.now();
+
+  log.info(`Verifying Docker image publication: ${imageRef}`);
+
+  while (Date.now() - start < args.timeoutSeconds * 1000) {
+    if (imageExists(imageRef)) {
+      log.info(`Published image detected: ${imageRef}`);
+      return;
+    }
+
+    log.info(`Image not published yet: ${imageRef}; waiting...`);
+    await sleep(args.pollSeconds * 1000);
+  }
+
+  throw new Error(`Timed out waiting for published Docker image: ${imageRef}`);
 }
 
 async function watch(args) {
@@ -181,6 +227,11 @@ async function watch(args) {
     }
 
     log.info('All workflows for this SHA completed without failures.');
+
+    if (args.requireImagePublish) {
+      await waitForPublishedImage(args, sha, log);
+    }
+
     process.exit(0);
   }
 

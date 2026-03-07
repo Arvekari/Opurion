@@ -14,7 +14,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Push-phase SDK regression command (`test:unit:sdk-regressions`) for repeatable pre-push validation.
 - GitHub Actions watcher script to monitor workflow outcomes for pushed SHA (`scripts/watch-gh-actions.mjs`).
 - Ongoing-work verification command (`verify:ongoing-work`) to enforce fresh local execution status fields before commit/push.
-- Docker in the docker smoke test you also needd to see all logs created by the app that they are clean of errors startup smoke command (`smoke:docker-startup`) to build and verify startup health before push.
+- Docker startup smoke command (`smoke:docker-startup`) now builds an image, starts a container, enforces host log mapping to `bolt.work/docker-test/logs`, rotates logs to a max of 3 files, and verifies startup logs are clean before push.
 - Conditional live AI smoke command (`smoke:ai`) that runs OpenAI endpoint checks when `OPENAI_API_KEY` is available.
 
 ### Changed
@@ -22,6 +22,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - MCP service imports were migrated from legacy `ai` subpaths to `@ai-sdk/mcp` and `@ai-sdk/mcp/mcp-stdio` for AI SDK v6 compatibility.
 - CI workflow changelog gate now runs with direct Node script execution in the test job, removing early-step `pnpm` dependency ordering issues.
 - Added mandatory `pre-push` guardrail hook: runs typecheck, changed-file test mapping, SDK regression tests, and starts background GH Actions monitoring.
+- GH Actions watcher now supports Docker publication verification and pre-push starts it with `--require-image-publish --image ghcr.io/arvekari/ebolt2` so SHA-tag publication is confirmed after successful workflows.
 - CI test workflow ESLint step now scopes to changed `app/**/*.ts(x)` files between base/head refs and uses staged lint flow, preventing baseline-lint debt from failing unrelated pushes while still enforcing regression linting.
 - Chat streaming now uses an internal AI SDK v6 compatibility data-stream adapter (`app/lib/.server/llm/data-stream.ts`) instead of removed `ai.createDataStream`/`mergeIntoDataStream` APIs.
 - MCP tool-stream formatting now uses `@ai-sdk/ui-utils` data-stream helpers instead of removed `ai.formatDataStreamPart` exports.
