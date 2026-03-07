@@ -18,6 +18,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Conditional live AI smoke command (`smoke:ai`) that runs OpenAI endpoint checks when `OPENAI_API_KEY` is available.
 - n8n dev orchestration tooling: `scripts/n8n-dev-orchestrator.mjs`, `scripts/n8n-ongoing-cycle.mjs`, and `scripts/ongoing-work-bridge.mjs` for iterative ongoing-work handoff.
 - n8n live env-gated smoke test (`test:unit:n8n-live`) and n8n guardrail command (`n8n:guardrail`) for operational policy enforcement.
+- Enforced strict GPT-4.1 structured output in n8n workflow: Set node now outputs only `action`, `queueState`, and `commands` for machine-readability and compliance. All narrative fields removed. Orchestration and Data Table sync are now strictly workflow-driven and validated.
 - Targeted MCP performance/efficiency unit tests in `unit-tests/lib/services/mcpService.test.ts` covering client refresh cleanup, client reuse during availability checks, and no-op handling for non-result tool invocations.
 - Dispatch-loop contract guardrail test (`unit-tests/scripts/n8n-dispatch-contract.test.ts`) to enforce completed-cycle restart impulse fields (`jobPulse` + `restartCommand`).
 - Orchestration stats command (`n8n:stats`) and cycle-level `orchestrationStats` reporting for production execution count, failed production executions, failure rate, average runtime, and estimated time saved.
