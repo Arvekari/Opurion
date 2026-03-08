@@ -1,10 +1,79 @@
 #!/usr/bin/env node
 
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import { resolve } from 'node:path';
 
 const FILE_PATH = resolve('.ongoing-work.md');
+const WORKSPACE_CONFIG_PATH = resolve('..', 'listener-config.json');
+const ROOT_CONFIG_PATH = resolve('listener-config.json');
+const LEGACY_CONFIG_PATH = resolve('bolt.work/n8n/listener-config.json');
 const TASK_ID_PREFIX_PATTERN = /^\[taskId:\s*([a-zA-Z0-9._:-]+)\]\s*(.*)$/i;
+
+function resolveListenerConfigPath() {
+  if (existsSync(WORKSPACE_CONFIG_PATH)) {
+    return WORKSPACE_CONFIG_PATH;
+  }
+
+  if (existsSync(ROOT_CONFIG_PATH)) {
+    return ROOT_CONFIG_PATH;
+  }
+
+  if (existsSync(LEGACY_CONFIG_PATH)) {
+    return LEGACY_CONFIG_PATH;
+  }
+
+  return '';
+}
+
+function normalizeReturnAddress(returnAddress = {}) {
+  const protocol = String(returnAddress.protocol || 'http').trim() || 'http';
+  const pathRaw = String(returnAddress.path || '/publish-status').trim() || '/publish-status';
+  const path = pathRaw.startsWith('/') ? pathRaw : `/${pathRaw}`;
+  const port = Number(returnAddress.port || 8788);
+  const fqdn = String(returnAddress.fqdn || '').trim();
+  const ip = String(returnAddress.ip || '').trim();
+  const preferred = String(returnAddress.hostSelection || returnAddress.mode || 'fqdn').trim().toLowerCase();
+  const hostSelection = preferred === 'ip' ? 'ip' : 'fqdn';
+  const selectedHost = hostSelection === 'ip' ? ip || fqdn : fqdn || ip;
+  const callbackUrl = selectedHost ? `${protocol}://${selectedHost}${port ? `:${port}` : ''}${path}` : '';
+
+  return {
+    protocol,
+    port,
+    path,
+    hostSelection,
+    mode: hostSelection,
+    fqdn,
+    ip,
+    host: selectedHost,
+    callbackUrl,
+  };
+}
+
+function resolveRuntimeReturnAddress() {
+  const fallback = normalizeReturnAddress({
+    protocol: 'http',
+    hostSelection: 'fqdn',
+    fqdn: 'localhost',
+    ip: '',
+    port: 8788,
+    path: '/publish-status',
+  });
+
+  const configPath = resolveListenerConfigPath();
+
+  if (!configPath) {
+    return fallback;
+  }
+
+  try {
+    const raw = JSON.parse(readFileSync(configPath, 'utf8'));
+    return normalizeReturnAddress(raw?.returnAddress || {});
+  } catch {
+    return fallback;
+  }
+}
 
 function parseStatusLine(line) {
   const match = line.match(/^\s*-\s*`(PARTIAL|TODO|BLOCKED)`\s+(.+)$/);
@@ -78,7 +147,51 @@ function selectNextObjective(objectives) {
   return preferred || null;
 }
 
-function toCopilotPrompt(next, objectives) {
+function normalizeAgentId(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 64);
+}
+
+function resolveAgentId() {
+  const candidates = [process.env.BOLT_AGENT_ID, process.env.N8N_AGENT_ID, process.env.AGENT_ID, os.hostname()];
+
+  for (const candidate of candidates) {
+    const normalized = normalizeAgentId(candidate);
+
+    if (normalized) {
+      return normalized;
+    }
+  }
+
+  return 'agent-unknown';
+}
+
+function buildAgenticHandoff(next, objectives, agentId) {
+  const topOpenTask = next?.taskId || '';
+
+  return {
+    agentId,
+    taskId: topOpenTask,
+    openCount: objectives.filter((item) => item.status === 'PARTIAL' || item.status === 'TODO').length,
+    closurePolicy: 'Keep PARTIAL until fully complete; use done only with --confirm-complete after all remaining work is finished.',
+    commands: {
+      start: 'pnpm run ongoing:bridge -- prompt',
+      keepPartial: topOpenTask
+        ? `pnpm run ongoing:cycle -- partial "[taskId: ${topOpenTask}] ..."`
+        : 'pnpm run ongoing:cycle -- partial "[taskId: <id>] ..."',
+      closeDone: topOpenTask
+        ? `pnpm run ongoing:cycle -- done --confirm-complete "[taskId: ${topOpenTask}] ..."`
+        : 'pnpm run ongoing:cycle -- done --confirm-complete "[taskId: <id>] ..."',
+      next: 'pnpm run ongoing:bridge -- prompt',
+    },
+  };
+}
+
+function toCopilotPrompt(next, objectives, agentId) {
   if (!next) {
     return 'No PARTIAL/TODO objective found in .ongoing-work.md.';
   }
@@ -88,10 +201,17 @@ function toCopilotPrompt(next, objectives) {
     .slice(0, 4)
     .map((item, index) => `${index + 1}. [${item.priority}] ${item.status}${item.taskId ? ` (${item.taskId})` : ''} ${item.text}`)
     .join('\n');
+  const returnAddress = resolveRuntimeReturnAddress();
+  const callbackUrl = returnAddress.callbackUrl || 'not-configured';
 
   return [
     'Continue execution from .ongoing-work.md using this next objective:',
     `[${next.priority}] ${next.status}${next.taskId ? ` (${next.taskId})` : ''} ${next.text}`,
+    `Agent: ${agentId}`,
+    'Execution policy: keep objective in PARTIAL until fully complete; only then close with done --confirm-complete.',
+    `CallbackUrl: ${callbackUrl}`,
+    `ReturnAddress: ${JSON.stringify(returnAddress)}`,
+    'Reporting policy: in updates/final handoff, always inform callbackUrl and returnAddress explicitly.',
     '',
     'Top open objectives:',
     shortlist,
@@ -103,13 +223,17 @@ function toCopilotPrompt(next, objectives) {
 function emitPayloadFiles(next, objectives) {
   const outDir = resolve('bolt.work/n8n/copilot-inbox');
   const timestamp = new Date().toISOString();
-  const prompt = toCopilotPrompt(next, objectives);
+  const agentId = resolveAgentId();
+  const prompt = toCopilotPrompt(next, objectives, agentId);
+  const handoff = buildAgenticHandoff(next, objectives, agentId);
 
   const payload = {
     generatedAt: timestamp,
     source: FILE_PATH,
+    agentId,
     next,
     objectives,
+    handoff,
     prompt,
   };
 
@@ -134,6 +258,8 @@ function main() {
   const markdown = readFileSync(FILE_PATH, 'utf8');
   const objectives = extractObjectives(markdown);
   const next = selectNextObjective(objectives);
+  const agentId = resolveAgentId();
+  const handoff = buildAgenticHandoff(next, objectives, agentId);
 
   if (command === 'next') {
     if (!next) {
@@ -146,7 +272,7 @@ function main() {
   }
 
   if (command === 'prompt') {
-    console.log(toCopilotPrompt(next, objectives));
+    console.log(toCopilotPrompt(next, objectives, agentId));
     return;
   }
 
@@ -155,8 +281,10 @@ function main() {
       JSON.stringify(
         {
           source: FILE_PATH,
+          agentId,
           next,
           objectives,
+          handoff,
         },
         null,
         2,

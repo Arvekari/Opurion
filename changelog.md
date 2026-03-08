@@ -14,6 +14,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Targeted regression tests in `unit-tests/components/chat/streamingGuard.test.ts` for timeout and stalled-UI behavior.
 - Explicit three-mode theme selector (Light/Dark/System) in the sidebar theme control.
 - Manual ongoing-work full snapshot command (`ongoing:snapshot`) with script `scripts/ongoing-work-snapshot.mjs`.
+- GitHub Actions watcher now emits an explicit red operator notice when GitHub API rate limits are hit, including manual package-page verification guidance and n8n fallback polling intervals (+10/+20/+30/+40/+50 minutes).
 
 ### Changed
 
@@ -23,6 +24,15 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Chat send control sizing/placement now uses scale-aligned values (`top-4`, `right-4`, `w-8`, `h-8`) and shared primary icon button styling.
 - Ongoing-work normalize/verify logic now detects the uncategorized section by marker text, supporting renamed headings while keeping enforcement active.
 - Ongoing-work normalization now writes a full pre-normalize backup snapshot before migration attempts.
+- Settings control panel information architecture now groups tiles into `General`, `Preferences`, `AI`, `Integrations`, `Security`, and `System` sections for improved scanability while preserving existing tab behavior.
+- Vercel dashboard information priority now follows an explicit hierarchy of `Metrics Row`, `Charts Section`, and `Detailed Table Section` for clearer scanning and project-level action flow.
+- Vercel dashboard top-journey accessibility hardening now adds keyboard-safe section toggling, stronger focus-visible states, semantic table caption/header scopes, and reduced-motion-aware animation/spinner behavior.
+- Starter template pipeline now supports backend/full-stack scaffolding with built-in `FastAPI Backend` and `FastAPI + React Fullstack` options, including local template fallback generation without external repo dependency.
+- Starter template pipeline now supports equivalent Node.js stack scaffolding with built-in `Express Backend` and `Express + React Fullstack` options in addition to FastAPI templates.
+- n8n orchestration sync/cycle flows now propagate a resolved worker `agentId` (from `BOLT_AGENT_ID`/`N8N_AGENT_ID`/hostname fallback) into open-task rows, cycle notifications, and task-status upserts for clearer multi-worker agentic execution visibility.
+- Ongoing bridge prompt/payload now includes resolved `agentId`, explicit PARTIAL-to-DONE closure policy guidance, and command handoff metadata for more agentic autonomous loop execution.
+- Ongoing bridge prompt now also resolves and prints effective `callbackUrl` + normalized `returnAddress`, and explicitly instructs agent handoffs to report both values.
+- Vercel connection panel modernization now uses shared tokenized UI primitives (`Input`, `Button`) and unified surface/status styling in `app/components/@settings/tabs/vercel/components/VercelConnection.tsx`.
 
 ### Fixed
 
@@ -31,6 +41,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - App wrapper re-export modules (`app/core`, `app/infrastructure`, `app/integrations`, `app/platform`) were corrected to resolve root modules reliably during Docker production builds, and lint enforcement was scoped to avoid false positives on those wrapper files.
 - Ongoing-work normalization dedupe now excludes lines from the uncategorized section itself, fixing missed migrations of new uncategorized entries.
 - Restored n8n dispatch restart-impulse contract fields (`jobPulse`, `restartCommand`, `nextAction`, `finalRemark`) in workflow definitions to satisfy contract guardrail tests and preserve empty-queue restart semantics.
+- `watch-gh-actions` now writes a deterministic status JSON on API/rate-limit failures so automation can detect operator-required publish checks.
 
 ## [0.1.2] - 2026-03-07
 

@@ -233,7 +233,7 @@ export function DataTab() {
         description="This will reset all your settings to their default values. This action cannot be undone."
         confirmLabel="Reset Settings"
         cancelLabel="Cancel"
-        variant="destructive"
+        variant="danger"
         isLoading={isResetting}
         onConfirm={handleResetSettings}
       />
@@ -246,7 +246,7 @@ export function DataTab() {
         description="This will permanently delete all your chat history. This action cannot be undone."
         confirmLabel="Delete All"
         cancelLabel="Cancel"
-        variant="destructive"
+        variant="danger"
         isLoading={isDeleting}
         onConfirm={handleResetChatsWithState}
       />
@@ -329,7 +329,7 @@ export function DataTab() {
                       }
                     }}
                     disabled={isExporting || availableChats.length === 0}
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className={classNames(
                       'hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-backgroundAccent hover:bg-bolt-elements-item-backgroundAccent transition-colors w-full justify-center',
@@ -368,7 +368,7 @@ export function DataTab() {
                   <Button
                     onClick={() => setShowChatsSelection(true)}
                     disabled={isExporting || chatItems.length === 0}
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className={classNames(
                       'hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-backgroundAccent hover:bg-bolt-elements-item-backgroundAccent transition-colors w-full justify-center',
@@ -405,7 +405,7 @@ export function DataTab() {
                   <Button
                     onClick={() => chatFileInputRef.current?.click()}
                     disabled={isImporting}
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className={classNames(
                       'hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-backgroundAccent hover:bg-bolt-elements-item-backgroundAccent transition-colors w-full justify-center',
@@ -446,7 +446,7 @@ export function DataTab() {
                   <Button
                     onClick={() => setShowDeleteInlineConfirm(true)}
                     disabled={isDeleting || chatItems.length === 0}
-                    variant="outline"
+                    variant="secondary"
                     size="sm"
                     className={classNames(
                       'hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-backgroundAccent hover:bg-bolt-elements-item-backgroundAccent transition-colors w-full justify-center',
@@ -490,7 +490,7 @@ export function DataTab() {
                 <Button
                   onClick={handleExportSettings}
                   disabled={isExporting}
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   className={classNames(
                     'hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-backgroundAccent hover:bg-bolt-elements-item-backgroundAccent transition-colors w-full justify-center',
@@ -527,7 +527,7 @@ export function DataTab() {
                 <Button
                   onClick={() => setShowSettingsSelection(true)}
                   disabled={isExporting || settingsCategories.length === 0}
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   className={classNames(
                     'hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-backgroundAccent hover:bg-bolt-elements-item-backgroundAccent transition-colors w-full justify-center',
@@ -564,7 +564,7 @@ export function DataTab() {
                 <Button
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isImporting}
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   className={classNames(
                     'hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-backgroundAccent hover:bg-bolt-elements-item-backgroundAccent transition-colors w-full justify-center',
@@ -605,7 +605,7 @@ export function DataTab() {
                 <Button
                   onClick={() => setShowResetInlineConfirm(true)}
                   disabled={isResetting}
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   className={classNames(
                     'hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-backgroundAccent hover:bg-bolt-elements-item-backgroundAccent transition-colors w-full justify-center',
@@ -648,7 +648,7 @@ export function DataTab() {
                 <Button
                   onClick={handleDownloadTemplate}
                   disabled={isDownloadingTemplate}
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   className={classNames(
                     'hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-backgroundAccent hover:bg-bolt-elements-item-backgroundAccent transition-colors w-full justify-center',
@@ -685,7 +685,7 @@ export function DataTab() {
                 <Button
                   onClick={() => apiKeyFileInputRef.current?.click()}
                   disabled={isImportingKeys}
-                  variant="outline"
+                  variant="secondary"
                   size="sm"
                   className={classNames(
                     'hover:text-bolt-elements-item-contentAccent hover:border-bolt-elements-item-backgroundAccent hover:bg-bolt-elements-item-backgroundAccent transition-colors w-full justify-center',

@@ -4,6 +4,8 @@ import { toast } from 'react-toastify';
 import { useStore } from '@nanostores/react';
 import { logStore } from '~/lib/stores/logs';
 import { classNames } from '~/utils/classNames';
+import { Button } from '~/components/ui/Button';
+import { Input } from '~/components/ui/Input';
 import {
   vercelConnection,
   isConnecting,
@@ -112,7 +114,7 @@ export default function VercelConnection() {
 
   return (
     <motion.div
-      className="bg-[#FFFFFF] dark:bg-[#0A0A0A] rounded-lg border border-[#E5E5E5] dark:border-[#1A1A1A]"
+      className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 shadow-sm"
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ delay: 0.3 }}
@@ -135,20 +137,13 @@ export default function VercelConnection() {
           <div className="space-y-4">
             <div>
               <label className="block text-sm text-bolt-elements-textSecondary mb-2">Personal Access Token</label>
-              <input
+              <Input
                 type="password"
                 value={connection.token}
                 onChange={(e) => updateVercelConnection({ ...connection, token: e.target.value })}
                 disabled={connecting}
                 placeholder="Enter your Vercel personal access token"
-                className={classNames(
-                  'w-full px-3 py-2 rounded-lg text-sm',
-                  'bg-[#F8F8F8] dark:bg-[#1A1A1A]',
-                  'border border-[#E5E5E5] dark:border-[#333333]',
-                  'text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary',
-                  'focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive',
-                  'disabled:opacity-50',
-                )}
+                className="w-full"
               />
               <div className="mt-2 text-sm text-bolt-elements-textSecondary">
                 <a
@@ -180,17 +175,7 @@ export default function VercelConnection() {
             </div>
 
             <div className="flex gap-2">
-              <button
-                onClick={handleConnect}
-                disabled={connecting || !connection.token}
-                className={classNames(
-                  'px-4 py-2 rounded-lg text-sm flex items-center gap-2',
-                  'bg-[#303030] text-white',
-                  'hover:bg-[#5E41D0] hover:text-white',
-                  'disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-200',
-                  'transform active:scale-95',
-                )}
-              >
+              <Button onClick={handleConnect} disabled={connecting || !connection.token} className="gap-2">
                 {connecting ? (
                   <>
                     <div className="i-ph:spinner-gap animate-spin" />
@@ -202,10 +187,10 @@ export default function VercelConnection() {
                     Connect
                   </>
                 )}
-              </button>
+              </Button>
 
               {/* Debug button - remove this later */}
-              <button
+              <Button
                 onClick={async () => {
                   console.log('Manual auto-connect test');
 
@@ -217,35 +202,29 @@ export default function VercelConnection() {
                     toast.error(`Manual auto-connect failed: ${result.error}`);
                   }
                 }}
-                className="px-3 py-2 rounded-lg text-xs bg-blue-500 text-white hover:bg-blue-600"
+                variant="secondary"
+                size="sm"
               >
                 Test Auto-Connect
-              </button>
+              </Button>
             </div>
           </div>
         ) : (
           <div className="space-y-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <button
-                  onClick={handleDisconnect}
-                  className={classNames(
-                    'px-4 py-2 rounded-lg text-sm flex items-center gap-2',
-                    'bg-red-500 text-white',
-                    'hover:bg-red-600',
-                  )}
-                >
+                <Button onClick={handleDisconnect} variant="danger" className="gap-2">
                   <div className="i-ph:plug w-4 h-4" />
                   Disconnect
-                </button>
+                </Button>
                 <span className="text-sm text-bolt-elements-textSecondary flex items-center gap-1">
-                  <div className="i-ph:check-circle w-4 h-4 text-green-500" />
+                  <div className="i-ph:check-circle w-4 h-4 text-bolt-elements-icon-success" />
                   Connected to Vercel
                 </span>
               </div>
             </div>
 
-            <div className="flex items-center gap-4 p-4 bg-[#F8F8F8] dark:bg-[#1A1A1A] rounded-lg">
+            <div className="flex items-center gap-4 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-4">
               {/* Debug output */}
               <pre className="hidden">{JSON.stringify(connection.user, null, 2)}</pre>
 
@@ -341,7 +320,7 @@ export default function VercelConnection() {
                             </div>
                           </div>
                           {project.framework && (
-                            <div className="text-xs text-bolt-elements-textSecondary px-2 py-1 rounded-md bg-[#F0F0F0] dark:bg-[#252525]">
+                            <div className="rounded-md border border-bolt-elements-borderColor px-2 py-1 text-xs text-bolt-elements-textSecondary bg-bolt-elements-background-depth-2">
                               <span className="flex items-center gap-1">
                                 <div className="i-ph:code w-3 h-3" />
                                 {project.framework}
