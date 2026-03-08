@@ -30,6 +30,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Docker startup smoke now uses canonical container log mapping (`BOLT_LOG_DIR=/logs`) and fails fast when mapped host log files are missing or unreadable.
 - App wrapper re-export modules (`app/core`, `app/infrastructure`, `app/integrations`, `app/platform`) were corrected to resolve root modules reliably during Docker production builds, and lint enforcement was scoped to avoid false positives on those wrapper files.
 - Ongoing-work normalization dedupe now excludes lines from the uncategorized section itself, fixing missed migrations of new uncategorized entries.
+- Restored n8n dispatch restart-impulse contract fields (`jobPulse`, `restartCommand`, `nextAction`, `finalRemark`) in workflow definitions to satisfy contract guardrail tests and preserve empty-queue restart semantics.
 
 ## [0.1.2] - 2026-03-07
 

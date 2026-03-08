@@ -67,6 +67,26 @@ const WORKFLOWS = [
                     "={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? 'empty' : 'open') }}",
                 },
                 {
+                  name: 'jobPulse',
+                  value:
+                    "={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? 'start-new-ongoing-check-job' : 'continue-current-job') }}",
+                },
+                {
+                  name: 'restartCommand',
+                  value:
+                    "={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? 'pnpm run ongoing:cycle -- scan' : '') }}",
+                },
+                {
+                  name: 'nextAction',
+                  value:
+                    "={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? 'Start a new ongoing-work check job immediately' : 'Continue current objective execution') }}",
+                },
+                {
+                  name: 'finalRemark',
+                  value:
+                    "={{ (((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? 'Trigger a fresh ongoing-work scan as a new job' : 'Proceed with the current queued objective') }}",
+                },
+                {
                   name: 'commandsJson',
                   value:
                     "={{ JSON.stringify((((($json.payload || {}).openCount ?? (($json.body || {}).payload || {}).openCount) === 0) ? [{ type: 'cycle.restart', command: 'pnpm run ongoing:cycle -- scan' }] : [{ type: 'objective.executeNext' }])) }}",
