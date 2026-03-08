@@ -338,7 +338,8 @@ export default function FeaturesTab() {
         description: 'Notify when a newer Bolt2.dyi version is available and allow update attempts',
         icon: 'i-ph:git-branch',
         enabled: isLatestBranch,
-        tooltip: 'When enabled, the app checks Bolt2.dyi main releases and can attempt internal update flow where supported',
+        tooltip:
+          'When enabled, the app checks Bolt2.dyi main releases and can attempt internal update flow where supported',
       },
       {
         id: 'autoSelectTemplate',
@@ -586,7 +587,8 @@ export default function FeaturesTab() {
               Database Connection
             </h4>
             <p className="text-xs text-bolt-elements-textSecondary mt-0.5">
-              Configure storage backend defaults. SQLite is default; PostgreSQL can be enabled for admin-managed deployments.
+              Configure storage backend defaults. SQLite is default; PostgreSQL can be enabled for admin-managed
+              deployments.
             </p>
 
             <div className="mt-3 flex flex-col gap-3">

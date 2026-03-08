@@ -1,2 +1,1 @@
-﻿export * from '../../../infrastructure/integrations/capabilities';
-
+export * from 'infrastructure/integrations/capabilities';

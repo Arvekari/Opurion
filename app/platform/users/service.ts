@@ -1,2 +1,1 @@
-﻿export * from '../../../platform/users/service';
-
+export * from 'platform/users/service';

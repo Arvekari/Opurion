@@ -27,6 +27,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
       branchId,
       branchMode: branchMode === 'main' ? 'main' : 'user',
     });
+
     return json({ ok: true, messages });
   }
 
@@ -35,6 +36,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   }
 
   const conversations = await listCollabConversations(projectId, user.userId, env);
+
   return json({ ok: true, conversations });
 }
 

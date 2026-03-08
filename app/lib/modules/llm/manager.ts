@@ -77,6 +77,20 @@ export class LLMManager {
     return this._modelList;
   }
 
+  private _hasProviderApiKey(
+    provider: BaseProvider,
+    apiKeys?: Record<string, string>,
+    serverEnv?: Record<string, string>,
+  ): boolean {
+    const tokenKey = provider.config.apiTokenKey;
+
+    if (!tokenKey) {
+      return true;
+    }
+
+    return Boolean(apiKeys?.[provider.name] || serverEnv?.[tokenKey] || this._env?.[tokenKey] || process.env[tokenKey]);
+  }
+
   async updateModelList(options: {
     apiKeys?: Record<string, string>;
     providerSettings?: Record<string, IProviderSetting>;
@@ -103,6 +117,11 @@ export class LLMManager {
 
           if (cachedModels) {
             return cachedModels;
+          }
+
+          if (!this._hasProviderApiKey(provider, apiKeys, serverEnv)) {
+            logger.info(`Skipping dynamic models for ${provider.name}: missing API key configuration`);
+            return [];
           }
 
           const dynamicModels = await provider
@@ -167,6 +186,11 @@ export class LLMManager {
     if (cachedModels) {
       logger.info(`Found ${cachedModels.length} cached models for ${provider.name}`);
       return [...cachedModels, ...staticModels];
+    }
+
+    if (!this._hasProviderApiKey(provider, apiKeys, serverEnv)) {
+      logger.info(`Skipping dynamic models for ${provider.name}: missing API key configuration`);
+      return staticModels;
     }
 
     logger.info(`Getting dynamic models for ${provider.name}`);

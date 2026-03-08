@@ -2,11 +2,12 @@ import React from 'react';
 import { classNames } from '~/utils/classNames';
 import { Button } from './Button';
 import { motion } from 'framer-motion';
+import { uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 // Variant-specific styles
 const VARIANT_STYLES = {
   default: {
-    container: 'py-8 p-6',
+    container: `${uiSpacingTokens.py16} ${uiSpacingTokens.pad24}`,
     icon: {
       container: 'w-12 h-12 mb-3',
       size: 'w-6 h-6',
@@ -17,7 +18,7 @@ const VARIANT_STYLES = {
     buttonSize: 'default' as const,
   },
   compact: {
-    container: 'py-4 p-4',
+    container: `${uiSpacingTokens.py8} ${uiSpacingTokens.pad16}`,
     icon: {
       container: 'w-10 h-10 mb-2',
       size: 'w-5 h-5',
@@ -87,8 +88,8 @@ export function EmptyState({
     <div
       className={classNames(
         'flex flex-col items-center justify-center',
-        'text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary-dark',
-        'bg-bolt-elements-background-depth-2 dark:bg-bolt-elements-background-depth-3 rounded-lg',
+        'text-bolt-elements-textSecondary',
+        'bg-bolt-elements-bg-depth-2 rounded-lg',
         styles.container,
         className,
       )}
@@ -96,17 +97,11 @@ export function EmptyState({
       {/* Icon */}
       <div
         className={classNames(
-          'rounded-full bg-bolt-elements-background-depth-3 dark:bg-bolt-elements-background-depth-4 flex items-center justify-center',
+          'rounded-full bg-bolt-elements-bg-depth-3 flex items-center justify-center',
           styles.icon.container,
         )}
       >
-        <span
-          className={classNames(
-            icon,
-            styles.icon.size,
-            'text-bolt-elements-textTertiary dark:text-bolt-elements-textTertiary-dark',
-          )}
-        />
+        <span className={classNames(icon, styles.icon.size, 'text-bolt-elements-textTertiary')} />
       </div>
 
       {/* Title */}
@@ -114,12 +109,7 @@ export function EmptyState({
 
       {/* Description */}
       {description && (
-        <p
-          className={classNames(
-            'text-bolt-elements-textTertiary dark:text-bolt-elements-textTertiary-dark text-center max-w-xs',
-            styles.description,
-          )}
-        >
+        <p className={classNames('text-bolt-elements-textTertiary text-center max-w-xs', styles.description)}>
           {description}
         </p>
       )}
@@ -133,7 +123,7 @@ export function EmptyState({
                 onClick={onAction}
                 variant="default"
                 size={styles.buttonSize}
-                className="bg-purple-500 hover:bg-purple-600 text-white"
+                className={uiTypographyTokens.caption}
               >
                 {actionLabel}
               </Button>

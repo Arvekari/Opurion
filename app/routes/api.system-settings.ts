@@ -127,6 +127,7 @@ async function requireAdmin(request: Request, env?: Record<string, any>) {
 async function readSystemSettings(env?: Record<string, any>): Promise<SystemSettings> {
   const memory = await readPersistedMemory(env);
   const rawSystemSettings = memory?.providerSettings?.__systemSettings;
+
   return normalizeSystemSettings(rawSystemSettings);
 }
 
@@ -144,6 +145,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   }
 
   const settings = await readSystemSettings(env);
+
   return json({ ok: true, settings });
 }
 

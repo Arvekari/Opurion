@@ -307,6 +307,7 @@ async function ensureContext(env?: Record<string, any>): Promise<SqliteContext |
         }
 
         logger.info(`SQLite persistence enabled at ${sqlitePath}`);
+
         return { db, fs, path, sqlitePath };
       } catch (error) {
         logger.warn('SQLite persistence unavailable, continuing without it', error);
@@ -382,7 +383,9 @@ export async function readPersistedMemory(env?: Record<string, any>): Promise<Pe
     return null;
   }
 
-  const result = ctx.db.exec('SELECT api_keys, provider_settings, custom_prompt, db_config FROM app_memory WHERE id = 1;');
+  const result = ctx.db.exec(
+    'SELECT api_keys, provider_settings, custom_prompt, db_config FROM app_memory WHERE id = 1;',
+  );
 
   if (!result.length || !result[0]?.values?.length) {
     return {
@@ -471,6 +474,7 @@ export async function upsertPersistedMemory(
   );
 
   await save(ctx);
+
   return true;
 }
 
@@ -482,6 +486,7 @@ export async function getUserCount(env?: Record<string, any>): Promise<number> {
   }
 
   const result = ctx.db.exec('SELECT COUNT(*) as count FROM users;');
+
   return Number(result?.[0]?.values?.[0]?.[0] || 0);
 }
 
@@ -514,25 +519,23 @@ export async function createUser(
 export async function findUserByUsername(
   username: string,
   env?: Record<string, any>,
-): Promise<
-  | {
-      id: string;
-      username: string;
-      passwordHash: string;
-      passwordSalt: string;
-      isAdmin: boolean;
-    }
-  | null
-> {
+): Promise<{
+  id: string;
+  username: string;
+  passwordHash: string;
+  passwordSalt: string;
+  isAdmin: boolean;
+} | null> {
   const ctx = await ensureContext(env);
 
   if (!ctx) {
     return null;
   }
 
-  const result = ctx.db.exec('SELECT id, username, password_hash, password_salt, is_admin FROM users WHERE username = ?;', [
-    username,
-  ]);
+  const result = ctx.db.exec(
+    'SELECT id, username, password_hash, password_salt, is_admin FROM users WHERE username = ?;',
+    [username],
+  );
 
   const row = result?.[0]?.values?.[0];
 
@@ -572,6 +575,7 @@ export async function createSession(
   ]);
 
   await save(ctx);
+
   return { token, expiresAt };
 }
 
@@ -740,6 +744,7 @@ export async function upsertPersistedMemoryForUser(
   );
 
   await save(ctx);
+
   return true;
 }
 
@@ -941,10 +946,10 @@ async function hasCollabProjectAccess(projectId: string, userId: string, env?: R
     return false;
   }
 
-  const result = ctx.db.exec(
-    'SELECT role FROM collab_project_members WHERE project_id = ? AND user_id = ? LIMIT 1;',
-    [projectId, userId],
-  );
+  const result = ctx.db.exec('SELECT role FROM collab_project_members WHERE project_id = ? AND user_id = ? LIMIT 1;', [
+    projectId,
+    userId,
+  ]);
 
   return !!result?.[0]?.values?.[0];
 }
@@ -984,6 +989,7 @@ export async function addCollabProjectMember(
   );
 
   await save(ctx);
+
   return true;
 }
 
@@ -1107,10 +1113,7 @@ export async function listCollabConversations(
   }));
 }
 
-async function getConversationProjectId(
-  conversationId: string,
-  env?: Record<string, any>,
-): Promise<string | null> {
+async function getConversationProjectId(conversationId: string, env?: Record<string, any>): Promise<string | null> {
   const ctx = await ensureContext(env);
 
   if (!ctx) {
@@ -1204,7 +1207,11 @@ async function getMainBranch(conversationId: string, env?: Record<string, any>):
   return branch;
 }
 
-async function getOrCreateUserBranch(conversationId: string, userId: string, env?: Record<string, any>): Promise<CollabBranch | null> {
+async function getOrCreateUserBranch(
+  conversationId: string,
+  userId: string,
+  env?: Record<string, any>,
+): Promise<CollabBranch | null> {
   const ctx = await ensureContext(env);
 
   if (!ctx) {
@@ -1237,6 +1244,7 @@ async function getOrCreateUserBranch(conversationId: string, userId: string, env
   );
 
   await save(ctx);
+
   return getBranchByName(conversationId, branchName, env);
 }
 
@@ -1276,6 +1284,7 @@ export async function listCollabBranches(
   );
 
   const rows = result?.[0]?.values || [];
+
   return rows.map((row: any[]) => ({
     id: String(row[0]),
     conversationId: String(row[1]),
@@ -1323,15 +1332,16 @@ export async function mergeCollabBranchToMain(
     return { mergedCount: 0 };
   }
 
-  const rows = ctx.db.exec(
-    `
+  const rows =
+    ctx.db.exec(
+      `
       SELECT user_id, role, content, created_at
       FROM collab_branch_messages
       WHERE branch_id = ?
       ORDER BY created_at ASC;
     `,
-    [sourceBranch.id],
-  )?.[0]?.values || [];
+      [sourceBranch.id],
+    )?.[0]?.values || [];
 
   for (const row of rows) {
     ctx.db.run(
@@ -1340,12 +1350,15 @@ export async function mergeCollabBranchToMain(
     );
   }
 
-  ctx.db.run(
-    'UPDATE collab_branches SET status = ?, merged_into_branch_id = ?, merged_at = ? WHERE id = ?;',
-    ['merged', mainBranch.id, new Date().toISOString(), sourceBranch.id],
-  );
+  ctx.db.run('UPDATE collab_branches SET status = ?, merged_into_branch_id = ?, merged_at = ? WHERE id = ?;', [
+    'merged',
+    mainBranch.id,
+    new Date().toISOString(),
+    sourceBranch.id,
+  ]);
 
   await save(ctx);
+
   return { mergedCount: rows.length };
 }
 
@@ -1402,6 +1415,7 @@ export async function appendCollabMessage(
   );
 
   await save(ctx);
+
   return true;
 }
 

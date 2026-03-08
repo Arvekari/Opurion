@@ -404,6 +404,7 @@ export class MCPService {
 
             try {
               modelMessagesPromise ??= convertToModelMessages(messages as any);
+
               const modelMessages = await modelMessagesPromise;
               result = await (toolInstance.execute as any)(toolInvocation.args as any, {
                 messages: modelMessages,

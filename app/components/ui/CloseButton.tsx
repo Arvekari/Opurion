@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { classNames } from '~/utils/classNames';
+import { uiSpacingTokens } from './tokens';
 
 interface CloseButtonProps {
   onClick?: () => void;
@@ -16,9 +17,9 @@ interface CloseButtonProps {
  */
 export function CloseButton({ onClick, className, size = 'md' }: CloseButtonProps) {
   const sizeClasses = {
-    sm: 'p-1',
-    md: 'p-2',
-    lg: 'p-3',
+    sm: uiSpacingTokens.pad4,
+    md: uiSpacingTokens.pad8,
+    lg: uiSpacingTokens.pad16,
   };
 
   const iconSizeClasses = {
@@ -32,10 +33,10 @@ export function CloseButton({ onClick, className, size = 'md' }: CloseButtonProp
       type="button"
       onClick={onClick}
       className={classNames(
-        'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary dark:text-bolt-elements-textTertiary-dark dark:hover:text-bolt-elements-textSecondary-dark',
-        'rounded-lg hover:bg-bolt-elements-background-depth-2 dark:hover:bg-bolt-elements-background-depth-3',
+        'text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
+        'rounded-lg hover:bg-bolt-elements-bg-depth-2',
         'transition-colors duration-200',
-        'focus:outline-none focus:ring-2 focus:ring-purple-500/50',
+        'focus:outline-none focus:ring-2 focus:ring-bolt-elements-borderColorActive/50',
         sizeClasses[size],
         className,
       )}

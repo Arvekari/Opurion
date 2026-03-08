@@ -25,6 +25,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   }
 
   const projects = await listCollabProjectsForUser(user.userId, env);
+
   return json({ ok: true, projects });
 }
 

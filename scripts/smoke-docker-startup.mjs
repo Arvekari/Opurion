@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { spawn, spawnSync } from 'node:child_process';
-import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const startupTimeoutMs = Number(process.env.DOCKER_SMOKE_TIMEOUT_MS || 15000);
@@ -12,7 +12,7 @@ const dockerfilePath = process.env.DOCKER_SMOKE_DOCKERFILE || 'docs/docker/compo
 const dockerBuildContext = process.env.DOCKER_SMOKE_CONTEXT || '.';
 const composedOutputDir = resolve(process.env.DOCKER_SMOKE_COMPOSED_OUTPUT_DIR || '..', 'composed');
 const hostLogDir = resolve(process.env.DOCKER_SMOKE_LOG_DIR || 'bolt.work/docker-test/logs');
-const containerLogDir = process.env.DOCKER_SMOKE_CONTAINER_LOG_DIR || '/bolt-work/docker-test/logs';
+const containerLogDir = process.env.DOCKER_SMOKE_CONTAINER_LOG_DIR || '/logs';
 const maxLogRotations = Math.max(1, Number(process.env.DOCKER_SMOKE_MAX_LOG_ROTATIONS || 3));
 const runId = new Date().toISOString().replace(/[.:]/g, '-');
 
@@ -62,6 +62,59 @@ function writeContainerLogFile(containerRef, stage) {
 
   console.log(`Docker smoke logs saved: ${filePath}`);
   return logs;
+}
+
+function snapshotLogEntries() {
+  ensureLogDir();
+
+  return readdirSync(hostLogDir)
+    .filter((name) => name.toLowerCase().endsWith('.log'))
+    .map((name) => {
+      const fullPath = resolve(hostLogDir, name);
+      const stats = statSync(fullPath);
+
+      return {
+        name,
+        fullPath,
+        mtimeMs: stats.mtimeMs,
+      };
+    });
+}
+
+function assertMappedLogsReadable(baselineEntries, containerRef) {
+  const baselineByName = new Map(baselineEntries.map((entry) => [entry.name, entry.mtimeMs]));
+  const currentEntries = snapshotLogEntries();
+  const changedEntries = currentEntries.filter((entry) => {
+    const previousMtime = baselineByName.get(entry.name);
+
+    return previousMtime === undefined || entry.mtimeMs > previousMtime;
+  });
+
+  if (changedEntries.length === 0) {
+    writeContainerLogFile(containerRef, 'mapped-log-missing');
+    console.error('❌ Docker smoke host log mapping produced no readable .log files.');
+    console.error(`Expected mapped logs in host directory: ${hostLogDir}`);
+    console.error(`Container log directory mapping: ${containerLogDir}`);
+    process.exit(1);
+  }
+
+  for (const entry of changedEntries) {
+    try {
+      const content = readFileSync(entry.fullPath, 'utf8');
+
+      if (content.length > 0) {
+        console.log(`Mapped log readable: ${entry.fullPath}`);
+      } else {
+        console.warn(`Mapped log is empty (still readable): ${entry.fullPath}`);
+      }
+    } catch (error) {
+      writeContainerLogFile(containerRef, 'mapped-log-unreadable');
+      const details = error instanceof Error ? error.message : String(error);
+      console.error(`❌ Failed to read mapped docker smoke log file: ${entry.fullPath}`);
+      console.error(details);
+      process.exit(1);
+    }
+  }
 }
 
 function runCommand(command, args, options = {}) {
@@ -250,6 +303,7 @@ async function runDockerContainerSmoke() {
   console.log('Starting Docker container smoke check...');
   ensureLogDir();
   console.log(`Docker smoke log mapping: ${hostLogDir} -> ${containerLogDir}`);
+  const baselineLogEntries = snapshotLogEntries();
 
   removeDockerContainer();
 
@@ -260,6 +314,8 @@ async function runDockerContainerSmoke() {
     dockerContainerName,
     '-v',
     `${hostLogDir}:${containerLogDir}`,
+    '-e',
+    `BOLT_LOG_DIR=${containerLogDir}`,
     '-e',
     `BOLT_SMOKE_LOG_DIR=${containerLogDir}`,
     dockerImageTag,
@@ -307,6 +363,7 @@ async function runDockerContainerSmoke() {
     }
 
     const logs = writeContainerLogFile(containerRef, 'startup');
+  assertMappedLogsReadable(baselineLogEntries, containerRef);
     assertNoErrorLogs(logs, 'Docker container startup');
 
     console.log('✅ Docker container startup smoke check passed with clean logs.');

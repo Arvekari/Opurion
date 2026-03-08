@@ -1,6 +1,7 @@
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import { forwardRef, type ForwardedRef, type ReactElement } from 'react';
 import { classNames } from '~/utils/classNames';
+import { uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 // Original WithTooltip component
 interface WithTooltipProps {
@@ -37,26 +38,10 @@ const WithTooltip = forwardRef(
           <TooltipPrimitive.Portal>
             <TooltipPrimitive.Content
               side={position}
-              className={`
-                z-[2000]
-                px-2.5
-                py-1.5
-                max-h-[300px]
-                select-none
-                rounded-md
-                bg-bolt-elements-background-depth-3
-                text-bolt-elements-textPrimary
-                text-sm
-                leading-tight
-                shadow-lg
-                animate-in
-                fade-in-0
-                zoom-in-95
-                data-[state=closed]:animate-out
-                data-[state=closed]:fade-out-0
-                data-[state=closed]:zoom-out-95
-                ${className}
-              `}
+              className={classNames(
+                `z-[2000] ${uiSpacingTokens.px8} ${uiSpacingTokens.py4} max-h-[300px] select-none rounded-md bg-bolt-elements-bg-depth-3 text-bolt-elements-textPrimary ${uiTypographyTokens.caption} leading-tight shadow-lg animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95`,
+                className,
+              )}
               sideOffset={sideOffset}
               style={{
                 maxWidth,
@@ -65,10 +50,7 @@ const WithTooltip = forwardRef(
             >
               <div className="break-words">{tooltip}</div>
               <TooltipPrimitive.Arrow
-                className={`
-                  fill-bolt-elements-background-depth-3
-                  ${arrowClassName}
-                `}
+                className={classNames('fill-bolt-elements-bg-depth-3', arrowClassName)}
                 width={12}
                 height={6}
               />
@@ -106,13 +88,13 @@ export function Tooltip({
           side={side}
           align={align}
           className={classNames(
-            'z-50 overflow-hidden rounded-md bg-bolt-elements-background-depth-3 dark:bg-bolt-elements-background-depth-4 px-3 py-1.5 text-xs text-bolt-elements-textPrimary dark:text-bolt-elements-textPrimary-dark shadow-md animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2',
+            `z-50 overflow-hidden rounded-md bg-bolt-elements-bg-depth-3 ${uiSpacingTokens.px16} ${uiSpacingTokens.py4} ${uiTypographyTokens.bodyXs} text-bolt-elements-textPrimary shadow-md animate-in fade-in-0 zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2`,
             className,
           )}
           sideOffset={5}
         >
           {content}
-          <TooltipPrimitive.Arrow className="fill-bolt-elements-background-depth-3 dark:fill-bolt-elements-background-depth-4" />
+          <TooltipPrimitive.Arrow className="fill-bolt-elements-bg-depth-3" />
         </TooltipPrimitive.Content>
       </TooltipPrimitive.Root>
     </TooltipPrimitive.Provider>

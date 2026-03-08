@@ -1,6 +1,7 @@
 import * as React from 'react';
 import * as LabelPrimitive from '@radix-ui/react-label';
 import { classNames } from '~/utils/classNames';
+import { uiTypographyTokens } from './tokens';
 
 const Label = React.forwardRef<
   React.ElementRef<typeof LabelPrimitive.Root>,
@@ -9,7 +10,7 @@ const Label = React.forwardRef<
   <LabelPrimitive.Root
     ref={ref}
     className={classNames(
-      'text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70',
+      `${uiTypographyTokens.bodySm} leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70`,
       className,
     )}
     {...props}

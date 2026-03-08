@@ -87,10 +87,12 @@ export const ChatImpl = memo(
   ({ description, initialMessages, storeMessageHistory, importChat, exportChat }: ChatProps) => {
     useShortcuts();
 
+    const initialPrompt = Cookies.get(PROMPT_COOKIE_KEY) || '';
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     const [chatStarted, setChatStarted] = useState(initialMessages.length > 0);
     const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
     const [imageDataList, setImageDataList] = useState<string[]>([]);
+    const [draftInput, setDraftInput] = useState(initialPrompt);
     const [searchParams, setSearchParams] = useSearchParams();
     const [fakeLoading, setFakeLoading] = useState(false);
     const files = useStore(workbenchStore.files);
@@ -125,7 +127,6 @@ export const ChatImpl = memo(
     const {
       messages,
       isLoading,
-      input,
       setInput,
       stop,
       append,
@@ -192,7 +193,7 @@ export const ChatImpl = memo(
         }
       },
       initialMessages,
-      initialInput: Cookies.get(PROMPT_COOKIE_KEY) || '',
+      initialInput: initialPrompt,
     });
     useEffect(() => {
       const prompt = searchParams.get('prompt');
@@ -418,7 +419,7 @@ export const ChatImpl = memo(
         textarea.style.height = `${Math.min(scrollHeight, TEXTAREA_MAX_HEIGHT)}px`;
         textarea.style.overflowY = scrollHeight > TEXTAREA_MAX_HEIGHT ? 'auto' : 'hidden';
       }
-    }, [input, textareaRef]);
+    }, [draftInput, textareaRef]);
 
     const runAnimation = async () => {
       if (chatStarted) {
@@ -489,7 +490,7 @@ export const ChatImpl = memo(
     };
 
     const sendMessage = async (_event: React.UIEvent, messageInput?: string) => {
-      const messageContent = messageInput || input;
+      const messageContent = messageInput || draftInput;
 
       if (!messageContent?.trim()) {
         return;
@@ -586,6 +587,7 @@ export const ChatImpl = memo(
               }
 
               setInput('');
+              setDraftInput('');
               Cookies.remove(PROMPT_COOKIE_KEY);
 
               setUploadedFiles([]);
@@ -632,6 +634,7 @@ export const ChatImpl = memo(
 
         setFakeLoading(false);
         setInput('');
+        setDraftInput('');
         Cookies.remove(PROMPT_COOKIE_KEY);
 
         setUploadedFiles([]);
@@ -714,6 +717,7 @@ export const ChatImpl = memo(
       }
 
       setInput('');
+      setDraftInput('');
       Cookies.remove(PROMPT_COOKIE_KEY);
 
       setUploadedFiles([]);
@@ -729,7 +733,9 @@ export const ChatImpl = memo(
      * @param event - The change event from the textarea.
      */
     const onTextareaChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
-      setInput(event.target.value);
+      const nextValue = event.target.value;
+      setDraftInput(nextValue);
+      setInput(nextValue);
     };
 
     /**
@@ -764,12 +770,13 @@ export const ChatImpl = memo(
 
     const handleWebSearchResult = useCallback(
       (result: string) => {
-        const currentInput = input || '';
+        const currentInput = draftInput || '';
         const newInput = currentInput.length > 0 ? `${result}\n\n${currentInput}` : result;
 
+        setDraftInput(newInput);
         setInput(newInput);
       },
-      [input, setInput],
+      [draftInput, setInput],
     );
 
     const effectiveStreaming = resolveEffectiveStreamingState({
@@ -782,7 +789,7 @@ export const ChatImpl = memo(
       <BaseChat
         ref={animationScope}
         textareaRef={textareaRef}
-        input={input}
+        input={draftInput}
         showChat={showChat}
         chatStarted={chatStarted}
         isStreaming={effectiveStreaming}
@@ -817,8 +824,9 @@ export const ChatImpl = memo(
         })}
         enhancePrompt={() => {
           enhancePrompt(
-            input,
+            draftInput,
             (input) => {
+              setDraftInput(input);
               setInput(input);
               scrollTextArea();
             },

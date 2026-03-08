@@ -1,11 +1,14 @@
 import { type ActionFunctionArgs, json } from '@remix-run/cloudflare';
-import { createUser, findUserByUsername, getUserCount } from '../lib/.server/persistence';
+import { createUser, findUserByUsername, getUserCount } from '~/lib/.server/persistence';
 import { createAuthCookies, generateSalt, hashPassword } from '~/lib/.server/auth';
 import { enforceRateLimit } from '~/platform/security/request-guard';
 import { issueJwtToken } from '~/platform/security/jwt';
 
 export async function action({ request, context }: ActionFunctionArgs) {
-  const { requestId, blockedResponse } = enforceRateLimit({ request, context } as ActionFunctionArgs, 'api.auth.signup');
+  const { requestId, blockedResponse } = enforceRateLimit(
+    { request, context } as ActionFunctionArgs,
+    'api.auth.signup',
+  );
 
   if (blockedResponse) {
     return blockedResponse;
@@ -59,7 +62,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
       { sub: created.id, role: created.isAdmin ? 'admin' : 'user' },
       { jwtSecret, ttlSeconds: 60 * 60 * 24 * 14 },
     );
-    headers.append('Set-Cookie', `bolt_jwt=${encodeURIComponent(jwt)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=1209600`);
+    headers.append(
+      'Set-Cookie',
+      `bolt_jwt=${encodeURIComponent(jwt)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=1209600`,
+    );
 
     headers.set('x-request-id', requestId);
 

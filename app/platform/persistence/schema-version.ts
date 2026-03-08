@@ -1,2 +1,1 @@
-﻿export * from '../../../platform/persistence/schema-version';
-
+export * from 'platform/persistence/schema-version';

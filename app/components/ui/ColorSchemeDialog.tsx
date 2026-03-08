@@ -4,6 +4,7 @@ import { Button } from './Button';
 import { IconButton } from './IconButton';
 import type { DesignScheme } from '~/types/design-scheme';
 import { defaultDesignScheme, designFeatures, designFonts, paletteRoles } from '~/types/design-scheme';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 export interface ColorSchemeDialogProps {
   designScheme?: DesignScheme;
@@ -62,13 +63,15 @@ export const ColorSchemeDialog: React.FC<ColorSchemeDialogProps> = ({ setDesignS
   const renderColorSection = () => (
     <div className="space-y-4">
       <div className="flex justify-between items-center">
-        <h3 className="text-lg font-semibold text-bolt-elements-textPrimary flex items-center gap-2">
+        <h3
+          className={`${uiTypographyTokens.headingMd} text-bolt-elements-textPrimary flex items-center ${uiSpacingTokens.gap8}`}
+        >
           <div className="w-2 h-2 rounded-full bg-bolt-elements-item-contentAccent"></div>
           Color Palette
         </h3>
         <button
           onClick={handleReset}
-          className="text-sm bg-transparent hover:bg-bolt-elements-bg-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary rounded-lg flex items-center gap-2 transition-all duration-200"
+          className={`${uiTypographyTokens.caption} bg-transparent hover:bg-bolt-elements-bg-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary rounded-lg flex items-center ${uiSpacingTokens.gap8} transition-all duration-200`}
         >
           <span className="i-ph:arrow-clockwise text-sm" />
           Reset
@@ -79,7 +82,7 @@ export const ColorSchemeDialog: React.FC<ColorSchemeDialogProps> = ({ setDesignS
         {paletteRoles.map((role) => (
           <div
             key={role.key}
-            className="group flex items-center gap-4 p-4 rounded-xl bg-bolt-elements-bg-depth-3 hover:bg-bolt-elements-bg-depth-2 border border-transparent hover:border-bolt-elements-borderColor transition-all duration-200"
+            className={`group flex items-center ${uiSpacingTokens.gap16} ${uiSpacingTokens.pad16} rounded-xl bg-bolt-elements-bg-depth-3 hover:bg-bolt-elements-bg-depth-2 border border-transparent hover:border-bolt-elements-borderColor transition-all duration-200`}
           >
             <div className="relative flex-shrink-0">
               <div
@@ -119,7 +122,9 @@ export const ColorSchemeDialog: React.FC<ColorSchemeDialogProps> = ({ setDesignS
 
   const renderTypographySection = () => (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-bolt-elements-textPrimary flex items-center gap-2">
+      <h3
+        className={`${uiTypographyTokens.headingMd} text-bolt-elements-textPrimary flex items-center ${uiSpacingTokens.gap8}`}
+      >
         <div className="w-2 h-2 rounded-full bg-bolt-elements-item-contentAccent"></div>
         Typography
       </h3>
@@ -133,7 +138,7 @@ export const ColorSchemeDialog: React.FC<ColorSchemeDialogProps> = ({ setDesignS
             className={`group p-4 rounded-xl border-2 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-bolt-elements-borderColorActive ${
               font.includes(f.key)
                 ? 'bg-bolt-elements-item-backgroundAccent border-bolt-elements-borderColorActive shadow-lg'
-                : 'bg-bolt-elements-background-depth-3 border-bolt-elements-borderColor hover:border-bolt-elements-borderColorActive hover:bg-bolt-elements-bg-depth-2'
+                : 'bg-bolt-elements-bg-depth-3 border-bolt-elements-borderColor hover:border-bolt-elements-borderColorActive hover:bg-bolt-elements-bg-depth-2'
             }`}
           >
             <div className="text-center space-y-2">
@@ -166,7 +171,9 @@ export const ColorSchemeDialog: React.FC<ColorSchemeDialogProps> = ({ setDesignS
 
   const renderFeaturesSection = () => (
     <div className="space-y-4">
-      <h3 className="text-lg font-semibold text-bolt-elements-textPrimary flex items-center gap-2">
+      <h3
+        className={`${uiTypographyTokens.headingMd} text-bolt-elements-textPrimary flex items-center ${uiSpacingTokens.gap8}`}
+      >
         <div className="w-2 h-2 rounded-full bg-bolt-elements-item-contentAccent"></div>
         Design Features
       </h3>
@@ -180,7 +187,7 @@ export const ColorSchemeDialog: React.FC<ColorSchemeDialogProps> = ({ setDesignS
               <button
                 type="button"
                 onClick={() => handleFeatureToggle(f.key)}
-                className={`group relative w-full p-6 text-sm font-medium transition-all duration-200 bg-bolt-elements-background-depth-3 text-bolt-elements-item-textSecondary ${
+                className={`group relative w-full ${uiSpacingTokens.pad24} ${uiTypographyTokens.bodySm} transition-all duration-200 bg-bolt-elements-bg-depth-3 text-bolt-elements-item-textSecondary ${
                   f.key === 'rounded'
                     ? isSelected
                       ? 'rounded-3xl'
@@ -301,8 +308,8 @@ export const ColorSchemeDialog: React.FC<ColorSchemeDialogProps> = ({ setDesignS
                   onClick={() => setActiveSection(tab.key as any)}
                   className={`flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-lg font-medium transition-all duration-200 ${
                     activeSection === tab.key
-                      ? 'bg-bolt-elements-background-depth-3 text-bolt-elements-textPrimary shadow-md'
-                      : 'bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-bg-depth-2'
+                      ? 'bg-bolt-elements-bg-depth-3 text-bolt-elements-textPrimary shadow-md'
+                      : 'bg-bolt-elements-bg-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary hover:bg-bolt-elements-bg-depth-2'
                   }`}
                 >
                   <span className={`${tab.icon} text-lg`} />
@@ -327,11 +334,7 @@ export const ColorSchemeDialog: React.FC<ColorSchemeDialogProps> = ({ setDesignS
                 <Button variant="secondary" onClick={() => setIsDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button
-                  variant="ghost"
-                  onClick={handleSave}
-                  className="bg-bolt-elements-button-primary-background hover:bg-bolt-elements-button-primary-backgroundHover text-bolt-elements-button-primary-text"
-                >
+                <Button variant="ghost" onClick={handleSave} className={uiColorRoleTokens.primary}>
                   Save Changes
                 </Button>
               </div>

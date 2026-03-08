@@ -1,2 +1,1 @@
-﻿export * from '../../../platform/security/authz';
-
+export * from 'platform/security/authz';

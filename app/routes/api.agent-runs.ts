@@ -1,4 +1,4 @@
-import { type ActionFunctionArgs, type LoaderFunctionArgs } from '@remix-run/cloudflare';
+import { json, type ActionFunctionArgs, type LoaderFunctionArgs } from '@remix-run/cloudflare';
 import { executeCoreChatStream } from '~/core/chat-engine';
 import { resolveExecutionEngine } from '~/core/model-router';
 import { AgentRunService } from '~/lib/.server/agents/agentRunService';
@@ -71,22 +71,20 @@ export async function loader({ request }: LoaderFunctionArgs) {
   const runId = url.searchParams.get('runId');
 
   if (!runId) {
-    return Response.json({ runs: await service.listRunsPersisted() });
+    return json({ runs: await service.listRunsPersisted() });
   }
 
   const run = await service.getRunPersisted(runId);
 
   if (!run) {
-    return Response.json({ error: 'Run not found' }, { status: 404 });
+    return json({ error: 'Run not found' }, { status: 404 });
   }
 
   const remoteRunId =
-    run.engine === 'openclaw' && typeof run.metadata?.remoteRunId === 'string'
-      ? run.metadata.remoteRunId
-      : undefined;
+    run.engine === 'openclaw' && typeof run.metadata?.remoteRunId === 'string' ? run.metadata.remoteRunId : undefined;
 
   if (!remoteRunId) {
-    return Response.json(run);
+    return json(run);
   }
 
   try {
@@ -94,13 +92,13 @@ export async function loader({ request }: LoaderFunctionArgs) {
       remoteRunId,
     });
 
-    return Response.json({
+    return json({
       ...run,
       remoteStatus,
     });
   } catch (error) {
     logger.warn('openclaw remote status failed', error);
-    return Response.json(run);
+    return json(run);
   }
 }
 
@@ -124,7 +122,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
     if (body.intent === 'cancel') {
       if (!body.runId) {
-        return Response.json({ error: 'runId is required for cancel' }, { status: 400 });
+        return json({ error: 'runId is required for cancel' }, { status: 400 });
       }
 
       const cancelled = service.cancelRun(body.runId);
@@ -133,8 +131,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
         const run = await service.getRunPersisted(body.runId);
 
         if (run?.engine === 'openclaw') {
-          const remoteRunId =
-            (typeof run.metadata?.remoteRunId === 'string' && run.metadata.remoteRunId) || undefined;
+          const remoteRunId = (typeof run.metadata?.remoteRunId === 'string' && run.metadata.remoteRunId) || undefined;
 
           if (remoteRunId) {
             await cancelOpenClawRun({
@@ -147,11 +144,11 @@ export async function action({ request, context }: ActionFunctionArgs) {
         logger.warn('openclaw remote cancel failed', error);
       }
 
-      return Response.json({ cancelled });
+      return json({ cancelled });
     }
 
     if (!body.system || !body.message || !body.model || !body.provider) {
-      return Response.json({ error: 'Missing required fields for start' }, { status: 400 });
+      return json({ error: 'Missing required fields for start' }, { status: 400 });
     }
 
     const run = service.createRun({
@@ -206,9 +203,9 @@ export async function action({ request, context }: ActionFunctionArgs) {
       }),
     });
 
-    return Response.json({ runId: run.runId, state: run.state }, { status: 202 });
+    return json({ runId: run.runId, state: run.state }, { status: 202 });
   } catch (error) {
     logger.error('agent-runs action failed', error);
-    return Response.json({ error: 'Failed to process agent run request' }, { status: 500 });
+    return json({ error: 'Failed to process agent run request' }, { status: 500 });
   }
 }

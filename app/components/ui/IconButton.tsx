@@ -1,9 +1,10 @@
-import { memo, forwardRef, type ForwardedRef } from 'react';
+import { memo, forwardRef, type ButtonHTMLAttributes, type ForwardedRef } from 'react';
 import { classNames } from '~/utils/classNames';
+import { uiSpacingTokens } from './tokens';
 
 type IconSize = 'sm' | 'md' | 'lg' | 'xl' | 'xxl';
 
-interface BaseIconButtonProps {
+interface BaseIconButtonProps extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, 'children' | 'onClick'> {
   size?: IconSize;
   className?: string;
   iconClassName?: string;
@@ -39,6 +40,7 @@ export const IconButton = memo(
         title,
         onClick,
         children,
+        ...buttonProps
       }: IconButtonProps,
       ref: ForwardedRef<HTMLButtonElement>,
     ) => {
@@ -46,7 +48,7 @@ export const IconButton = memo(
         <button
           ref={ref}
           className={classNames(
-            'flex items-center text-bolt-elements-item-contentDefault bg-transparent enabled:hover:text-bolt-elements-item-contentActive rounded-md p-1 enabled:hover:bg-bolt-elements-item-backgroundActive disabled:cursor-not-allowed focus:outline-none',
+            `flex items-center text-bolt-elements-item-contentDefault bg-transparent enabled:hover:text-bolt-elements-item-contentActive rounded-md ${uiSpacingTokens.pad4} enabled:hover:bg-bolt-elements-item-backgroundActive disabled:cursor-not-allowed focus:outline-none`,
             {
               [classNames('opacity-30', disabledClassName)]: disabled,
             },
@@ -54,6 +56,7 @@ export const IconButton = memo(
           )}
           title={title}
           disabled={disabled}
+          {...buttonProps}
           onClick={(event) => {
             if (disabled) {
               return;

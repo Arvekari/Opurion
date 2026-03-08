@@ -129,7 +129,8 @@ function emitPayloadFiles(next, objectives) {
 }
 
 function main() {
-  const command = process.argv[2] || 'json';
+  const rawCommand = process.argv[2] || 'json';
+  const command = String(rawCommand).replace(/^--/, '');
   const markdown = readFileSync(FILE_PATH, 'utf8');
   const objectives = extractObjectives(markdown);
   const next = selectNextObjective(objectives);

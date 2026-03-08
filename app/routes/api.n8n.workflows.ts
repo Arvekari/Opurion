@@ -1,4 +1,4 @@
-import { type ActionFunctionArgs, type LoaderFunctionArgs } from '@remix-run/cloudflare';
+import { json, type ActionFunctionArgs, type LoaderFunctionArgs } from '@remix-run/cloudflare';
 import { deployN8nWorkflow, isN8nConfigured, updateN8nWorkflow } from '~/lib/.server/extensions/n8n/n8n-client';
 import { readPersistedMemory } from '~/lib/.server/persistence';
 import { createScopedLogger } from '~/utils/logger';
@@ -68,7 +68,7 @@ export async function loader({ context }: LoaderFunctionArgs) {
   const env = context.cloudflare?.env as unknown as Record<string, string | undefined> | undefined;
   const resolvedEnv = await resolveN8nEnv(env);
 
-  return Response.json({
+  return json({
     configured: isN8nConfigured(resolvedEnv),
   });
 }
@@ -81,15 +81,15 @@ export async function action({ request, context }: ActionFunctionArgs) {
     const body = (await request.json()) as WorkflowRequestBody;
 
     if (body.intent !== 'deploy' && body.intent !== 'update') {
-      return Response.json({ error: 'Unsupported intent' }, { status: 400 });
+      return json({ error: 'Unsupported intent' }, { status: 400 });
     }
 
     if (!body.workflow || typeof body.workflow !== 'object') {
-      return Response.json({ error: 'workflow payload is required' }, { status: 400 });
+      return json({ error: 'workflow payload is required' }, { status: 400 });
     }
 
     if (!hasN8nWorkflowShape(body.workflow)) {
-      return Response.json(
+      return json(
         {
           error:
             'workflow payload must include non-empty name, nodes array, and connections object in n8n workflow JSON format',
@@ -99,7 +99,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     }
 
     if (!isN8nConfigured(resolvedEnv)) {
-      return Response.json({ error: 'n8n integration is not configured' }, { status: 503 });
+      return json({ error: 'n8n integration is not configured' }, { status: 503 });
     }
 
     const result =
@@ -116,9 +116,9 @@ export async function action({ request, context }: ActionFunctionArgs) {
             env: resolvedEnv,
           });
 
-    return Response.json(result, { status: 201 });
+    return json(result, { status: 201 });
   } catch (error) {
     logger.error('n8n workflow action failed', error);
-    return Response.json({ error: 'Failed to process n8n workflow request' }, { status: 500 });
+    return json({ error: 'Failed to process n8n workflow request' }, { status: 500 });
   }
 }

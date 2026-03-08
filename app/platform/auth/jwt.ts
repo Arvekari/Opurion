@@ -1,2 +1,1 @@
-﻿export * from '../../../platform/auth/jwt';
-
+export * from 'platform/auth/jwt';

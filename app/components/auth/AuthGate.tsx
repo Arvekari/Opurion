@@ -73,6 +73,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
     if (dbProvider === 'sqlite') {
       setError(null);
       setSetupComplete(true);
+
       return;
     }
 
@@ -96,6 +97,7 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
       if (!response.ok) {
         const data = (await response.json().catch(() => ({}))) as { error?: string };
         setError(data.error || 'Failed to save setup configuration.');
+
         return;
       }
 
@@ -143,7 +145,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   };
 
   if (loading) {
-    return <div className="flex-1 flex items-center justify-center text-bolt-elements-textSecondary">Loading session…</div>;
+    return (
+      <div className="flex-1 flex items-center justify-center text-bolt-elements-textSecondary">Loading session…</div>
+    );
   }
 
   if (session?.authenticated) {
@@ -163,7 +167,9 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
 
         {isSignupMode && session?.requireSignup && !setupComplete && (
           <div className="p-3 rounded bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor flex flex-col gap-2">
-            <h3 className="text-sm font-medium text-bolt-elements-textPrimary">Setup database before account creation</h3>
+            <h3 className="text-sm font-medium text-bolt-elements-textPrimary">
+              Setup database before account creation
+            </h3>
             <p className="text-xs text-bolt-elements-textSecondary">
               Choose database mode now. If PostgreSQL/PostgREST is not provided, the app uses SQLite automatically.
             </p>

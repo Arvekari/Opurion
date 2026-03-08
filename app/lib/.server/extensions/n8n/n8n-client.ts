@@ -30,6 +30,7 @@ export type N8nUpdateResult = {
 function getEnvValue(env: EnvLike, key: string): string | undefined {
   const processEnv = (globalThis as any)?.process?.env;
   const value = env?.[key] ?? processEnv?.[key];
+
   return typeof value === 'string' ? value : undefined;
 }
 
@@ -56,6 +57,7 @@ function getApiKey(env?: EnvLike): string {
 function getTimeoutMs(env?: EnvLike): number {
   const raw = getEnvValue(env, 'N8N_TIMEOUT_MS') || '30000';
   const timeout = Number(raw);
+
   return Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : 30000;
 }
 
@@ -110,7 +112,11 @@ function resolveWorkflowId(explicitWorkflowId: string | undefined, workflow: Rec
   throw new Error('workflowId is required for n8n update intent');
 }
 
-async function activateWorkflow(workflowId: string, env?: EnvLike, signal?: AbortSignal): Promise<Record<string, unknown>> {
+async function activateWorkflow(
+  workflowId: string,
+  env?: EnvLike,
+  signal?: AbortSignal,
+): Promise<Record<string, unknown>> {
   const baseUrl = getBaseUrl(env);
   const apiKey = getApiKey(env);
   const { signal: activateSignal, timeoutId: activateTimeoutId } = withTimeoutController(env, signal);

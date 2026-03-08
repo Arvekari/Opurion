@@ -141,15 +141,14 @@ export async function searchUserVectors(
   return usePostgrest(env) ? postgrest.searchUserVectors(input, env) : sqlite.searchUserVectors(input, env);
 }
 
-export async function createCollabProject(
-  input: { ownerUserId: string; name: string },
-  env?: Record<string, any>,
-) {
+export async function createCollabProject(input: { ownerUserId: string; name: string }, env?: Record<string, any>) {
   return usePostgrest(env) ? postgrest.createCollabProject(input, env) : sqlite.createCollabProject(input, env);
 }
 
 export async function listCollabProjectsForUser(userId: string, env?: Record<string, any>) {
-  return usePostgrest(env) ? postgrest.listCollabProjectsForUser(userId, env) : sqlite.listCollabProjectsForUser(userId, env);
+  return usePostgrest(env)
+    ? postgrest.listCollabProjectsForUser(userId, env)
+    : sqlite.listCollabProjectsForUser(userId, env);
 }
 
 export async function addCollabProjectMember(
@@ -221,9 +220,7 @@ export async function mergeCollabBranchToMain(
   input: { conversationId: string; sourceBranchId: string; userId: string },
   env?: Record<string, any>,
 ) {
-  return usePostgrest(env)
-    ? postgrest.mergeCollabBranchToMain(input, env)
-    : sqlite.mergeCollabBranchToMain(input, env);
+  return usePostgrest(env) ? postgrest.mergeCollabBranchToMain(input, env) : sqlite.mergeCollabBranchToMain(input, env);
 }
 
 export async function upsertAgentRunRecord(

@@ -57,6 +57,7 @@ export function isPostgrestEnabled(env?: Record<string, any>): boolean {
   }
 
   const config = getConfig(env);
+
   return !!config.url;
 }
 
@@ -299,7 +300,7 @@ export async function createUser(
         username: input.username,
         password_hash: input.passwordHash,
         password_salt: input.passwordSalt,
-        is_admin: input.isAdmin ? true : false,
+        is_admin: !!input.isAdmin,
         created_at: new Date().toISOString(),
       }),
     },
@@ -323,16 +324,13 @@ export async function createUser(
 export async function findUserByUsername(
   username: string,
   env?: Record<string, any>,
-): Promise<
-  | {
-      id: string;
-      username: string;
-      passwordHash: string;
-      passwordSalt: string;
-      isAdmin: boolean;
-    }
-  | null
-> {
+): Promise<{
+  id: string;
+  username: string;
+  passwordHash: string;
+  passwordSalt: string;
+  isAdmin: boolean;
+} | null> {
   if (!isPostgrestEnabled(env)) {
     return null;
   }
@@ -942,10 +940,7 @@ export async function listCollabConversations(
   }));
 }
 
-async function getConversationProjectId(
-  conversationId: string,
-  env?: Record<string, any>,
-): Promise<string | null> {
+async function getConversationProjectId(conversationId: string, env?: Record<string, any>): Promise<string | null> {
   const response = await requestPostgrest<any[]>(
     `/collab_conversations?id=eq.${encodeURIComponent(conversationId)}&select=project_id&limit=1`,
     { method: 'GET' },
@@ -953,6 +948,7 @@ async function getConversationProjectId(
   );
 
   const row = response.data?.[0];
+
   return row?.project_id ? String(row.project_id) : null;
 }
 
@@ -1383,10 +1379,7 @@ export async function readAgentRunRecord(
   };
 }
 
-export async function listAgentRunRecords(
-  limit = 50,
-  env?: Record<string, any>,
-): Promise<AgentRunPersistedRecord[]> {
+export async function listAgentRunRecords(limit = 50, env?: Record<string, any>): Promise<AgentRunPersistedRecord[]> {
   if (!isPostgrestEnabled(env)) {
     return [];
   }

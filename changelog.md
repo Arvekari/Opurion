@@ -18,10 +18,13 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 - Theme persistence/runtime now supports `system` mode and follows OS color scheme changes while keeping resolved light/dark rendering for existing consumers.
 - Initial page theme bootstrap in `app/root.tsx` now resolves persisted `system` mode correctly before hydration.
+- Continued P2/T2 UI standardization on chat and workbench surfaces by consolidating compact primary actions and active/inactive control states into shared token classes.
+- Chat send control sizing/placement now uses scale-aligned values (`top-4`, `right-4`, `w-8`, `h-8`) and shared primary icon button styling.
 
 ### Fixed
 
 - P0 chat incident where streaming could stall indefinitely on the three-dot loader and block normal input/send recovery paths.
+- Docker startup smoke now uses canonical container log mapping (`BOLT_LOG_DIR=/logs`) and fails fast when mapped host log files are missing or unreadable.
 
 ## [0.1.2] - 2026-03-07
 

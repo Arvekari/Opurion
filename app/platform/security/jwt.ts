@@ -1,2 +1,1 @@
-﻿export * from '../../../platform/security/jwt';
-
+export * from 'platform/security/jwt';

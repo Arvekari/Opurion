@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from './Button';
 import { classNames } from '~/utils/classNames';
 import { GitBranch, Check, Shield, Star, RefreshCw, X } from 'lucide-react';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 interface BranchInfo {
   name: string;
@@ -136,26 +137,36 @@ export function BranchSelector({
           exit={{ opacity: 0, scale: 0.95 }}
           transition={{ duration: 0.2 }}
           className={classNames(
-            'bg-white dark:bg-gray-950 rounded-xl shadow-xl border border-bolt-elements-borderColor max-w-md w-full max-h-[80vh] flex flex-col',
+            `${uiColorRoleTokens.surfaceDepth2} rounded-xl shadow-xl ${uiColorRoleTokens.borderDefault} max-w-md w-full max-h-[80vh] flex flex-col`,
             className,
           )}
         >
           {/* Header */}
-          <div className="p-6 border-b border-bolt-elements-borderColor flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-lg bg-blue-500/10 flex items-center justify-center">
-                <GitBranch className="w-6 h-6 text-blue-600" />
+          <div
+            className={classNames(
+              uiSpacingTokens.pad24,
+              'border-b border-bolt-elements-borderColor flex items-center justify-between',
+            )}
+          >
+            <div className={classNames('flex items-center', uiSpacingTokens.gap16)}>
+              <div className="w-10 h-10 rounded-lg bg-bolt-elements-item-backgroundAccent flex items-center justify-center">
+                <GitBranch className="w-6 h-6 text-bolt-elements-item-contentAccent" />
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-bolt-elements-textPrimary">Select Branch</h3>
-                <p className="text-sm text-bolt-elements-textSecondary">
+                <h3 className={classNames(uiTypographyTokens.headingMd, 'text-bolt-elements-textPrimary')}>
+                  Select Branch
+                </h3>
+                <p className={classNames(uiTypographyTokens.caption, 'text-bolt-elements-textSecondary')}>
                   {repoOwner}/{repoName}
                 </p>
               </div>
             </div>
             <button
               onClick={onClose}
-              className="p-2 rounded-lg hover:bg-bolt-elements-background-depth-1 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary transition-all"
+              className={classNames(
+                uiSpacingTokens.pad8,
+                'rounded-lg hover:bg-bolt-elements-bg-depth-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary transition-all',
+              )}
             >
               <X className="w-5 h-5" />
             </button>
@@ -170,10 +181,10 @@ export function BranchSelector({
               </div>
             ) : error ? (
               <div className="flex flex-col items-center justify-center p-8 space-y-4">
-                <div className="text-red-500 mb-2">
+                <div className="text-bolt-elements-icon-error mb-2">
                   <GitBranch className="w-8 h-8 mx-auto" />
                 </div>
-                <p className="text-sm text-red-600 text-center">{error}</p>
+                <p className="text-sm text-bolt-elements-icon-error text-center">{error}</p>
                 <Button onClick={fetchBranches} variant="outline" size="sm">
                   <RefreshCw className="w-4 h-4 mr-2" />
                   Retry
@@ -183,13 +194,13 @@ export function BranchSelector({
               <>
                 {/* Search */}
                 {branches.length > 10 && (
-                  <div className="p-4 border-b border-bolt-elements-borderColor">
+                  <div className={classNames(uiSpacingTokens.pad16, 'border-b border-bolt-elements-borderColor')}>
                     <input
                       type="text"
                       placeholder="Search branches..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full px-3 py-2 rounded-lg bg-bolt-elements-background-depth-1 border border-bolt-elements-borderColor text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive"
+                      className="w-full px-3 py-2 rounded-lg bg-bolt-elements-bg-depth-1 border border-bolt-elements-borderColor text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive"
                     />
                   </div>
                 )}
@@ -197,28 +208,30 @@ export function BranchSelector({
                 {/* Branch List */}
                 <div className="flex-1 overflow-y-auto">
                   {filteredBranches.length > 0 ? (
-                    <div className="p-4 space-y-1">
+                    <div className={classNames(uiSpacingTokens.pad16, 'space-y-1')}>
                       {filteredBranches.map((branch) => (
                         <button
                           key={branch.name}
                           onClick={() => handleBranchSelect(branch.name)}
                           className={classNames(
-                            'w-full text-left p-3 rounded-lg transition-all duration-200 border',
+                            `w-full text-left ${uiSpacingTokens.pad16} rounded-lg transition-all duration-200 border`,
                             selectedBranch === branch.name
-                              ? 'bg-blue-50 border-blue-200 text-blue-900 dark:bg-blue-950 dark:border-blue-800 dark:text-blue-100'
-                              : 'bg-bolt-elements-background-depth-1 border-transparent hover:bg-bolt-elements-background-depth-2',
+                              ? 'bg-bolt-elements-item-backgroundActive border-bolt-elements-borderColorActive text-bolt-elements-textPrimary'
+                              : 'bg-bolt-elements-bg-depth-1 border-transparent hover:bg-bolt-elements-bg-depth-2',
                           )}
                         >
                           <div className="flex items-center justify-between">
-                            <div className="flex items-center gap-2 min-w-0">
+                            <div className={classNames('flex items-center min-w-0', uiSpacingTokens.gap8)}>
                               <GitBranch className="w-4 h-4 flex-shrink-0 text-bolt-elements-textSecondary" />
                               <span className="font-medium text-bolt-elements-textPrimary truncate">{branch.name}</span>
-                              <div className="flex items-center gap-1 flex-shrink-0">
-                                {branch.isDefault && <Star className="w-3 h-3 text-yellow-500" />}
-                                {branch.protected && <Shield className="w-3 h-3 text-red-500" />}
+                              <div className={classNames('flex items-center flex-shrink-0', uiSpacingTokens.gap4)}>
+                                {branch.isDefault && <Star className="w-3 h-3 text-bolt-elements-icon-warning" />}
+                                {branch.protected && <Shield className="w-3 h-3 text-bolt-elements-icon-error" />}
                               </div>
                             </div>
-                            {selectedBranch === branch.name && <Check className="w-4 h-4 text-blue-600" />}
+                            {selectedBranch === branch.name && (
+                              <Check className="w-4 h-4 text-bolt-elements-item-contentAccent" />
+                            )}
                           </div>
                           <div className="text-xs text-bolt-elements-textSecondary mt-1 truncate">
                             {branch.sha.substring(0, 8)}
@@ -240,8 +253,13 @@ export function BranchSelector({
 
           {/* Footer */}
           {!isLoading && !error && branches.length > 0 && (
-            <div className="p-6 border-t border-bolt-elements-borderColor flex items-center justify-between">
-              <div className="text-sm text-bolt-elements-textSecondary">
+            <div
+              className={classNames(
+                uiSpacingTokens.pad24,
+                'border-t border-bolt-elements-borderColor flex items-center justify-between',
+              )}
+            >
+              <div className={classNames(uiTypographyTokens.caption, 'text-bolt-elements-textSecondary')}>
                 {selectedBranch && (
                   <>
                     Selected: <span className="font-medium">{selectedBranch}</span>
@@ -256,7 +274,7 @@ export function BranchSelector({
                   onClick={handleConfirmSelection}
                   disabled={!selectedBranch}
                   size="sm"
-                  className="bg-blue-600 hover:bg-blue-700 text-white"
+                  className={uiColorRoleTokens.primary}
                 >
                   Clone Branch
                 </Button>

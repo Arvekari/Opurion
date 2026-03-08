@@ -111,7 +111,8 @@ export class AgentRunService {
     };
 
     this._runs.set(runId, run);
-    this.persistRun(run);
+    this._persistRun(run);
+
     return run;
   }
 
@@ -161,9 +162,7 @@ export class AgentRunService {
       }
     }
 
-    return merged
-      .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())
-      .slice(0, limit);
+    return merged.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime()).slice(0, limit);
   }
 
   isCancelled(runId: string) {
@@ -182,7 +181,7 @@ export class AgentRunService {
     run.updatedAt = nowIso();
     run.completedAt = run.updatedAt;
 
-    this.persistRun(run);
+    this._persistRun(run);
 
     for (const step of run.steps) {
       if (step.state === 'running' || step.state === 'pending') {
@@ -195,7 +194,7 @@ export class AgentRunService {
   }
 
   beginStep(runId: string, stage: AgentStepStage, label: string) {
-    const run = this.requireRun(runId);
+    const run = this._requireRun(runId);
 
     if (run.cancelled) {
       throw new Error('Run cancelled');
@@ -212,13 +211,13 @@ export class AgentRunService {
     run.steps.push(step);
     run.updatedAt = nowIso();
     run.state = stage === 'plan' ? 'planning' : stage === 'execute' ? 'executing' : 'verifying';
-    this.persistRun(run);
+    this._persistRun(run);
 
     return step.id;
   }
 
   completeStep(runId: string, stepId: string, output?: string) {
-    const run = this.requireRun(runId);
+    const run = this._requireRun(runId);
     const step = run.steps.find((item) => item.id === stepId);
 
     if (!step) {
@@ -234,11 +233,11 @@ export class AgentRunService {
     }
 
     run.updatedAt = nowIso();
-    this.persistRun(run);
+    this._persistRun(run);
   }
 
   failStep(runId: string, stepId: string, errorMessage: string) {
-    const run = this.requireRun(runId);
+    const run = this._requireRun(runId);
     const step = run.steps.find((item) => item.id === stepId);
 
     if (!step) {
@@ -249,11 +248,11 @@ export class AgentRunService {
     step.endedAt = nowIso();
     step.error = errorMessage;
     run.updatedAt = nowIso();
-    this.persistRun(run);
+    this._persistRun(run);
   }
 
   completeRun(runId: string) {
-    const run = this.requireRun(runId);
+    const run = this._requireRun(runId);
 
     if (run.cancelled) {
       run.state = 'cancelled';
@@ -263,13 +262,13 @@ export class AgentRunService {
 
     run.updatedAt = nowIso();
     run.completedAt = run.updatedAt;
-    this.persistRun(run);
+    this._persistRun(run);
 
     return run;
   }
 
   failRun(runId: string, error: unknown, stage?: AgentStepStage) {
-    const run = this.requireRun(runId);
+    const run = this._requireRun(runId);
 
     run.state = run.cancelled ? 'cancelled' : 'failed';
     run.error = {
@@ -278,23 +277,23 @@ export class AgentRunService {
     };
     run.updatedAt = nowIso();
     run.completedAt = run.updatedAt;
-    this.persistRun(run);
+    this._persistRun(run);
 
     return run;
   }
 
   markTimedOut(runId: string) {
-    const run = this.requireRun(runId);
+    const run = this._requireRun(runId);
     run.state = 'timed_out';
     run.updatedAt = nowIso();
     run.completedAt = run.updatedAt;
-    this.persistRun(run);
+    this._persistRun(run);
 
     return run;
   }
 
   async executeRun(runId: string, handlers: ExecuteRunHandlers) {
-    const run = this.requireRun(runId);
+    const run = this._requireRun(runId);
     run.timeoutMs = handlers.timeoutMs;
 
     const timeoutPromise = new Promise<never>((_, reject) => {
@@ -311,6 +310,7 @@ export class AgentRunService {
 
       try {
         planStepId = this.beginStep(runId, 'plan', 'Create plan');
+
         const planItems = handlers.plan ? await handlers.plan(run) : ['Analyze request', 'Execute', 'Verify'];
         this.completeStep(runId, planStepId, JSON.stringify(planItems));
 
@@ -319,7 +319,8 @@ export class AgentRunService {
         }
 
         executeStepId = this.beginStep(runId, 'execute', 'Execute plan');
-        const executionOutput = await handlers.execute(this.requireRun(runId));
+
+        const executionOutput = await handlers.execute(this._requireRun(runId));
         this.completeStep(runId, executeStepId, executionOutput);
 
         if (this.isCancelled(runId)) {
@@ -327,8 +328,9 @@ export class AgentRunService {
         }
 
         verifyStepId = this.beginStep(runId, 'verify', 'Verify output');
+
         const verification = handlers.verify
-          ? await handlers.verify(this.requireRun(runId))
+          ? await handlers.verify(this._requireRun(runId))
           : { success: Boolean(executionOutput?.trim()), notes: 'default verification' };
 
         if (!verification.success) {
@@ -338,15 +340,15 @@ export class AgentRunService {
         this.completeStep(runId, verifyStepId, verification.notes || 'verified');
         this.completeRun(runId);
       } catch (error) {
-        if (planStepId && !this.isCompletedStep(runId, planStepId)) {
+        if (planStepId && !this._isCompletedStep(runId, planStepId)) {
           this.failStep(runId, planStepId, error instanceof Error ? error.message : 'failed');
         }
 
-        if (executeStepId && !this.isCompletedStep(runId, executeStepId)) {
+        if (executeStepId && !this._isCompletedStep(runId, executeStepId)) {
           this.failStep(runId, executeStepId, error instanceof Error ? error.message : 'failed');
         }
 
-        if (verifyStepId && !this.isCompletedStep(runId, verifyStepId)) {
+        if (verifyStepId && !this._isCompletedStep(runId, verifyStepId)) {
           this.failStep(runId, verifyStepId, error instanceof Error ? error.message : 'failed');
         }
 
@@ -362,13 +364,14 @@ export class AgentRunService {
     this._runs.clear();
   }
 
-  private isCompletedStep(runId: string, stepId: string) {
-    const run = this.requireRun(runId);
+  private _isCompletedStep(runId: string, stepId: string) {
+    const run = this._requireRun(runId);
     const step = run.steps.find((item) => item.id === stepId);
+
     return step?.state === 'completed';
   }
 
-  private requireRun(runId: string) {
+  private _requireRun(runId: string) {
     const run = this._runs.get(runId);
 
     if (!run) {
@@ -379,7 +382,7 @@ export class AgentRunService {
     return run;
   }
 
-  private persistRun(run: AgentRunRecord) {
+  private _persistRun(run: AgentRunRecord) {
     void upsertAgentRunRecord(
       {
         runId: run.runId,

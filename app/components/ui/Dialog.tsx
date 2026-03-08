@@ -8,6 +8,7 @@ import { Button } from './Button';
 import { FixedSizeList } from 'react-window';
 import { Checkbox } from './Checkbox';
 import { Label } from './Label';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 export { Close as DialogClose, Root as DialogRoot } from '@radix-ui/react-dialog';
 
@@ -22,12 +23,12 @@ export const DialogButton = memo(({ type, children, onClick, disabled }: DialogB
   return (
     <button
       className={classNames(
-        'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm transition-colors',
+        `inline-flex items-center ${uiSpacingTokens.gap8} ${uiSpacingTokens.px16} ${uiSpacingTokens.py8} rounded-lg ${uiTypographyTokens.caption} transition-colors`,
         type === 'primary'
-          ? 'bg-purple-500 text-white hover:bg-purple-600 dark:bg-purple-500 dark:hover:bg-purple-600'
+          ? uiColorRoleTokens.primary
           : type === 'secondary'
-            ? 'bg-transparent text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100'
-            : 'bg-transparent text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-500/10',
+            ? 'bg-transparent text-bolt-elements-textSecondary hover:bg-bolt-elements-bg-depth-2 hover:text-bolt-elements-textPrimary'
+            : 'bg-transparent text-bolt-elements-button-danger-text hover:bg-bolt-elements-button-danger-background',
       )}
       onClick={onClick}
       disabled={disabled}
@@ -40,7 +41,10 @@ export const DialogButton = memo(({ type, children, onClick, disabled }: DialogB
 export const DialogTitle = memo(({ className, children, ...props }: RadixDialog.DialogTitleProps) => {
   return (
     <RadixDialog.Title
-      className={classNames('text-lg font-medium text-bolt-elements-textPrimary flex items-center gap-2', className)}
+      className={classNames(
+        `${uiTypographyTokens.headingMd} text-bolt-elements-textPrimary flex items-center ${uiSpacingTokens.gap8}`,
+        className,
+      )}
       {...props}
     >
       {children}
@@ -51,7 +55,10 @@ export const DialogTitle = memo(({ className, children, ...props }: RadixDialog.
 export const DialogDescription = memo(({ className, children, ...props }: RadixDialog.DialogDescriptionProps) => {
   return (
     <RadixDialog.Description
-      className={classNames('text-sm text-bolt-elements-textSecondary mt-1', className)}
+      className={classNames(
+        `${uiTypographyTokens.caption} text-bolt-elements-textSecondary ${uiSpacingTokens.py4}`,
+        className,
+      )}
       {...props}
     >
       {children}
@@ -116,7 +123,7 @@ export const Dialog = memo(({ children, className, showCloseButton = true, onClo
       <RadixDialog.Content asChild>
         <motion.div
           className={classNames(
-            'fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white dark:bg-gray-950 rounded-lg shadow-xl border border-bolt-elements-borderColor z-[9999] w-[520px] focus:outline-none',
+            `fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 ${uiColorRoleTokens.surface} rounded-lg shadow-xl ${uiColorRoleTokens.borderDefault} z-[9999] w-[520px] focus:outline-none`,
             className,
           )}
           initial="closed"
@@ -130,7 +137,7 @@ export const Dialog = memo(({ children, className, showCloseButton = true, onClo
               <RadixDialog.Close asChild onClick={onClose}>
                 <IconButton
                   icon="i-ph:x"
-                  className="absolute top-3 right-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary"
+                  className="absolute top-2 right-2 text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary"
                 />
               </RadixDialog.Close>
             )}
@@ -208,10 +215,10 @@ export function ConfirmationDialog({
   return (
     <RadixDialog.Root open={isOpen} onOpenChange={onClose}>
       <Dialog showCloseButton={false}>
-        <div className="p-6 bg-white dark:bg-gray-950 relative z-10">
+        <div className={`${uiSpacingTokens.pad24} ${uiColorRoleTokens.surface} relative z-10`}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="mb-4">{description}</DialogDescription>
-          <div className="flex justify-end space-x-2">
+          <div className={`flex justify-end ${uiSpacingTokens.gap8}`}>
             <Button variant="outline" onClick={onClose} disabled={isLoading}>
               {cancelLabel}
             </Button>
@@ -219,11 +226,7 @@ export function ConfirmationDialog({
               variant={variant}
               onClick={onConfirm}
               disabled={isLoading}
-              className={
-                variant === 'destructive'
-                  ? 'bg-red-500 text-white hover:bg-red-600'
-                  : 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:bg-bolt-elements-button-primary-backgroundHover'
-              }
+              className={variant === 'destructive' ? uiColorRoleTokens.danger : uiColorRoleTokens.primary}
             >
               {isLoading ? (
                 <>
@@ -345,7 +348,7 @@ export function SelectionDialog({
       <div
         key={item.id}
         className={classNames(
-          'flex items-start space-x-3 p-2 rounded-md transition-colors',
+          `flex items-start ${uiSpacingTokens.gap16} ${uiSpacingTokens.pad8} rounded-md transition-colors`,
           selectedItems.includes(item.id)
             ? 'bg-bolt-elements-item-backgroundAccent'
             : 'bg-bolt-elements-bg-depth-2 hover:bg-bolt-elements-item-backgroundActive',
@@ -361,11 +364,11 @@ export function SelectionDialog({
           checked={selectedItems.includes(item.id)}
           onCheckedChange={() => handleToggleItem(item.id)}
         />
-        <div className="grid gap-1.5 leading-none">
+        <div className={`grid ${uiSpacingTokens.gap4} leading-none`}>
           <Label
             htmlFor={`item-${item.id}`}
             className={classNames(
-              'text-sm font-medium cursor-pointer',
+              `${uiTypographyTokens.caption} cursor-pointer`,
               selectedItems.includes(item.id)
                 ? 'text-bolt-elements-item-contentAccent'
                 : 'text-bolt-elements-textPrimary',
@@ -382,15 +385,15 @@ export function SelectionDialog({
   return (
     <RadixDialog.Root open={isOpen} onOpenChange={onClose}>
       <Dialog showCloseButton={false}>
-        <div className="p-6 bg-white dark:bg-gray-950 relative z-10">
+        <div className={`${uiSpacingTokens.pad24} ${uiColorRoleTokens.surface} relative z-10`}>
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription className="mt-2 mb-4">
             Select the items you want to include and click{' '}
             <span className="text-bolt-elements-item-contentAccent font-medium">{confirmLabel}</span>.
           </DialogDescription>
 
-          <div className="py-4">
-            <div className="flex items-center justify-between mb-4">
+          <div className={uiSpacingTokens.py16}>
+            <div className={`flex items-center justify-between mb-4`}>
               <span className="text-sm font-medium text-bolt-elements-textSecondary">
                 {selectedItems.length} of {items.length} selected
               </span>
@@ -398,14 +401,14 @@ export function SelectionDialog({
                 variant="ghost"
                 size="sm"
                 onClick={handleSelectAll}
-                className="text-xs h-8 px-2 text-bolt-elements-textPrimary hover:text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent bg-bolt-elements-bg-depth-2 dark:bg-transparent"
+                className={`${uiTypographyTokens.bodyXs} ${uiSpacingTokens.px8} text-bolt-elements-textPrimary hover:text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundAccent bg-bolt-elements-bg-depth-2`}
               >
                 {selectAll ? 'Deselect All' : 'Select All'}
               </Button>
             </div>
 
             <div
-              className="pr-2 border rounded-md border-bolt-elements-borderColor bg-bolt-elements-bg-depth-2"
+              className={`${uiSpacingTokens.px8} ${uiColorRoleTokens.borderDefault} rounded-md bg-bolt-elements-bg-depth-2`}
               style={{
                 maxHeight,
               }}
@@ -437,7 +440,7 @@ export function SelectionDialog({
             <Button
               onClick={handleConfirm}
               disabled={selectedItems.length === 0}
-              className="bg-accent-500 text-white hover:bg-accent-600 disabled:opacity-50 disabled:pointer-events-none"
+              className={`${uiColorRoleTokens.primary} disabled:opacity-50 disabled:pointer-events-none`}
             >
               {confirmLabel}
             </Button>

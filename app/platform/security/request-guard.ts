@@ -1,2 +1,1 @@
-﻿export * from '../../../platform/security/request-guard';
-
+export * from 'platform/security/request-guard';

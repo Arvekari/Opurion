@@ -1,91 +1,77 @@
 {
   "tableName": "Project-bolt2-open-tasks",
-  "generatedAt": "2026-03-07T16:44:18.843Z",
+  "generatedAt": "2026-03-07T21:19:22.393Z",
   "rows": [
-    {
-      "taskKey": "bolt2-p2-ui-redesign-t1",
-      "priority": "P2",
-      "status": "TODO",
-      "objective": "UI redesign execution T1: tokenize spacing/typography/color roles and remove arbitrary spacing in shared UI primitives.",
-      "updatedAt": "2026-03-07T16:44:18.839Z"
-    },
-    {
-      "taskKey": "bolt2-p2-ui-redesign-t2",
-      "priority": "P2",
-      "status": "TODO",
-      "objective": "UI redesign execution T2: standardize chat surface controls and navigation shell patterns per directive (buttons, forms, active states, predictable placement).",
-      "updatedAt": "2026-03-07T16:44:18.839Z"
-    },
     {
       "taskKey": "bolt2-p2-ui-redesign-t3",
       "priority": "P2",
       "status": "TODO",
       "objective": "UI redesign execution T3: begin icon normalization on high-traffic surfaces with Lucide as default.",
-      "updatedAt": "2026-03-07T16:44:18.839Z"
+      "updatedAt": "2026-03-07T21:19:22.389Z"
     },
     {
       "taskKey": "bolt2-p2-ui-redesign-t4",
       "priority": "P2",
       "status": "TODO",
       "objective": "UI redesign execution T4: migrate shared component variants (buttons/forms/cards/tables) to directive-aligned primitives with one-primary-CTA discipline per section.",
-      "updatedAt": "2026-03-07T16:44:18.839Z"
+      "updatedAt": "2026-03-07T21:19:22.389Z"
     },
     {
       "taskKey": "bolt2-p2-ui-redesign-t5",
       "priority": "P2",
       "status": "TODO",
       "objective": "UI redesign execution T5: refactor settings information architecture into grouped sections (General, Preferences, AI, Integrations, Security, System) with improved scanability.",
-      "updatedAt": "2026-03-07T16:44:18.839Z"
+      "updatedAt": "2026-03-07T21:19:22.389Z"
     },
     {
       "taskKey": "bolt2-p3-llm-debug-panel",
       "priority": "P3",
       "status": "TODO",
       "objective": "Add a user-visible debug panel toggle during LLM waiting state (three-dot loader) to show live execution/debug details in a bottom pane.",
-      "updatedAt": "2026-03-07T16:44:18.839Z"
+      "updatedAt": "2026-03-07T21:19:22.389Z"
     },
     {
       "taskKey": "bolt2-p3-ui-redesign-t6",
       "priority": "P3",
       "status": "TODO",
-      "objective": "UI redesign execution T6: perform dashboard hierarchy pass (metrics row → charts section → detailed table section) for clearer information priority.",
-      "updatedAt": "2026-03-07T16:44:18.839Z"
+      "objective": "UI redesign execution T6: perform dashboard hierarchy pass (metrics row â†’ charts section â†’ detailed table section) for clearer information priority.",
+      "updatedAt": "2026-03-07T21:19:22.389Z"
     },
     {
       "taskKey": "bolt2-p3-ui-redesign-t7",
       "priority": "P3",
       "status": "TODO",
       "objective": "UI redesign execution T7: complete accessibility and motion hardening pass across top journeys (keyboard/focus/contrast/reduced-motion).",
-      "updatedAt": "2026-03-07T16:44:18.839Z"
+      "updatedAt": "2026-03-07T21:19:22.389Z"
     },
     {
       "taskKey": "bolt2-p5-fullstack-backend-generation",
       "priority": "P5",
       "status": "TODO",
       "objective": "Expand generation scope toward full-stack workflows so Bolt2 can scaffold backend logic/services (for example FastAPI and equivalent stacks) in addition to frontend code.",
-      "updatedAt": "2026-03-07T16:44:18.839Z"
+      "updatedAt": "2026-03-07T21:19:22.389Z"
     },
     {
       "taskKey": "bolt2-p5-agentic-development",
       "priority": "P5",
       "status": "TODO",
-      "objective": "now that we haven8n and task orchestration in place w e shoudl think how we can make the funtionality of development even more agentic style ... wa have also personal workflow agentic workflow possibilities in the n8n.",
-      "updatedAt": "2026-03-07T16:44:18.839Z"
+      "objective": "now that we have n8n and task orchestration in place we should think how we can make the funtionality of development even more agentic style ... wa have also personal workflow agentic workflow possibilities in the n8n.",
+      "updatedAt": "2026-03-07T21:19:22.389Z"
     }
   ],
   "stats": {
     "available": true,
-    "sampledExecutions": 106,
-    "managedExecutions": 106,
-    "productionExecutions": 106,
+    "sampledExecutions": 149,
+    "managedExecutions": 149,
+    "productionExecutions": 149,
     "failedProductionExecutions": 25,
-    "failureRatePercent": 23.58,
-    "averageRuntimeMs": 35,
-    "estimatedTimeSavedMinutes": 2430,
+    "failureRatePercent": 16.78,
+    "averageRuntimeMs": 33,
+    "estimatedTimeSavedMinutes": 3720,
     "minutesSavedPerRound": 30,
-    "successfulRounds": 81,
+    "successfulRounds": 124,
     "manualMinutesPerRun": 6,
-    "measuredAt": "2026-03-07T16:44:18.839Z",
+    "measuredAt": "2026-03-07T21:19:22.389Z",
     "note": "Each successful full rotation of project-bolt2-ongoing-work-dispatch saves 30 min as orchestrated.",
     "statsFile": "C:\\Users\\arva\\OneDrive\\Documents\\Private\\Projects\\Coding\\Bolt.arva\\Bolt2.dyi\\bolt.work\\n8n\\orchestration-stats.latest.json"
   }

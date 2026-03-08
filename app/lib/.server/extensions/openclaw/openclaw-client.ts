@@ -25,6 +25,7 @@ export type OpenClawStatusResult = {
 function getEnvValue(env: EnvLike, key: string): string | undefined {
   const processEnv = (globalThis as any)?.process?.env;
   const value = env?.[key] ?? processEnv?.[key];
+
   return typeof value === 'string' ? value : undefined;
 }
 
@@ -41,6 +42,7 @@ function getBaseUrl(env?: EnvLike): string {
 function getTimeoutMs(env?: EnvLike): number {
   const raw = getEnvValue(env, 'OPENCLAW_TIMEOUT_MS') || '30000';
   const timeout = Number(raw);
+
   return Number.isFinite(timeout) && timeout > 0 ? Math.floor(timeout) : 30000;
 }
 
@@ -125,9 +127,7 @@ export async function executeOpenClawAgent(input: OpenClawExecuteInput): Promise
     (typeof data.result === 'string' && data.result) ||
     '';
   const remoteRunId =
-    (typeof data.runId === 'string' && data.runId) ||
-    (typeof data.id === 'string' && data.id) ||
-    undefined;
+    (typeof data.runId === 'string' && data.runId) || (typeof data.id === 'string' && data.id) || undefined;
 
   return {
     output,
@@ -183,9 +183,7 @@ export async function getOpenClawRunStatus(input: {
 
   const data = (await response.json()) as Record<string, unknown>;
   const state =
-    (typeof data.state === 'string' && data.state) ||
-    (typeof data.status === 'string' && data.status) ||
-    'unknown';
+    (typeof data.state === 'string' && data.state) || (typeof data.status === 'string' && data.status) || 'unknown';
 
   return {
     remoteRunId: input.remoteRunId,

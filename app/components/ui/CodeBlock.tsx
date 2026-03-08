@@ -3,6 +3,7 @@ import { classNames } from '~/utils/classNames';
 import { motion } from 'framer-motion';
 import { FileIcon } from './FileIcon';
 import { Tooltip } from './Tooltip';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 interface CodeBlockProps {
   code: string;
@@ -39,24 +40,24 @@ export function CodeBlock({
   return (
     <div
       className={classNames(
-        'rounded-lg overflow-hidden border border-bolt-elements-borderColor dark:border-bolt-elements-borderColor-dark',
-        'bg-bolt-elements-background-depth-2 dark:bg-bolt-elements-background-depth-3',
+        `rounded-lg overflow-hidden ${uiColorRoleTokens.borderDefault}`,
+        'bg-bolt-elements-bg-depth-2',
         className,
       )}
     >
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-2 bg-bolt-elements-background-depth-3 dark:bg-bolt-elements-background-depth-4 border-b border-bolt-elements-borderColor dark:border-bolt-elements-borderColor-dark">
-        <div className="flex items-center gap-2">
+      <div
+        className={`flex items-center justify-between ${uiSpacingTokens.px16} ${uiSpacingTokens.py8} bg-bolt-elements-bg-depth-3 border-b border-bolt-elements-borderColor`}
+      >
+        <div className={`flex items-center ${uiSpacingTokens.gap8}`}>
           {filename && (
             <>
               <FileIcon filename={filename} size="sm" />
-              <span className="text-xs font-medium text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary-dark">
-                {filename}
-              </span>
+              <span className={`${uiTypographyTokens.bodyXs} text-bolt-elements-textSecondary`}>{filename}</span>
             </>
           )}
           {language && !filename && (
-            <span className="text-xs font-medium text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary-dark uppercase">
+            <span className={`${uiTypographyTokens.bodyXs} text-bolt-elements-textSecondary uppercase`}>
               {language}
             </span>
           )}
@@ -64,7 +65,7 @@ export function CodeBlock({
         <Tooltip content={copied ? 'Copied!' : 'Copy code'}>
           <motion.button
             onClick={handleCopy}
-            className="p-1.5 rounded-md text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary dark:text-bolt-elements-textTertiary-dark dark:hover:text-bolt-elements-textSecondary-dark hover:bg-bolt-elements-background-depth-2 dark:hover:bg-bolt-elements-background-depth-3 transition-colors"
+            className={`${uiSpacingTokens.py4} ${uiSpacingTokens.px8} rounded-md text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary hover:bg-bolt-elements-bg-depth-2 transition-colors`}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
@@ -74,23 +75,28 @@ export function CodeBlock({
       </div>
 
       {/* Code content */}
-      <div className={classNames('overflow-auto', 'font-mono text-sm', 'custom-scrollbar')} style={{ maxHeight }}>
+      <div
+        className={classNames('overflow-auto', `font-mono ${uiTypographyTokens.caption}`, 'custom-scrollbar')}
+        style={{ maxHeight }}
+      >
         <table className="min-w-full border-collapse">
           <tbody>
             {lines.map((line, index) => (
               <tr
                 key={index}
                 className={classNames(
-                  highlightLines.includes(index + 1) ? 'bg-purple-500/10 dark:bg-purple-500/20' : '',
-                  'hover:bg-bolt-elements-background-depth-3 dark:hover:bg-bolt-elements-background-depth-4',
+                  highlightLines.includes(index + 1) ? 'bg-bolt-elements-button-primary-background' : '',
+                  'hover:bg-bolt-elements-bg-depth-3',
                 )}
               >
                 {showLineNumbers && (
-                  <td className="py-1 pl-4 pr-2 text-right select-none text-bolt-elements-textTertiary dark:text-bolt-elements-textTertiary-dark border-r border-bolt-elements-borderColor dark:border-bolt-elements-borderColor-dark">
+                  <td
+                    className={`py-1 ${uiSpacingTokens.px16} ${uiSpacingTokens.py4} text-right select-none text-bolt-elements-textTertiary border-r border-bolt-elements-borderColor`}
+                  >
                     <span className="inline-block min-w-[1.5rem] text-xs">{index + 1}</span>
                   </td>
                 )}
-                <td className="py-1 pl-4 pr-4 text-bolt-elements-textPrimary dark:text-bolt-elements-textPrimary-dark whitespace-pre">
+                <td className={`py-1 ${uiSpacingTokens.px16} text-bolt-elements-textPrimary whitespace-pre`}>
                   {line || ' '}
                 </td>
               </tr>

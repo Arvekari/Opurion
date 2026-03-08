@@ -1,15 +1,15 @@
 {
   "available": true,
-  "sampledExecutions": 106,
-  "managedExecutions": 106,
-  "productionExecutions": 106,
+  "sampledExecutions": 149,
+  "managedExecutions": 149,
+  "productionExecutions": 149,
   "failedProductionExecutions": 25,
-  "failureRatePercent": 23.58,
-  "averageRuntimeMs": 35,
-  "estimatedTimeSavedMinutes": 2430,
+  "failureRatePercent": 16.78,
+  "averageRuntimeMs": 33,
+  "estimatedTimeSavedMinutes": 3720,
   "minutesSavedPerRound": 30,
-  "successfulRounds": 81,
+  "successfulRounds": 124,
   "manualMinutesPerRun": 6,
-  "measuredAt": "2026-03-07T16:44:18.839Z",
+  "measuredAt": "2026-03-07T21:19:22.389Z",
   "note": "Each successful full rotation of project-bolt2-ongoing-work-dispatch saves 30 min as orchestrated."
 }

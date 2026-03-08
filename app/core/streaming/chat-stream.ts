@@ -1,2 +1,1 @@
-﻿export * from '../../../core/streaming/chat-stream';
-
+export * from 'core/streaming/chat-stream';

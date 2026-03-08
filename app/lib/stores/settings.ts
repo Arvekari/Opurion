@@ -291,7 +291,7 @@ const getInitialSettings = () => {
     promptId: isBrowser ? localStorage.getItem(SETTINGS_KEYS.PROMPT_ID) || 'default' : 'default',
     customPromptEnabled: getStoredBoolean(SETTINGS_KEYS.CUSTOM_PROMPT_ENABLED, false),
     customPromptText: isBrowser ? localStorage.getItem(SETTINGS_KEYS.CUSTOM_PROMPT_TEXT) || '' : '',
-    customPromptMode: isBrowser ? (localStorage.getItem(SETTINGS_KEYS.CUSTOM_PROMPT_MODE) || 'append') : 'append',
+    customPromptMode: isBrowser ? localStorage.getItem(SETTINGS_KEYS.CUSTOM_PROMPT_MODE) || 'append' : 'append',
     developerMode: getStoredBoolean(SETTINGS_KEYS.DEVELOPER_MODE, false),
   };
 };

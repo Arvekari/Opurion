@@ -29,6 +29,7 @@
     "n8n:sync-open-tasks": "node scripts/n8n-dev-orchestrator.mjs sync-open-tasks",
     "ongoing:bridge": "node scripts/ongoing-work-bridge.mjs",
     "ongoing:bridge:emit": "node scripts/ongoing-work-bridge.mjs emit",
+    "ongoing:auto:continue": "node scripts/ongoing-auto-continue.mjs --retries 3",
     "ongoing:normalize": "node scripts/ongoing-work-normalize.mjs",
     "ongoing:cycle": "node scripts/n8n-ongoing-cycle.mjs",
     "ongoing:cycle:capture": "node scripts/ongoing-cycle-capture.mjs",

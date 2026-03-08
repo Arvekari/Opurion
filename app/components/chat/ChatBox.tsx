@@ -16,6 +16,7 @@ import { ExpoQrModal } from '~/components/workbench/ExpoQrModal';
 import styles from './BaseChat.module.scss';
 import type { ProviderInfo } from '~/types/model';
 import { ColorSchemeDialog } from '~/components/ui/ColorSchemeDialog';
+import { uiStateClassTokens } from '~/components/ui/tokens';
 import type { DesignScheme } from '~/types/design-scheme';
 import type { ElementInfo } from '~/components/workbench/Inspector';
 import { McpTools } from './MCPTools';
@@ -295,9 +296,7 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
                 title="Discuss"
                 className={classNames(
                   'transition-all flex items-center gap-1 px-1.5',
-                  props.chatMode === 'discuss'
-                    ? '!bg-bolt-elements-item-backgroundAccent !text-bolt-elements-item-contentAccent'
-                    : 'bg-bolt-elements-item-backgroundDefault text-bolt-elements-item-contentDefault',
+                  props.chatMode === 'discuss' ? uiStateClassTokens.toggleActive : uiStateClassTokens.toggleInactive,
                 )}
                 onClick={() => {
                   props.setChatMode?.(props.chatMode === 'discuss' ? 'build' : 'discuss');
@@ -310,10 +309,8 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
             <IconButton
               title="Model Settings"
               className={classNames('transition-all flex items-center gap-1', {
-                'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent':
-                  props.isModelSettingsCollapsed,
-                'bg-bolt-elements-item-backgroundDefault text-bolt-elements-item-contentDefault':
-                  !props.isModelSettingsCollapsed,
+                [uiStateClassTokens.toggleActive]: props.isModelSettingsCollapsed,
+                [uiStateClassTokens.toggleInactive]: !props.isModelSettingsCollapsed,
               })}
               onClick={() => props.setIsModelSettingsCollapsed(!props.isModelSettingsCollapsed)}
               disabled={!props.providerList || props.providerList.length === 0}

@@ -1,4 +1,6 @@
 import { memo, useEffect, useState } from 'react';
+import { classNames } from '~/utils/classNames';
+import { uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 interface LoadingDotsProps {
   text: string;
@@ -16,11 +18,15 @@ export const LoadingDots = memo(({ text }: LoadingDotsProps) => {
   }, []);
 
   return (
-    <div className="flex justify-center items-center h-full">
-      <div className="relative">
+    <div
+      className={classNames(
+        'flex justify-center items-center h-full text-bolt-elements-textSecondary',
+        uiTypographyTokens.caption,
+      )}
+    >
+      <div className={classNames('inline-flex items-center', uiSpacingTokens.gap4)}>
         <span>{text}</span>
-        <span className="absolute left-[calc(100%-12px)]">{'.'.repeat(dotCount)}</span>
-        <span className="invisible">...</span>
+        <span className="inline-block min-w-3">{'.'.repeat(dotCount)}</span>
       </div>
     </div>
   );

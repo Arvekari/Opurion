@@ -3,6 +3,7 @@ import { memo } from 'react';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { genericMemo } from '~/utils/react';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 export type SliderOptions<T> = {
   left: { value: T; text: string };
@@ -22,7 +23,11 @@ export const Slider = genericMemo(<T,>({ selected, options, setSelected }: Slide
   const isMiddleSelected = hasMiddle && options.middle ? selected === options.middle.value : false;
 
   return (
-    <div className="flex items-center flex-wrap shrink-0 gap-1 bg-bolt-elements-background-depth-1 overflow-hidden rounded-full p-1">
+    <div
+      className={classNames(
+        `flex items-center flex-wrap shrink-0 ${uiSpacingTokens.gap4} ${uiColorRoleTokens.surface} overflow-hidden rounded-full ${uiSpacingTokens.pad4}`,
+      )}
+    >
       <SliderButton selected={isLeftSelected} setSelected={() => setSelected?.(options.left.value)}>
         {options.left.text}
       </SliderButton>
@@ -54,7 +59,7 @@ const SliderButton = memo(({ selected, children, setSelected }: SliderButtonProp
     <button
       onClick={setSelected}
       className={classNames(
-        'bg-transparent text-sm px-2.5 py-0.5 rounded-full relative',
+        `bg-transparent ${uiTypographyTokens.caption} ${uiSpacingTokens.px8} ${uiSpacingTokens.py4} rounded-full relative`,
         selected
           ? 'text-bolt-elements-item-contentAccent'
           : 'text-bolt-elements-item-contentDefault hover:text-bolt-elements-item-contentActive',

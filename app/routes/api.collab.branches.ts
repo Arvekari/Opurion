@@ -18,6 +18,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   }
 
   const branches = await listCollabBranches(conversationId, user.userId, env);
+
   return json({ ok: true, branches });
 }
 

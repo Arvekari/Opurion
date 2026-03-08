@@ -2,6 +2,7 @@ import { useStore } from '@nanostores/react';
 import { memo, useEffect, useState, type ChangeEvent } from 'react';
 import { setThemeMode, themeModeStore, type ThemeMode } from '~/lib/stores/theme';
 import { classNames } from '~/utils/classNames';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 interface ThemeSwitchProps {
   className?: string;
@@ -21,7 +22,7 @@ export const ThemeSwitch = memo(({ className }: ThemeSwitchProps) => {
 
   return (
     domLoaded && (
-      <div className={classNames('flex items-center gap-2', className)}>
+      <div className={classNames(`flex items-center ${uiSpacingTokens.gap8}`, className)}>
         <div className="i-ph:palette-duotone text-bolt-elements-textSecondary text-lg" />
         <select
           value={themeMode}
@@ -29,9 +30,9 @@ export const ThemeSwitch = memo(({ className }: ThemeSwitchProps) => {
           aria-label="Theme Mode"
           title="Theme Mode"
           className={classNames(
-            'px-2 py-1 rounded-md text-xs',
-            'bg-bolt-elements-bg-depth-2 text-bolt-elements-textPrimary',
-            'border border-bolt-elements-borderColor',
+            `${uiSpacingTokens.px8} ${uiSpacingTokens.py4} rounded-md ${uiTypographyTokens.bodyXs}`,
+            uiColorRoleTokens.surfaceDepth2,
+            uiColorRoleTokens.borderDefault,
             'focus:outline-none focus:ring-2 focus:ring-bolt-elements-borderColorActive',
           )}
         >

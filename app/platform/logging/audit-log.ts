@@ -1,2 +1,1 @@
-﻿export * from '../../../platform/logging/audit-log';
-
+export * from 'platform/logging/audit-log';

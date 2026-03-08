@@ -1,6 +1,7 @@
 import React from 'react';
 import { classNames } from '~/utils/classNames';
 import { motion } from 'framer-motion';
+import { uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 interface BreadcrumbItem {
   label: string;
@@ -35,13 +36,13 @@ export function Breadcrumbs({
 
   const defaultRenderItem = (item: BreadcrumbItem, index: number, isLast: boolean) => {
     const content = (
-      <div className="flex items-center gap-1.5">
+      <div className={classNames(`flex items-center ${uiSpacingTokens.gap4}`)}>
         {item.icon && <span className={classNames(item.icon, 'w-3.5 h-3.5')} />}
         <span
           className={classNames(
             isLast
-              ? 'font-medium text-bolt-elements-textPrimary dark:text-bolt-elements-textPrimary-dark'
-              : 'text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary-dark hover:text-bolt-elements-textPrimary dark:hover:text-bolt-elements-textPrimary-dark',
+              ? `${uiTypographyTokens.bodySm} text-bolt-elements-textPrimary`
+              : `${uiTypographyTokens.caption} text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary`,
             item.onClick || item.href ? 'cursor-pointer' : '',
           )}
         >
@@ -77,7 +78,7 @@ export function Breadcrumbs({
 
   return (
     <nav className={classNames('flex items-center', className)} aria-label="Breadcrumbs">
-      <ol className="flex items-center gap-1.5">
+      <ol className={classNames(`flex items-center ${uiSpacingTokens.gap4}`)}>
         {displayItems.map((item, index) => {
           const isLast = index === displayItems.length - 1;
 
@@ -86,10 +87,7 @@ export function Breadcrumbs({
               {renderItem ? renderItem(item, index, isLast) : defaultRenderItem(item, index, isLast)}
               {!isLast && (
                 <span
-                  className={classNames(
-                    separator,
-                    'w-3 h-3 mx-1 text-bolt-elements-textTertiary dark:text-bolt-elements-textTertiary-dark',
-                  )}
+                  className={classNames(separator, `w-3 h-3 ${uiSpacingTokens.px8} text-bolt-elements-textTertiary`)}
                 />
               )}
             </li>

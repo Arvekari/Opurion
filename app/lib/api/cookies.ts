@@ -140,7 +140,8 @@ export async function resolveCustomPrompt(
     await import('../.server/persistence');
   const persisted = userId ? await readPersistedMemoryForUser(userId, env) : await readPersistedMemory(env);
   const persistedMode = (persisted?.customPrompt as { mode?: 'append' | 'replace' } | undefined)?.mode;
-  const mode: 'append' | 'replace' = cookieCustomPrompt.mode === 'replace' || persistedMode === 'replace' ? 'replace' : 'append';
+  const mode: 'append' | 'replace' =
+    cookieCustomPrompt.mode === 'replace' || persistedMode === 'replace' ? 'replace' : 'append';
   const merged = {
     enabled: cookieCustomPrompt.enabled || !!persisted?.customPrompt?.enabled,
     instructions: cookieCustomPrompt.instructions || persisted?.customPrompt?.instructions || '',

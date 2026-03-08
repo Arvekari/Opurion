@@ -1,5 +1,6 @@
 import * as React from 'react';
 import { classNames } from '~/utils/classNames';
+import { uiColorRoleTokens } from './tokens';
 
 interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
   value?: number;
@@ -8,7 +9,10 @@ interface ProgressProps extends React.HTMLAttributes<HTMLDivElement> {
 const Progress = React.forwardRef<HTMLDivElement, ProgressProps>(({ className, value, ...props }, ref) => (
   <div
     ref={ref}
-    className={classNames('relative h-2 w-full overflow-hidden rounded-full bg-bolt-elements-background', className)}
+    className={classNames(
+      `relative h-2 w-full overflow-hidden rounded-full ${uiColorRoleTokens.surfaceDepth2}`,
+      className,
+    )}
     {...props}
   >
     <div

@@ -57,7 +57,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
     headers.set('x-request-id', requestId);
 
-    return json({ ok: true, requestId, user: { id: user.id, username: user.username, isAdmin: user.isAdmin } }, { headers });
+    return json(
+      { ok: true, requestId, user: { id: user.id, username: user.username, isAdmin: user.isAdmin } },
+      { headers },
+    );
   } catch {
     return json(
       { ok: false, error: 'Authentication service unavailable. Please check database setup.', requestId },

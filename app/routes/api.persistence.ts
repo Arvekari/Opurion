@@ -24,6 +24,7 @@ export async function loader({ context, request }: { context: any; request: Requ
   }
 
   const memory = user ? await readPersistedMemoryForUser(user.userId, env) : await readPersistedMemory(env);
+
   return json({
     enabled: true,
     scope: user ? 'user' : 'global',

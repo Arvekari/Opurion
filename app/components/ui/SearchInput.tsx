@@ -2,6 +2,7 @@ import React, { forwardRef } from 'react';
 import { classNames } from '~/utils/classNames';
 import { Input } from './Input';
 import { motion, AnimatePresence } from 'framer-motion';
+import { uiSpacingTokens } from './tokens';
 
 interface SearchInputProps extends React.InputHTMLAttributes<HTMLInputElement> {
   /** Function to call when the clear button is clicked */
@@ -37,7 +38,7 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
         {/* Search icon or loading spinner */}
         <div
           className={classNames(
-            'absolute left-3 top-1/2 -translate-y-1/2 text-bolt-elements-textTertiary',
+            `absolute ${uiSpacingTokens.px16} top-1/2 -translate-y-1/2 text-bolt-elements-textTertiary`,
             iconClassName,
           )}
         >
@@ -65,7 +66,7 @@ export const SearchInput = forwardRef<HTMLInputElement, SearchInputProps>(
               transition={{ duration: 0.15 }}
               type="button"
               onClick={onClear}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary p-1 rounded-full hover:bg-bolt-elements-background-depth-2"
+              className={`absolute ${uiSpacingTokens.px16} top-1/2 -translate-y-1/2 text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary ${uiSpacingTokens.pad4} rounded-full hover:bg-bolt-elements-bg-depth-2`}
               aria-label="Clear search"
             >
               <span className="i-ph:x w-3.5 h-3.5" />

@@ -1,2 +1,1 @@
-﻿export * from '../../../integrations/postgres/client';
-
+export * from 'integrations/postgres/client';

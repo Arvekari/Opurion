@@ -1,5 +1,6 @@
 import { memo } from 'react';
 import { classNames } from '~/utils/classNames';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 interface PanelHeaderProps {
   className?: string;
@@ -10,7 +11,7 @@ export const PanelHeader = memo(({ className, children }: PanelHeaderProps) => {
   return (
     <div
       className={classNames(
-        'flex items-center gap-2 bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary border-b border-bolt-elements-borderColor px-4 py-1 min-h-[34px] text-sm',
+        `flex items-center ${uiSpacingTokens.gap8} ${uiColorRoleTokens.surfaceDepth2} text-bolt-elements-textSecondary border-b border-bolt-elements-borderColor ${uiSpacingTokens.px16} ${uiSpacingTokens.py4} ${uiSpacingTokens.minH32} ${uiTypographyTokens.caption}`,
         className,
       )}
     >

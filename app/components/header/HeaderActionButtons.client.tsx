@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { DeployButton } from '~/components/deploy/DeployButton';
+import { uiButtonClassTokens } from '~/components/ui/tokens';
 
 interface HeaderActionButtonsProps {
   chatStarted: boolean;
@@ -26,7 +27,7 @@ export function HeaderActionButtons({ chatStarted: _chatStarted }: HeaderActionB
             onClick={() =>
               window.open('https://github.com/stackblitz-labs/bolt.diy/issues/new?template=bug_report.yml', '_blank')
             }
-            className="rounded-l-md items-center justify-center [&:is(:disabled,.disabled)]:cursor-not-allowed [&:is(:disabled,.disabled)]:opacity-60 px-3 py-1.5 text-xs bg-accent-500 text-white hover:text-bolt-elements-item-contentAccent [&:not(:disabled,.disabled)]:hover:bg-bolt-elements-button-primary-backgroundHover outline-accent-500 flex gap-1.5"
+            className={`rounded-l-md ${uiButtonClassTokens.primaryActionCompact} gap-1.5`}
             title="Report Bug"
           >
             <div className="i-ph:bug" />
@@ -42,7 +43,7 @@ export function HeaderActionButtons({ chatStarted: _chatStarted }: HeaderActionB
                 console.error('Failed to download debug log:', error);
               }
             }}
-            className="rounded-r-md items-center justify-center [&:is(:disabled,.disabled)]:cursor-not-allowed [&:is(:disabled,.disabled)]:opacity-60 px-3 py-1.5 text-xs bg-accent-500 text-white hover:text-bolt-elements-item-contentAccent [&:not(:disabled,.disabled)]:hover:bg-bolt-elements-button-primary-backgroundHover outline-accent-500 flex gap-1.5"
+            className={`rounded-r-md ${uiButtonClassTokens.primaryActionCompact} gap-1.5`}
             title="Download Debug Log"
           >
             <div className="i-ph:download" />

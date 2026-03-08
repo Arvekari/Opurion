@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'framer-motion';
 import { classNames } from '~/utils/classNames';
 import { Badge } from './Badge';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 interface SearchResultItemProps {
   title: string;
@@ -27,8 +28,8 @@ export function SearchResultItem({
   subtitle,
   description,
   icon,
-  iconBackground = 'bg-bolt-elements-background-depth-1/80 dark:bg-bolt-elements-background-depth-4/80',
-  iconColor = 'text-purple-500',
+  iconBackground = 'bg-bolt-elements-bg-depth-1/80',
+  iconColor = 'text-bolt-elements-item-contentAccent',
   tags,
   metadata,
   actionLabel,
@@ -39,7 +40,7 @@ export function SearchResultItem({
   return (
     <motion.div
       className={classNames(
-        'p-5 rounded-xl border border-bolt-elements-borderColor dark:border-bolt-elements-borderColor-dark hover:border-purple-500/40 transition-all duration-300 shadow-sm hover:shadow-md bg-bolt-elements-background-depth-1/50 dark:bg-bolt-elements-background-depth-3/50',
+        `${uiSpacingTokens.pad16} rounded-xl ${uiColorRoleTokens.borderDefault} hover:border-bolt-elements-borderColorActive/40 transition-all duration-300 shadow-sm hover:shadow-md bg-bolt-elements-bg-depth-1/50`,
         onClick ? 'cursor-pointer' : '',
         className,
       )}
@@ -54,8 +55,8 @@ export function SearchResultItem({
       transition={{ duration: 0.3 }}
       onClick={onClick}
     >
-      <div className="flex items-start justify-between mb-3 gap-3">
-        <div className="flex items-start gap-3">
+      <div className={`flex items-start justify-between mb-4 ${uiSpacingTokens.gap16}`}>
+        <div className={`flex items-start ${uiSpacingTokens.gap16}`}>
           {icon && (
             <div
               className={classNames(
@@ -67,11 +68,9 @@ export function SearchResultItem({
             </div>
           )}
           <div>
-            <h3 className="font-medium text-bolt-elements-textPrimary dark:text-bolt-elements-textPrimary-dark text-base">
-              {title}
-            </h3>
+            <h3 className={`font-medium text-bolt-elements-textPrimary text-base`}>{title}</h3>
             {subtitle && (
-              <p className="text-xs text-bolt-elements-textTertiary dark:text-bolt-elements-textTertiary-dark flex items-center gap-1">
+              <p className={`text-xs text-bolt-elements-textTertiary flex items-center ${uiSpacingTokens.gap4}`}>
                 {subtitle}
               </p>
             )}
@@ -84,7 +83,7 @@ export function SearchResultItem({
               e.stopPropagation();
               onAction();
             }}
-            className="px-4 py-2 h-9 rounded-lg bg-purple-500 text-white hover:bg-purple-600 transition-all duration-200 flex items-center gap-2 min-w-[100px] justify-center text-sm shadow-sm hover:shadow-md"
+            className={`${uiSpacingTokens.px16} ${uiSpacingTokens.py8} min-h-8 rounded-lg ${uiColorRoleTokens.primary} transition-all duration-200 flex items-center ${uiSpacingTokens.gap8} min-w-[100px] justify-center ${uiTypographyTokens.caption} shadow-sm hover:shadow-md`}
             whileHover={{ scale: 1.05 }}
             whileTap={{ scale: 0.95 }}
           >
@@ -94,10 +93,10 @@ export function SearchResultItem({
       </div>
 
       {description && (
-        <div className="mb-4 bg-bolt-elements-background-depth-1/50 dark:bg-bolt-elements-background-depth-4/50 backdrop-blur-sm p-3 rounded-lg border border-bolt-elements-borderColor/30 dark:border-bolt-elements-borderColor-dark/30">
-          <p className="text-sm text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary-dark line-clamp-2">
-            {description}
-          </p>
+        <div
+          className={`mb-4 bg-bolt-elements-bg-depth-1/50 backdrop-blur-sm ${uiSpacingTokens.pad16} rounded-lg border border-bolt-elements-borderColor/30`}
+        >
+          <p className={`text-sm text-bolt-elements-textSecondary line-clamp-2`}>{description}</p>
         </div>
       )}
 
@@ -112,18 +111,14 @@ export function SearchResultItem({
       )}
 
       {metadata && metadata.length > 0 && (
-        <div className="flex flex-wrap items-center gap-3 text-xs text-bolt-elements-textTertiary dark:text-bolt-elements-textTertiary-dark">
+        <div className={`flex flex-wrap items-center ${uiSpacingTokens.gap16} text-xs text-bolt-elements-textTertiary`}>
           {metadata.map((item, index) => (
-            <div key={index} className="flex items-center gap-1">
+            <div key={index} className={`flex items-center ${uiSpacingTokens.gap4}`}>
               {item.icon && <span className={classNames(item.icon, 'w-3.5 h-3.5')} />}
               <span>
                 {item.label}
                 {item.value !== undefined && ': '}
-                {item.value !== undefined && (
-                  <span className="text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary-dark">
-                    {item.value}
-                  </span>
-                )}
+                {item.value !== undefined && <span className="text-bolt-elements-textSecondary">{item.value}</span>}
               </span>
             </div>
           ))}

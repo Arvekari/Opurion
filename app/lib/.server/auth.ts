@@ -21,6 +21,7 @@ function toHex(bytes: Uint8Array): string {
 async function sha256(text: string): Promise<string> {
   const data = new TextEncoder().encode(text);
   const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+
   return toHex(new Uint8Array(hashBuffer));
 }
 
@@ -31,12 +32,14 @@ export async function hashPassword(password: string, salt: string): Promise<stri
 export function generateSalt(): string {
   const bytes = new Uint8Array(16);
   crypto.getRandomValues(bytes);
+
   return toHex(bytes);
 }
 
 export function getSessionTokenFromRequest(request: Request): string | null {
   const cookieHeader = request.headers.get('Cookie');
   const cookies = parseCookies(cookieHeader);
+
   return cookies[SESSION_COOKIE] || null;
 }
 

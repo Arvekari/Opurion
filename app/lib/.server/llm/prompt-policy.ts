@@ -78,6 +78,7 @@ function pruneMessages(messages: PromptMessage[], maxChars: number): { messages:
   }
 
   const wasPruned = kept.length < messages.length;
+
   return { messages: kept, wasPruned };
 }
 

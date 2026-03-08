@@ -1,5 +1,6 @@
 import React from 'react';
 import { classNames } from '~/utils/classNames';
+import { uiSpacingTokens } from './tokens';
 
 // Status types supported by the component
 type StatusType = 'online' | 'offline' | 'away' | 'busy' | 'success' | 'warning' | 'error' | 'info' | 'loading';
@@ -9,15 +10,15 @@ type SizeType = 'sm' | 'md' | 'lg';
 
 // Status color mapping
 const STATUS_COLORS: Record<StatusType, string> = {
-  online: 'bg-green-500',
-  success: 'bg-green-500',
-  offline: 'bg-red-500',
-  error: 'bg-red-500',
-  away: 'bg-yellow-500',
-  warning: 'bg-yellow-500',
-  busy: 'bg-red-500',
-  info: 'bg-blue-500',
-  loading: 'bg-purple-500',
+  online: 'bg-bolt-elements-icon-success',
+  success: 'bg-bolt-elements-icon-success',
+  offline: 'bg-bolt-elements-icon-error',
+  error: 'bg-bolt-elements-icon-error',
+  away: 'bg-bolt-elements-icon-warning',
+  warning: 'bg-bolt-elements-icon-warning',
+  busy: 'bg-bolt-elements-icon-error',
+  info: 'bg-bolt-elements-icon-info',
+  loading: 'bg-bolt-elements-item-contentAccent',
 };
 
 // Size class mapping
@@ -58,7 +59,7 @@ interface StatusIndicatorProps {
  */
 export function StatusIndicator({ status, size = 'md', pulse = false, label, className }: StatusIndicatorProps) {
   // Get the color class for the status
-  const colorClass = STATUS_COLORS[status] || 'bg-gray-500';
+  const colorClass = STATUS_COLORS[status] || 'bg-bolt-elements-textTertiary';
 
   // Get the size class for the indicator
   const sizeClass = SIZE_CLASSES[size];
@@ -67,7 +68,7 @@ export function StatusIndicator({ status, size = 'md', pulse = false, label, cla
   const textSizeClass = TEXT_SIZE_CLASSES[size];
 
   return (
-    <div className={classNames('flex items-center gap-2', className)}>
+    <div className={classNames(`flex items-center ${uiSpacingTokens.gap8}`, className)}>
       {/* Status indicator dot */}
       <span className={classNames('rounded-full relative', colorClass, sizeClass)}>
         {/* Pulse animation */}
@@ -75,16 +76,7 @@ export function StatusIndicator({ status, size = 'md', pulse = false, label, cla
       </span>
 
       {/* Optional label */}
-      {label && (
-        <span
-          className={classNames(
-            'text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary-dark',
-            textSizeClass,
-          )}
-        >
-          {label}
-        </span>
-      )}
+      {label && <span className={classNames('text-bolt-elements-textSecondary', textSizeClass)}>{label}</span>}
     </div>
   );
 }

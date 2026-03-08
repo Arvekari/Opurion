@@ -1,6 +1,7 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { type ReactNode } from 'react';
 import { classNames } from '~/utils/classNames';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 interface DropdownProps {
   trigger: ReactNode;
@@ -18,9 +19,9 @@ interface DropdownItemProps {
 export const DropdownItem = ({ children, onSelect, className }: DropdownItemProps) => (
   <DropdownMenu.Item
     className={classNames(
-      'relative flex items-center gap-2 px-3 py-2 rounded-lg text-sm',
+      `relative flex items-center ${uiSpacingTokens.gap8} ${uiSpacingTokens.px16} ${uiSpacingTokens.py8} rounded-lg ${uiTypographyTokens.caption}`,
       'text-bolt-elements-textPrimary hover:text-bolt-elements-textPrimary',
-      'hover:bg-bolt-elements-background-depth-3',
+      'hover:bg-bolt-elements-bg-depth-3',
       'transition-colors cursor-pointer',
       'outline-none',
       className,
@@ -41,9 +42,9 @@ export const Dropdown = ({ trigger, children, align = 'end', sideOffset = 5 }: D
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           className={classNames(
-            'min-w-[220px] rounded-lg p-2',
-            'bg-bolt-elements-background-depth-2',
-            'border border-bolt-elements-borderColor',
+            `min-w-[220px] rounded-lg ${uiSpacingTokens.pad8}`,
+            uiColorRoleTokens.surfaceDepth2,
+            uiColorRoleTokens.borderDefault,
             'shadow-lg',
             'animate-in fade-in-80 zoom-in-95',
             'data-[side=bottom]:slide-in-from-top-2',

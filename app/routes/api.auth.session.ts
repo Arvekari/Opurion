@@ -4,6 +4,7 @@ import { getUserCount } from '~/lib/.server/persistence';
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = context.cloudflare?.env as Record<string, any> | undefined;
+
   try {
     const user = await getCurrentUserFromRequest(request, env);
     const userCount = await getUserCount(env);

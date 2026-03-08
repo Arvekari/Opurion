@@ -74,8 +74,9 @@ function parseObjectives(markdown) {
 function readOrchestrationPolicy(markdown) {
   const lines = markdown.split(/\r?\n/);
   let inSection = false;
-  let mode = 'REQUIRED';
+  let mode = 'AUTO';
   let exception = 'OFF';
+  let confirmationRequired = false;
   let reason = '';
 
   for (const line of lines) {
@@ -92,10 +93,10 @@ function readOrchestrationPolicy(markdown) {
       continue;
     }
 
-    const modeMatch = line.match(/^\s*-\s*Mode:\s*(REQUIRED|EXCEPTION)\s*$/i);
+    const modeMatch = line.match(/^\s*-\s*Mode:\s*(AUTO|AUTONOMOUS|REQUIRED|EXCEPTION)\s*$/i);
 
     if (modeMatch) {
-      mode = modeMatch[1].toUpperCase();
+      mode = modeMatch[1].toUpperCase() === 'AUTONOMOUS' ? 'AUTO' : modeMatch[1].toUpperCase();
       continue;
     }
 
@@ -110,6 +111,14 @@ function readOrchestrationPolicy(markdown) {
 
     if (reasonMatch) {
       reason = reasonMatch[1].trim();
+      continue;
+    }
+
+    const confirmationMatch = line.match(/^\s*-\s*ConfirmationRequired:\s*(ON|OFF|TRUE|FALSE)\s*$/i);
+
+    if (confirmationMatch) {
+      const normalized = confirmationMatch[1].toUpperCase();
+      confirmationRequired = normalized === 'ON' || normalized === 'TRUE';
     }
   }
 
@@ -119,6 +128,7 @@ function readOrchestrationPolicy(markdown) {
     mode,
     exception: exceptionEnabled ? 'ON' : 'OFF',
     exceptionEnabled,
+    confirmationRequired,
     exceptionReason: reason,
   };
 }
@@ -127,9 +137,117 @@ function nextObjective(objectives) {
   return objectives.find((item) => item.status === 'PARTIAL') || objectives.find((item) => item.status === 'TODO') || null;
 }
 
+function objectiveIdentity(objective) {
+  if (!objective) {
+    return '';
+  }
+
+  if (objective.taskId && String(objective.taskId).trim().length > 0) {
+    return `task:${String(objective.taskId).trim().toLowerCase()}`;
+  }
+
+  return `text:${sanitizeRefPart(objective.priority)}:${sanitizeRefPart(objective.text)}`;
+}
+
+function resolveNextObjectiveForExecution(state, objectives) {
+  const actionable = objectives.filter((item) => item.status === 'PARTIAL' || item.status === 'TODO');
+
+  if (actionable.length === 0) {
+    state.activeObjectiveId = '';
+    return {
+      next: null,
+      continuingActive: false,
+    };
+  }
+
+  const activeObjectiveId = String(state.activeObjectiveId || '').trim();
+
+  if (activeObjectiveId.length > 0) {
+    const active = actionable.find((item) => objectiveIdentity(item) === activeObjectiveId);
+
+    if (active) {
+      return {
+        next: active,
+        continuingActive: true,
+      };
+    }
+  }
+
+  const selected = nextObjective(actionable);
+  state.activeObjectiveId = selected ? objectiveIdentity(selected) : '';
+
+  return {
+    next: selected,
+    continuingActive: false,
+  };
+}
+
+function markObjectiveDoneInMarkdown(doneObjective) {
+  if (!doneObjective) {
+    return { updated: false, reason: 'missing objective' };
+  }
+
+  const markdown = readMarkdown();
+  const lines = markdown.split(/\r?\n/);
+  let inPrioritized = false;
+  let updated = false;
+
+  for (let index = 0; index < lines.length; index++) {
+    const line = lines[index];
+
+    if (line.startsWith('## Prioritized Unfinished Work')) {
+      inPrioritized = true;
+      continue;
+    }
+
+    if (inPrioritized && line.startsWith('## ') && !line.startsWith('## Prioritized Unfinished Work')) {
+      break;
+    }
+
+    if (!inPrioritized) {
+      continue;
+    }
+
+    const statusMatch = line.match(/^(\s*-\s*)`(PARTIAL|TODO|BLOCKED|DONE)`\s+(.+)$/);
+
+    if (!statusMatch) {
+      continue;
+    }
+
+    const taskData = statusMatch[3].trim().match(TASK_ID_PREFIX_PATTERN);
+    const lineTaskId = taskData ? taskData[1] : '';
+    const lineText = taskData ? taskData[2].trim() : statusMatch[3].trim();
+    const taskIdMatches =
+      doneObjective.taskId && lineTaskId
+        ? String(doneObjective.taskId).trim().toLowerCase() === String(lineTaskId).trim().toLowerCase()
+        : false;
+    const textMatches = !doneObjective.taskId && lineText === doneObjective.text;
+
+    if (!taskIdMatches && !textMatches) {
+      continue;
+    }
+
+    if (statusMatch[2] !== 'DONE') {
+      lines[index] = `${statusMatch[1]}\`DONE\` ${statusMatch[3]}`;
+      updated = true;
+    }
+
+    break;
+  }
+
+  if (updated) {
+    writeFileSync(FILE_PATH, `${lines.join('\n')}\n`, 'utf8');
+  }
+
+  return {
+    updated,
+    reason: updated ? '' : 'objective line not changed',
+  };
+}
+
 function loadState() {
   if (!existsSync(LOOP_STATE)) {
-    return { completed: [], emptyScanStreak: 0, cycleStopRecommended: false };
+    return { completed: [], emptyScanStreak: 0, cycleStopRecommended: false, activeObjectiveId: '' };
   }
 
   const parsed = JSON.parse(readFileSync(LOOP_STATE, 'utf8'));
@@ -137,6 +255,7 @@ function loadState() {
     completed: Array.isArray(parsed.completed) ? parsed.completed : [],
     emptyScanStreak: Number.isInteger(parsed.emptyScanStreak) ? parsed.emptyScanStreak : 0,
     cycleStopRecommended: Boolean(parsed.cycleStopRecommended),
+    activeObjectiveId: typeof parsed.activeObjectiveId === 'string' ? parsed.activeObjectiveId : '',
   };
 }
 
@@ -552,6 +671,14 @@ function enforceOrchestrationDelivery(notifyResult, policy) {
     return;
   }
 
+  if (policy.mode === 'AUTO') {
+    if (!notifyResult?.sent) {
+      const reason = notifyResult?.reason || 'unknown-notify-error';
+      logLine(`orchestration notify failed in AUTO mode; continuing without hard stop. reason=${reason}`);
+    }
+    return;
+  }
+
   if (!notifyResult?.sent) {
     const reason = notifyResult?.reason || 'unknown-notify-error';
     throw new Error(
@@ -833,17 +960,102 @@ function resolveStructuredDispatchResponse(responseBody, hasOpenObjectives) {
   return translateLegacyDispatchResponse(raw, hasOpenObjectives);
 }
 
-function buildNextRequest(nextObjectiveItem, notified, cycleGuard = { emptyScanStreak: 0, cycleStopRecommended: false }) {
+function buildNextRequest(
+  nextObjectiveItem,
+  notified,
+  cycleGuard = { emptyScanStreak: 0, cycleStopRecommended: false },
+  options = { continuingActive: false, policy: { mode: 'AUTO', confirmationRequired: false } },
+) {
   const hasOpenObjectives = Boolean(nextObjectiveItem);
   const structured = resolveStructuredDispatchResponse(notified?.body, hasOpenObjectives);
+  const continuingActive = Boolean(options?.continuingActive);
+  const autonomousMode = String(options?.policy?.mode || '').toUpperCase() === 'AUTO';
 
   const model = process.env.OPENAI_MODEL || process.env.MODEL || '';
   const isGpt41 = typeof model === 'string' && model.toLowerCase().includes('gpt-4.1');
 
   if (nextObjectiveItem) {
+    if (continuingActive) {
+      const objectiveLabel = `[${nextObjectiveItem.priority}] ${nextObjectiveItem.status} ${nextObjectiveItem.text}`;
+
+      if (autonomousMode) {
+        return {
+          message: `TASK_CONTINUE ${objectiveLabel}`,
+          finalRemark: 'AUTONOMOUS_CONTINUE_NO_CONFIRMATION',
+          orchestrationPulse: {
+            jobPulse: 'continue-current-ongoing-job',
+            restartCommand: '',
+            reason: 'Active objective is unfinished; continue same task until completion.',
+          },
+          response: {
+            ...structured,
+            action: 'continue-current-objective',
+            queueState: 'open',
+            commands: [
+              { type: 'objective.continueActive' },
+              { type: 'objective.getPrompt', command: 'pnpm run ongoing:bridge -- prompt' },
+            ],
+            autonomous: true,
+            confirmationRequired: false,
+            gpt41RequiresAction: isGpt41,
+          },
+          cycleGuard,
+        };
+      }
+
+      return {
+        message: `Current objective is still active and not finished: ${objectiveLabel}`,
+        finalRemark:
+          'Do not request a new job yet. Run `pnpm run ongoing:bridge -- prompt` to get the continuation prompt for unfinished current objectives.',
+        orchestrationPulse: {
+          jobPulse: 'continue-current-ongoing-job',
+          restartCommand: '',
+          reason: 'Active objective is unfinished; continue same task until completion.',
+        },
+        response: {
+          ...structured,
+          action: 'continue-current-objective',
+          queueState: 'open',
+          commands: [
+            { type: 'objective.continueActive' },
+            { type: 'objective.getPrompt', command: 'pnpm run ongoing:bridge -- prompt' },
+          ],
+          autonomous: false,
+          confirmationRequired: true,
+          gpt41RequiresAction: isGpt41,
+        },
+        cycleGuard,
+      };
+    }
+
+    const objectiveLabel = `[${nextObjectiveItem.priority}] ${nextObjectiveItem.status} ${nextObjectiveItem.text}`;
+
+    if (autonomousMode) {
+      return {
+        message: `TASK_EXECUTE ${objectiveLabel}`,
+        finalRemark: 'AUTONOMOUS_EXECUTION_CONTINUES',
+        orchestrationPulse: {
+          jobPulse: structured.queueState === 'empty' ? 'start-new-ongoing-check-job' : 'continue-current-ongoing-job',
+          restartCommand: structured.queueState === 'empty' ? 'pnpm run ongoing:cycle -- scan' : '',
+          reason:
+            structured.queueState === 'empty'
+              ? 'Queue drained in this cycle; restart as a new job.'
+              : 'Unfinished objectives remain in queue.',
+        },
+        response: {
+          ...structured,
+          autonomous: true,
+          confirmationRequired: false,
+          gpt41RequiresAction: isGpt41,
+        },
+        cycleGuard,
+      };
+    }
+
     return {
-      message: `Execute objective: [${nextObjectiveItem.priority}] ${nextObjectiveItem.status} ${nextObjectiveItem.text}`,
-      finalRemark: 'After finishing this objective, notify done and request the next one from the queue.',
+      message: `Execute objective: ${objectiveLabel}`,
+      finalRemark:
+        'Work only this objective until done. On completion, run `pnpm run ongoing:cycle -- done` to auto-close it and force the next queued objective.',
       orchestrationPulse: {
         jobPulse: structured.queueState === 'empty' ? 'start-new-ongoing-check-job' : 'continue-current-ongoing-job',
         restartCommand: structured.queueState === 'empty' ? 'pnpm run ongoing:cycle -- scan' : '',
@@ -851,6 +1063,8 @@ function buildNextRequest(nextObjectiveItem, notified, cycleGuard = { emptyScanS
       },
       response: {
         ...structured,
+        autonomous: false,
+        confirmationRequired: true,
         gpt41RequiresAction: isGpt41,
       },
       cycleGuard,
@@ -868,6 +1082,8 @@ function buildNextRequest(nextObjectiveItem, notified, cycleGuard = { emptyScanS
       },
       response: {
         ...structured,
+        autonomous: autonomousMode,
+        confirmationRequired: !autonomousMode,
         action: 'stop-cycle',
         queueState: 'empty',
         commands: [{ type: 'cycle.stop' }],
@@ -887,6 +1103,8 @@ function buildNextRequest(nextObjectiveItem, notified, cycleGuard = { emptyScanS
     },
     response: {
       ...structured,
+      autonomous: autonomousMode,
+      confirmationRequired: !autonomousMode,
       gpt41RequiresAction: isGpt41,
     },
     cycleGuard,
@@ -903,8 +1121,7 @@ async function commandNext() {
   const markdown = readMarkdown();
   const policy = readOrchestrationPolicy(markdown);
   const objectives = parseObjectives(markdown);
-  const actionableObjectives = objectives.filter((item) => item.status !== 'BLOCKED');
-  const next = nextObjective(actionableObjectives);
+  const { next, continuingActive } = resolveNextObjectiveForExecution(state, objectives);
   const cycleGuard = updateCycleGuardState(state, { hasOpenObjectives: Boolean(next), command: 'next' });
   saveState(state);
   const emitted = bridgeEmit();
@@ -930,7 +1147,7 @@ async function commandNext() {
     rowSemantics,
   });
   enforceOrchestrationDelivery(notify, policy);
-  const request = buildNextRequest(next, notify, cycleGuard);
+  const request = buildNextRequest(next, notify, cycleGuard, { continuingActive, policy });
 
   printJson({
     action: 'next',
@@ -939,6 +1156,7 @@ async function commandNext() {
     emitted,
     notified: notify,
     request,
+    continuingActive,
     orchestrationStats,
     openTasksTable,
     taskStatusTable,
@@ -954,28 +1172,36 @@ async function commandNext() {
 async function commandDone(args) {
   normalizeOngoingWork();
   const state = loadState();
-  const text = args.join(' ').trim();
-
-  if (!text) {
-    throw new Error('done requires objective text, e.g. pnpm run ongoing:cycle -- done "objective text"');
-  }
-
-  state.completed.push({
-    text,
-    completedAt: new Date().toISOString(),
-  });
   const markdown = readMarkdown();
   const policy = readOrchestrationPolicy(markdown);
   const objectives = parseObjectives(markdown);
-  const actionableObjectives = objectives.filter((item) => item.status !== 'BLOCKED');
-  const next = nextObjective(actionableObjectives);
+  const { next: currentObjective } = resolveNextObjectiveForExecution(state, objectives);
+
+  if (!currentObjective) {
+    throw new Error('No active objective to complete. Run `pnpm run ongoing:cycle -- next` to resolve the next queued task.');
+  }
+
+  const providedText = args.join(' ').trim();
+  const doneText = providedText || currentObjective.text;
+
+  const markdownUpdate = markObjectiveDoneInMarkdown(currentObjective);
+
+  state.completed.push({
+    text: doneText,
+    completedAt: new Date().toISOString(),
+  });
+  state.activeObjectiveId = '';
+
+  const refreshedMarkdown = readMarkdown();
+  const refreshedObjectives = parseObjectives(refreshedMarkdown);
+  const { next, continuingActive } = resolveNextObjectiveForExecution(state, refreshedObjectives);
   const cycleGuard = updateCycleGuardState(state, { hasOpenObjectives: Boolean(next), command: 'done' });
   saveState(state);
   const emitted = bridgeEmit();
   const orchestrationStats = persistOrchestrationStats(await collectOrchestrationStats());
   const measuredAt = orchestrationStats.measuredAt || new Date().toISOString();
-  const openTasksTable = buildOpenTasksTableRows(objectives, measuredAt);
-  const taskStatusTable = buildTaskStatusTableRows(objectives, measuredAt);
+  const openTasksTable = buildOpenTasksTableRows(refreshedObjectives, measuredAt);
+  const taskStatusTable = buildTaskStatusTableRows(refreshedObjectives, measuredAt);
   const checkupTable = buildCheckupTable('objective.done', next, measuredAt);
   const failureTable = buildFailureTable(checkupTable, orchestrationStats, measuredAt);
   const rowSemantics = assertTaskStatusSemantics(taskStatusTable, openTasksTable);
@@ -983,7 +1209,9 @@ async function commandDone(args) {
   validateOpenTaskRows(openTasksTable);
   const openTasksPersisted = persistOpenTasksTable(openTasksTable, orchestrationStats);
   const notify = await notifyN8n('objective.done', {
-    done: text,
+    done: doneText,
+    doneObjective: currentObjective,
+    markdownUpdate,
     next,
     openCount: openTasksTable.length,
     emitted,
@@ -995,17 +1223,20 @@ async function commandDone(args) {
     rowSemantics,
   });
   enforceOrchestrationDelivery(notify, policy);
-  const request = buildNextRequest(next, notify, cycleGuard);
+  const request = buildNextRequest(next, notify, cycleGuard, { continuingActive, policy });
 
   printJson({
     action: 'done',
-    done: text,
+    done: doneText,
+    completedObjective: currentObjective,
+    markdownUpdate,
     next,
     openCount: openTasksTable.length,
     completedCount: state.completed.length,
     emitted,
     notified: notify,
     request,
+    continuingActive,
     orchestrationStats,
     openTasksTable,
     taskStatusTable,
@@ -1024,8 +1255,7 @@ async function commandLoop() {
   const markdown = readMarkdown();
   const policy = readOrchestrationPolicy(markdown);
   const objectives = parseObjectives(markdown);
-  const actionableObjectives = objectives.filter((item) => item.status === 'PARTIAL' || item.status === 'TODO');
-  const next = nextObjective(actionableObjectives);
+  const { next, continuingActive } = resolveNextObjectiveForExecution(state, objectives);
   const cycleGuard = updateCycleGuardState(state, { hasOpenObjectives: Boolean(next), command: 'scan' });
   saveState(state);
   const emitted = bridgeEmit();
@@ -1050,7 +1280,7 @@ async function commandLoop() {
     rowSemantics,
   });
   enforceOrchestrationDelivery(notify, policy);
-  const request = buildNextRequest(next, notify, cycleGuard);
+  const request = buildNextRequest(next, notify, cycleGuard, { continuingActive, policy });
 
   printJson({
     action: 'loop-scan',
@@ -1059,6 +1289,7 @@ async function commandLoop() {
     emitted,
     notified: notify,
     request,
+    continuingActive,
     orchestrationStats,
     openTasksTable,
     taskStatusTable,

@@ -1,6 +1,7 @@
 import React from 'react';
 import { motion } from 'framer-motion';
 import { classNames } from '~/utils/classNames';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 interface FilterChipProps {
   /** The label text to display */
@@ -43,10 +44,10 @@ export function FilterChip({ label, value, onRemove, active = false, icon, class
       variants={variants}
       transition={{ duration: 0.2 }}
       className={classNames(
-        'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all',
+        `inline-flex items-center ${uiSpacingTokens.gap4} ${uiSpacingTokens.px8} ${uiSpacingTokens.py4} rounded-lg ${uiTypographyTokens.bodyXs} transition-all`,
         active
-          ? 'bg-purple-500/15 text-purple-600 dark:text-purple-400 border border-purple-500/30'
-          : 'bg-bolt-elements-background-depth-2 dark:bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary-dark border border-bolt-elements-borderColor dark:border-bolt-elements-borderColor-dark',
+          ? 'bg-bolt-elements-button-primary-background text-bolt-elements-button-primary-text border border-bolt-elements-borderColorActive/30'
+          : `bg-bolt-elements-bg-depth-2 text-bolt-elements-textSecondary ${uiColorRoleTokens.borderDefault}`,
         onRemove && 'pr-1',
         className,
       )}
@@ -61,9 +62,7 @@ export function FilterChip({ label, value, onRemove, active = false, icon, class
         {value !== undefined && (
           <span
             className={
-              active
-                ? 'text-purple-700 dark:text-purple-300 font-semibold'
-                : 'text-bolt-elements-textPrimary dark:text-bolt-elements-textPrimary-dark'
+              active ? 'text-bolt-elements-button-primary-text font-semibold' : 'text-bolt-elements-textPrimary'
             }
           >
             {value}
@@ -77,10 +76,8 @@ export function FilterChip({ label, value, onRemove, active = false, icon, class
           type="button"
           onClick={onRemove}
           className={classNames(
-            'ml-1 p-0.5 rounded-full hover:bg-bolt-elements-background-depth-3 dark:hover:bg-bolt-elements-background-depth-4 transition-colors',
-            active
-              ? 'text-purple-600 dark:text-purple-400'
-              : 'text-bolt-elements-textTertiary dark:text-bolt-elements-textTertiary-dark',
+            'ml-1 p-0.5 rounded-full hover:bg-bolt-elements-bg-depth-3 transition-colors',
+            active ? 'text-bolt-elements-button-primary-text' : 'text-bolt-elements-textTertiary',
           )}
           aria-label={`Remove ${label} filter`}
         >

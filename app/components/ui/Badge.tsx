@@ -1,31 +1,35 @@
 import * as React from 'react';
 import { cva, type VariantProps } from 'class-variance-authority';
 import { classNames } from '~/utils/classNames';
+import { uiColorRoleTokens, uiSpacingTokens, uiTypographyTokens } from './tokens';
 
 const badgeVariants = cva(
-  'inline-flex items-center gap-1 transition-colors focus:outline-none focus:ring-2 focus:ring-bolt-elements-ring focus:ring-offset-2',
+  `inline-flex items-center ${uiSpacingTokens.gap4} transition-colors focus:outline-none focus:ring-2 focus:ring-bolt-elements-borderColorActive focus:ring-offset-2`,
   {
     variants: {
       variant: {
-        default:
-          'border-transparent bg-bolt-elements-background text-bolt-elements-textPrimary hover:bg-bolt-elements-background/80',
-        secondary:
-          'border-transparent bg-bolt-elements-background text-bolt-elements-textSecondary hover:bg-bolt-elements-background/80',
-        destructive: 'border-transparent bg-red-500/10 text-red-500 hover:bg-red-500/20',
+        default: `${uiColorRoleTokens.surface} hover:bg-bolt-elements-bg-depth-2`,
+        secondary: `bg-bolt-elements-bg-depth-2 text-bolt-elements-textSecondary hover:bg-bolt-elements-bg-depth-3`,
+        destructive:
+          'bg-bolt-elements-button-danger-background text-bolt-elements-button-danger-text hover:bg-bolt-elements-button-danger-backgroundHover',
         outline: 'text-bolt-elements-textPrimary',
-        primary: 'bg-purple-500/10 text-purple-600 dark:text-purple-400',
-        success: 'bg-green-500/10 text-green-600 dark:text-green-400',
-        warning: 'bg-yellow-500/10 text-yellow-600 dark:text-yellow-400',
-        danger: 'bg-red-500/10 text-red-600 dark:text-red-400',
-        info: 'bg-blue-500/10 text-blue-600 dark:text-blue-400',
+        primary:
+          'bg-bolt-elements-button-primary-background text-bolt-elements-button-primary-text hover:bg-bolt-elements-button-primary-backgroundHover',
+        success:
+          'bg-bolt-elements-item-backgroundActive text-bolt-elements-icon-success hover:bg-bolt-elements-bg-depth-2',
+        warning:
+          'bg-bolt-elements-item-backgroundActive text-bolt-elements-icon-warning hover:bg-bolt-elements-bg-depth-2',
+        danger:
+          'bg-bolt-elements-button-danger-background text-bolt-elements-button-danger-text hover:bg-bolt-elements-button-danger-backgroundHover',
+        info: 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:bg-bolt-elements-item-backgroundActive',
         subtle:
-          'border border-bolt-elements-borderColor/30 dark:border-bolt-elements-borderColor-dark/30 bg-white/50 dark:bg-bolt-elements-background-depth-4/50 backdrop-blur-sm text-bolt-elements-textSecondary dark:text-bolt-elements-textSecondary-dark',
+          'border border-bolt-elements-borderColor/30 bg-bolt-elements-bg-depth-2/70 backdrop-blur-sm text-bolt-elements-textSecondary',
       },
       size: {
-        default: 'rounded-full px-2.5 py-0.5 text-xs font-semibold',
-        sm: 'rounded-full px-1.5 py-0.5 text-xs',
-        md: 'rounded-md px-2 py-1 text-xs font-medium',
-        lg: 'rounded-md px-2.5 py-1.5 text-sm',
+        default: `rounded-full ${uiSpacingTokens.px8} ${uiSpacingTokens.py4} ${uiTypographyTokens.bodyXs}`,
+        sm: `rounded-full px-1 py-1 ${uiTypographyTokens.bodyXs}`,
+        md: `rounded-md ${uiSpacingTokens.px8} ${uiSpacingTokens.py4} ${uiTypographyTokens.bodyXs}`,
+        lg: `rounded-md ${uiSpacingTokens.px16} ${uiSpacingTokens.py8} ${uiTypographyTokens.bodySm}`,
       },
     },
     defaultVariants: {
