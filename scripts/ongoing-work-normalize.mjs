@@ -1,10 +1,11 @@
 #!/usr/bin/env node
 
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 const FILE_PATH = resolve('.ongoing-work.md');
-const UNCATEGORIZED_HEADER = '## Uncategorized and not yet id:t TODO Work';
+const BACKUP_DIR = resolve('bolt.work/ongoing-work-backups');
+const UNCATEGORIZED_MARKER = 'Uncategorized and not yet id:t TODO Work';
 const P5_HEADER_PREFIX = '### P5';
 const TASK_ID_PATTERN = /\[taskId:\s*([a-zA-Z0-9._:-]+)\]/i;
 
@@ -58,12 +59,13 @@ function parseUncategorizedEntry(line) {
 
 function main() {
   const original = readFileSync(FILE_PATH, 'utf8');
+  const fullSnapshotPath = writeFullSnapshotBackup(original);
   const lines = original.split(/\r?\n/);
 
-  const uncategorizedStart = lines.findIndex((line) => line.startsWith(UNCATEGORIZED_HEADER));
+  const uncategorizedStart = lines.findIndex((line) => line.startsWith('## ') && line.includes(UNCATEGORIZED_MARKER));
 
   if (uncategorizedStart === -1) {
-    console.log(JSON.stringify({ changed: false, reason: 'uncategorized-section-missing' }, null, 2));
+    console.log(JSON.stringify({ changed: false, reason: 'uncategorized-section-missing', fullSnapshotPath }, null, 2));
     return;
   }
 
@@ -80,7 +82,7 @@ function main() {
   const entries = rawUncategorized.map(parseUncategorizedEntry).filter(Boolean);
 
   if (entries.length === 0) {
-    console.log(JSON.stringify({ changed: false, migrated: 0 }, null, 2));
+    console.log(JSON.stringify({ changed: false, migrated: 0, fullSnapshotPath }, null, 2));
     return;
   }
 
@@ -102,7 +104,12 @@ function main() {
   const existingTaskIds = new Set();
   const existingTexts = new Set();
 
-  for (const line of lines) {
+  for (let index = 0; index < lines.length; index++) {
+    if (index > uncategorizedStart && index < uncategorizedEnd) {
+      continue;
+    }
+
+    const line = lines[index];
     const taskIdMatch = line.match(TASK_ID_PATTERN);
 
     if (taskIdMatch) {
@@ -147,24 +154,29 @@ function main() {
   }
 
   if (migrated.length === 0) {
-    const replacement = ['', '- `TODO` None.', ''];
-    const nextLines = [...lines.slice(0, uncategorizedStart + 1), ...replacement, ...lines.slice(uncategorizedEnd)];
-    const nextContent = `${nextLines.join('\n').replace(/\n+$/g, '')}\n`;
-
-    if (nextContent !== original) {
-      writeFileSync(FILE_PATH, nextContent, 'utf8');
-      console.log(JSON.stringify({ changed: true, migrated: 0, cleared: true }, null, 2));
-      return;
-    }
-
-    console.log(JSON.stringify({ changed: false, migrated: 0, cleared: true }, null, 2));
+    console.log(
+      JSON.stringify(
+        {
+          changed: false,
+          migrated: 0,
+          preservedUncategorized: true,
+          reason: 'no-confident-migration',
+          fullSnapshotPath,
+        },
+        null,
+        2,
+      ),
+    );
     return;
   }
 
+  const backupPath = writeUncategorizedBackup(rawUncategorized);
   const insertionPoint = p5End;
   const withMigrated = [...lines.slice(0, insertionPoint), ...migrated, ...lines.slice(insertionPoint)];
 
-  const uncategorizedStart2 = withMigrated.findIndex((line) => line.startsWith(UNCATEGORIZED_HEADER));
+  const uncategorizedStart2 = withMigrated.findIndex(
+    (line) => line.startsWith('## ') && line.includes(UNCATEGORIZED_MARKER),
+  );
   let uncategorizedEnd2 = withMigrated.length;
 
   for (let index = uncategorizedStart2 + 1; index < withMigrated.length; index++) {
@@ -193,6 +205,8 @@ function main() {
         changed: nextContent !== original,
         migrated: migrated.length,
         movedTo: 'P5',
+        fullSnapshotPath,
+        backupPath,
       },
       null,
       2,
@@ -206,4 +220,31 @@ try {
   const details = error instanceof Error ? error.message : String(error);
   console.error(`ongoing-work-normalize error: ${details}`);
   process.exit(1);
+}
+
+function writeUncategorizedBackup(rawSectionLines) {
+  const meaningfulLines = rawSectionLines.filter((line) => line.trim().length > 0);
+
+  if (meaningfulLines.length === 0) {
+    return null;
+  }
+
+  mkdirSync(BACKUP_DIR, { recursive: true });
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = resolve(BACKUP_DIR, `uncategorized-${timestamp}.md`);
+  const backupContent = ['# Uncategorized Snapshot', '', `## ${UNCATEGORIZED_MARKER}`, '', ...meaningfulLines, ''].join('\n');
+
+  writeFileSync(backupPath, backupContent, 'utf8');
+  return backupPath;
+}
+
+function writeFullSnapshotBackup(content) {
+  mkdirSync(BACKUP_DIR, { recursive: true });
+
+  const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const backupPath = resolve(BACKUP_DIR, `ongoing-work-full-${timestamp}.md`);
+
+  writeFileSync(backupPath, content.endsWith('\n') ? content : `${content}\n`, 'utf8');
+  return backupPath;
 }

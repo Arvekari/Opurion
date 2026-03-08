@@ -62,7 +62,8 @@ if (ageMs > maxAgeMs) {
 }
 
 const lines = content.split(/\r?\n/);
-const uncategorizedStart = lines.findIndex((line) => line.startsWith('## Uncategorized and not yet id:t TODO Work'));
+const UNCATEGORIZED_MARKER = 'Uncategorized and not yet id:t TODO Work';
+const uncategorizedStart = lines.findIndex((line) => line.startsWith('## ') && line.includes(UNCATEGORIZED_MARKER));
 
 if (uncategorizedStart !== -1) {
   let uncategorizedEnd = lines.length;

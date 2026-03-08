@@ -13,6 +13,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Chat streaming stall guard utilities in `app/components/chat/streamingGuard.ts` with timeout-based stall detection and effective streaming-state resolution.
 - Targeted regression tests in `unit-tests/components/chat/streamingGuard.test.ts` for timeout and stalled-UI behavior.
 - Explicit three-mode theme selector (Light/Dark/System) in the sidebar theme control.
+- Manual ongoing-work full snapshot command (`ongoing:snapshot`) with script `scripts/ongoing-work-snapshot.mjs`.
 
 ### Changed
 
@@ -20,12 +21,15 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Initial page theme bootstrap in `app/root.tsx` now resolves persisted `system` mode correctly before hydration.
 - Continued P2/T2 UI standardization on chat and workbench surfaces by consolidating compact primary actions and active/inactive control states into shared token classes.
 - Chat send control sizing/placement now uses scale-aligned values (`top-4`, `right-4`, `w-8`, `h-8`) and shared primary icon button styling.
+- Ongoing-work normalize/verify logic now detects the uncategorized section by marker text, supporting renamed headings while keeping enforcement active.
+- Ongoing-work normalization now writes a full pre-normalize backup snapshot before migration attempts.
 
 ### Fixed
 
 - P0 chat incident where streaming could stall indefinitely on the three-dot loader and block normal input/send recovery paths.
 - Docker startup smoke now uses canonical container log mapping (`BOLT_LOG_DIR=/logs`) and fails fast when mapped host log files are missing or unreadable.
 - App wrapper re-export modules (`app/core`, `app/infrastructure`, `app/integrations`, `app/platform`) were corrected to resolve root modules reliably during Docker production builds, and lint enforcement was scoped to avoid false positives on those wrapper files.
+- Ongoing-work normalization dedupe now excludes lines from the uncategorized section itself, fixing missed migrations of new uncategorized entries.
 
 ## [0.1.2] - 2026-03-07
 
