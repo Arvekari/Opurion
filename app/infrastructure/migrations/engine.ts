@@ -1,1 +1,1 @@
-export * from 'infrastructure/migrations/engine';
+export * from '../../../infrastructure/migrations/engine';

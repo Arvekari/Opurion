@@ -1,1 +1,1 @@
-export * from 'integrations/mcp/adapter';
+export * from '../../../integrations/mcp/adapter';

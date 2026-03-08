@@ -1,1 +1,1 @@
-export * from 'platform/security/rate-limit';
+export * from '../../../platform/security/rate-limit';

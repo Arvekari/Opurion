@@ -1,1 +1,1 @@
-export * from 'platform/http/error-handler';
+export * from '../../../platform/http/error-handler';

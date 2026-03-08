@@ -1,1 +1,1 @@
-export * from 'platform/http/request-context';
+export * from '../../../platform/http/request-context';

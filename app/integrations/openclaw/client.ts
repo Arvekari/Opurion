@@ -1,1 +1,1 @@
-export * from 'integrations/openclaw/client';
+export * from '../../../integrations/openclaw/client';

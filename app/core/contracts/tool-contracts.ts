@@ -1,1 +1,1 @@
-export * from 'core/contracts/tool-contracts';
+export * from '../../../core/contracts/tool-contracts';

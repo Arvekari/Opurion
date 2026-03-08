@@ -1,1 +1,1 @@
-export * from 'integrations/sqlite/adapter';
+export * from '../../../integrations/sqlite/adapter';

@@ -1,1 +1,1 @@
-export * from 'platform/prompts/service';
+export * from '../../../platform/prompts/service';

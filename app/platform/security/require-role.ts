@@ -1,1 +1,1 @@
-export * from 'platform/security/require-role';
+export * from '../../../platform/security/require-role';

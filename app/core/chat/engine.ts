@@ -1,1 +1,1 @@
-export * from 'core/chat/engine';
+export * from '../../../core/chat/engine';

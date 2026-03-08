@@ -1,1 +1,1 @@
-export * from 'platform/providers/service';
+export * from '../../../platform/providers/service';

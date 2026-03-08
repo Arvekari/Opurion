@@ -1,1 +1,1 @@
-export * from 'core/model-router';
+export * from '../../core/model-router';

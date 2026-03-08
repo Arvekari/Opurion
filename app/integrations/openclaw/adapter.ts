@@ -1,1 +1,1 @@
-export * from 'integrations/openclaw/adapter';
+export * from '../../../integrations/openclaw/adapter';

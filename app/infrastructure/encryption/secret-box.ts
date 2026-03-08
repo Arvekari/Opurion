@@ -1,1 +1,1 @@
-export * from 'infrastructure/encryption/secret-box';
+export * from '../../../infrastructure/encryption/secret-box';

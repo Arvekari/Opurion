@@ -1,1 +1,1 @@
-export * from 'infrastructure/logging/structured';
+export * from '../../../infrastructure/logging/structured';

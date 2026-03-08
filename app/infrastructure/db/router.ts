@@ -1,1 +1,1 @@
-export * from 'infrastructure/db/router';
+export * from '../../../infrastructure/db/router';

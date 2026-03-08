@@ -25,6 +25,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 - P0 chat incident where streaming could stall indefinitely on the three-dot loader and block normal input/send recovery paths.
 - Docker startup smoke now uses canonical container log mapping (`BOLT_LOG_DIR=/logs`) and fails fast when mapped host log files are missing or unreadable.
+- App wrapper re-export modules (`app/core`, `app/infrastructure`, `app/integrations`, `app/platform`) were corrected to resolve root modules reliably during Docker production builds, and lint enforcement was scoped to avoid false positives on those wrapper files.
 
 ## [0.1.2] - 2026-03-07
 

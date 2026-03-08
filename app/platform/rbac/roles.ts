@@ -1,1 +1,1 @@
-export * from 'platform/rbac/roles';
+export * from '../../../platform/rbac/roles';

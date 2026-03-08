@@ -1,1 +1,1 @@
-export * from 'infrastructure/config/loader';
+export * from '../../../infrastructure/config/loader';
