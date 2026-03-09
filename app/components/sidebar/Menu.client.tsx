@@ -312,7 +312,7 @@ export const Menu = () => {
           <div className="flex-1 flex flex-col items-center gap-3 py-4">
             <a
               href="/"
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300"
+              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent"
               title="Start new chat"
             >
               <span className="inline-block i-ph:plus-circle h-5 w-5" />
@@ -341,7 +341,7 @@ export const Menu = () => {
               <div className="flex gap-2">
                 <a
                   href="/"
-                  className="flex-1 flex gap-2 items-center bg-purple-50 dark:bg-purple-500/10 text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-500/20 rounded-lg px-4 py-2 transition-colors"
+                  className="flex-1 flex gap-2 items-center bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:brightness-110 rounded-lg px-4 py-2 transition-colors"
                 >
                   <span className="inline-block i-ph:plus-circle h-4 w-4" />
                   <span className="text-sm font-medium">Start new chat</span>
@@ -351,7 +351,7 @@ export const Menu = () => {
                   className={classNames(
                     'flex gap-1 items-center rounded-lg px-3 py-2 transition-colors',
                     selectionMode
-                      ? 'bg-purple-600 dark:bg-purple-500 text-white border border-purple-700 dark:border-purple-600'
+                      ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent border border-bolt-elements-borderColor'
                       : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor',
                   )}
                   aria-label={selectionMode ? 'Exit selection mode' : 'Enter selection mode'}

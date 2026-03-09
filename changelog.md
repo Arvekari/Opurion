@@ -14,11 +14,11 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Changed
 
-- None.
+- Chat shell layout now uses a persistent top model bar and bottom-anchored composer flow by removing the centered intro hero state from `app/components/chat/BaseChat.tsx`.
 
 ### Fixed
 
-- None.
+- Send flow regression in `BaseChat` no longer clears input during normal sends due to speech-recognition state handling.
 
 ## [0.1.4] - 2026-03-09
 

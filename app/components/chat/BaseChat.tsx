@@ -288,17 +288,13 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
         setSelectedElement?.(null);
 
         if (recognition) {
-          recognition.abort(); // Stop current recognition
-          setTranscript(''); // Clear transcript
-          setIsListening(false);
-
-          // Clear the input by triggering handleInputChange with empty value
-          if (handleInputChange) {
-            const syntheticEvent = {
-              target: { value: '' },
-            } as React.ChangeEvent<HTMLTextAreaElement>;
-            handleInputChange(syntheticEvent);
+          // Abort only when actively listening to avoid wiping input during normal sends.
+          if (isListening) {
+            recognition.abort();
+            setIsListening(false);
           }
+
+          setTranscript('');
         }
       }
     };
@@ -369,16 +365,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
               'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full min-w-0',
             )}
           >
-            {!chatStarted && (
-              <div id="intro" className="mt-[16vh] max-w-2xl mx-auto text-center px-4 lg:px-0">
-                <h1 className="text-3xl lg:text-6xl font-bold text-bolt-elements-textPrimary mb-4 animate-fade-in">
-                  Where ideas begin
-                </h1>
-                <p className="text-md lg:text-xl mb-8 text-bolt-elements-textSecondary animate-fade-in animation-delay-200">
-                  Bring ideas to life in seconds or get help on existing projects.
-                </p>
-              </div>
-            )}
             <div className="sticky top-0 z-20 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/95 backdrop-blur px-2 sm:px-6 py-2">
               <div className="w-full max-w-chat mx-auto flex flex-col gap-2">
                 <div className="text-xs font-medium text-bolt-elements-textTertiary px-1">Model</div>
@@ -412,7 +398,8 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
             </div>
             <StickToBottom
               className={classNames('pt-4 px-2 sm:px-6 relative', {
-                'h-full flex flex-col modern-scrollbar': chatStarted,
+                'flex-1 flex flex-col modern-scrollbar': chatStarted,
+                'flex-1 flex flex-col': !chatStarted,
               })}
               resize="smooth"
               initial="smooth"
@@ -438,7 +425,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                 <ScrollToBottom />
               </StickToBottom.Content>
               <div
-                className={classNames('my-auto flex flex-col gap-2 w-full max-w-chat mx-auto z-prompt mb-6', {
+                className={classNames('mt-auto flex flex-col gap-2 w-full max-w-chat mx-auto z-prompt mb-4', {
                   'sticky bottom-2': chatStarted,
                 })}
               >
