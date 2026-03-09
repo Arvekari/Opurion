@@ -10,6 +10,23 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Added
 
+- None.
+
+### Changed
+
+- None.
+- Completed [taskId: bolt2-p0-sidebar-static-topbar-model] [taskId: bolt2-p0-sidebar-static-topbar-model] Sidebar static/collapsible and top-bar model selection completed with validation.
+- Completed [taskId: bolt2-p0-send-message-disappears] [taskId: bolt2-p0-send-message-disappears] Send-flow disappearance regression fixed and validated.
+- Completed [taskId: bolt2-p0-chatgpt-style-ux-alignment] [taskId: bolt2-p0-chatgpt-style-ux-alignment] Top bar/sidebar/composer hierarchy aligned to cleaner chat UX with tokenized surfaces and validated tests/build.
+
+### Fixed
+
+- None.
+
+## [0.1.3] - 2026-03-09
+
+### Added
+
 - Chat streaming stall guard utilities in `app/components/chat/streamingGuard.ts` with timeout-based stall detection and effective streaming-state resolution.
 - Targeted regression tests in `unit-tests/components/chat/streamingGuard.test.ts` for timeout and stalled-UI behavior.
 - Explicit three-mode theme selector (Light/Dark/System) in the sidebar theme control.
@@ -164,5 +181,3 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 ---
 
 For historical upstream changes before this fork baseline, refer to the original bolt.diy repository release history.
-
-

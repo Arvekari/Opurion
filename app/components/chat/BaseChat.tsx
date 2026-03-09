@@ -11,6 +11,9 @@ import { classNames } from '~/utils/classNames';
 import { PROVIDER_LIST } from '~/utils/constants';
 import { Messages } from './Messages.client';
 import { getApiKeysFromCookies } from './APIKeyManager';
+import { ModelSelector } from './ModelSelector';
+import { APIKeyManager } from './APIKeyManager';
+import { LOCAL_PROVIDERS } from '~/lib/stores/settings';
 import Cookies from 'js-cookie';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import styles from './BaseChat.module.scss';
@@ -140,7 +143,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
     const TEXTAREA_MAX_HEIGHT = chatStarted ? 400 : 200;
     const [apiKeys, setApiKeys] = useState<Record<string, string>>(getApiKeysFromCookies());
     const [modelList, setModelList] = useState<ModelInfo[]>([]);
-    const [isModelSettingsCollapsed, setIsModelSettingsCollapsed] = useState(false);
     const [isListening, setIsListening] = useState(false);
     const [recognition, setRecognition] = useState<SpeechRecognition | null>(null);
     const [transcript, setTranscript] = useState('');
@@ -360,8 +362,13 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
         data-chat-visible={showChat}
       >
         <ClientOnly>{() => <Menu />}</ClientOnly>
-        <div className="flex flex-col lg:flex-row overflow-y-auto w-full h-full">
-          <div className={classNames(styles.Chat, 'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full')}>
+        <div className="flex flex-col lg:flex-row overflow-y-auto flex-1 h-full min-w-0 bg-bolt-elements-background-depth-1">
+          <div
+            className={classNames(
+              styles.Chat,
+              'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full min-w-0',
+            )}
+          >
             {!chatStarted && (
               <div id="intro" className="mt-[16vh] max-w-2xl mx-auto text-center px-4 lg:px-0">
                 <h1 className="text-3xl lg:text-6xl font-bold text-bolt-elements-textPrimary mb-4 animate-fade-in">
@@ -372,8 +379,39 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                 </p>
               </div>
             )}
+            <div className="sticky top-0 z-20 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/95 backdrop-blur px-2 sm:px-6 py-2">
+              <div className="w-full max-w-chat mx-auto flex flex-col gap-2">
+                <div className="text-xs font-medium text-bolt-elements-textTertiary px-1">Model</div>
+                <ClientOnly>
+                  {() => (
+                    <div className="flex flex-col gap-2">
+                      <ModelSelector
+                        key={provider?.name + ':' + modelList.length}
+                        model={model}
+                        setModel={setModel}
+                        modelList={modelList}
+                        provider={provider}
+                        setProvider={setProvider}
+                        providerList={providerList || (PROVIDER_LIST as ProviderInfo[])}
+                        apiKeys={apiKeys}
+                        modelLoading={isModelLoading}
+                      />
+                      {(providerList || []).length > 0 && provider && !LOCAL_PROVIDERS.includes(provider.name) && (
+                        <APIKeyManager
+                          provider={provider}
+                          apiKey={apiKeys[provider.name] || ''}
+                          setApiKey={(key) => {
+                            onApiKeysChange(provider.name, key);
+                          }}
+                        />
+                      )}
+                    </div>
+                  )}
+                </ClientOnly>
+              </div>
+            </div>
             <StickToBottom
-              className={classNames('pt-6 px-2 sm:px-6 relative', {
+              className={classNames('pt-4 px-2 sm:px-6 relative', {
                 'h-full flex flex-col modern-scrollbar': chatStarted,
               })}
               resize="smooth"
@@ -440,8 +478,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                 {progressAnnotations && <ProgressCompilation data={progressAnnotations} />}
                 <AgentRunStatusPanel run={agentRun} />
                 <ChatBox
-                  isModelSettingsCollapsed={isModelSettingsCollapsed}
-                  setIsModelSettingsCollapsed={setIsModelSettingsCollapsed}
                   provider={provider}
                   setProvider={setProvider}
                   providerList={providerList || (PROVIDER_LIST as ProviderInfo[])}

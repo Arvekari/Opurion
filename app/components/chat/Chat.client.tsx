@@ -491,8 +491,9 @@ export const ChatImpl = memo(
 
     const sendMessage = async (_event: React.UIEvent, messageInput?: string) => {
       const messageContent = messageInput || draftInput;
+      const hasAttachments = uploadedFiles.length > 0 || imageDataList.length > 0;
 
-      if (!messageContent?.trim()) {
+      if (!messageContent?.trim() && !hasAttachments) {
         return;
       }
 
@@ -648,7 +649,19 @@ export const ChatImpl = memo(
       }
 
       if (error != null) {
-        setMessages(messages.slice(0, -1));
+        setMessages((currentMessages: Message[]) => {
+          if (currentMessages.length === 0) {
+            return currentMessages;
+          }
+
+          const lastMessage = currentMessages[currentMessages.length - 1];
+
+          if (lastMessage?.role === 'assistant') {
+            return currentMessages.slice(0, -1);
+          }
+
+          return currentMessages;
+        });
       }
 
       const modifiedFiles = workbenchStore.getModifiedFiles();
