@@ -13,6 +13,8 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Settings Control Panel UX redesign task (P1): category-grid card layout with collapsible left navigation sidebar (expandable to full width with labels + icons, collapses to icon-only compact mode with tooltips). Six category cards: General, Preferences, AI, Integrations, Security, System.
 - Runtime parser coverage for build-oriented AI responses in `unit-tests/lib/runtime/runtime.enhanced-message-parser.test.ts`, including automatic `file` and `shell` boltAction interpretation from raw code blocks.
 - Baseline unit test scaffold for CodeMirror theme module in `unit-tests/components/editor/codemirror/cm-theme.test.ts`.
+- Performance and stability test suite added in `unit-tests/performance/llm-performance-stability.test.ts` (20 strategy tests + 1 lifecycle test).
+- Claude and multi-provider model selection UI: header model selector now always visible (even before first message), displays all available providers/models based on configured API keys, and persists selection in cookies. Default model set to `claude-3-5-sonnet-latest` (Anthropic), with support for 18+ models across 11 AI providers (OpenAI, Anthropic, Google, AWS Bedrock, Deepseek, Mistral, Groq, GitHub, Cohere).
 
 ### Changed
 
@@ -31,17 +33,29 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Settings control panel was refactored to a modern two-panel architecture with persistent desktop navigation, structured content panel hierarchy, and mobile category selector fallback for responsive behavior.
 - Settings control panel now opens in a category-grid workspace (General, Preferences, AI, Integrations, Security, System) and supports explicit category-to-tab transitions while keeping collapsible desktop nav and mobile `All Categories` fallback.
 - LLM response streaming timeout logic now tracks 'time since last chunk received' instead of 'total elapsed time since stream start'. Timeout reduced from 120 seconds absolute to 45 seconds of no data, allowing long-running responses to complete successfully. Aligns client-side timeout with server-side StreamRecoveryManager timeout.
+- Header workspace controls now keep provider/model selectors visible before chat start, with a compact secondary description instead of hiding model selection on the landing state.
+- Sidebar visual language is now text-first in expanded mode with cleaner spacing, reduced icon noise, and an explicit `Customize` action; collapsed mode remains icon-centric.
+- Main workspace now keeps the workbench pane hidden until chat starts, producing a more chat-first layout similar to modern assistant UIs.
+- **UI Redesign — Sidebar**: Sidebar header now shows `logo.svg` instead of "bolt2.dyi" text. In collapsed (72px) mode the logo rotates 90° vertically, the collapse toggle moves below it, and nav actions (New Chat, Search, Customize, Chats, Projects, Artifacts, Code, Help) are shown as icon-only buttons with tooltip titles; clicking any nav icon auto-expands the sidebar to that section. Active section is highlighted in both collapsed and expanded states.
+- **UI Redesign — Profile chip**: Both the sidebar bottom bar and the header profile chip now display user initials (e.g. `MA` for "Markku Arvekari") extracted from the display name instead of a generic user icon; avatar image still takes precedence when set. In collapsed sidebar the profile initials become a standalone accent circle that opens Settings on click.
+- **UI Redesign — Theme switcher**: In collapsed sidebar mode the `ThemeSwitch` dropdown is replaced by two compact icon buttons (☀️ Light / 🌙 Dark) stacked vertically; the active theme is highlighted with an accent background.
+- **UI Redesign — Header action buttons**: A `Workbench` toggle button is now always visible in the header when a chat is active, allowing the Workbench panel to be shown/hidden from the toolbar regardless of preview state. Button label toggles between "Workbench" and "Hide Workbench".
+- **UI Redesign — Landing page**: Landing view now uses a card-based layout with cyan/emerald gradient glow backdrop, re-surfaces `ExamplePrompts` and `StarterTemplates` inside the card, and keeps `ImportButtons` + `GitCloneButton` in a bottom footer area. Header is always visible (removed early-return guard that hid it before first message).
+- **UI Redesign — Settings panel colors**: All hardcoded `text-gray-*` / `bg-gray-*` / `bg-white` / `bg-black` classes in `SettingsContentPanel.tsx`, `SettingsNavigation.tsx`, `ControlPanel.tsx`, and `AvatarDropdown.tsx` replaced with `bolt-elements-*` design tokens so the settings overlay fully honors the dark/light workspace.html color scheme (`--panel:#16161c`, `--border:#2b2b33`).
+- **UI Redesign — Collapsed sidebar System theme**: Added ☀️/🌙/🖥️ (Light / Dark / System) vertical icon buttons in collapsed sidebar mode, matching full parity with the expanded ThemeSwitch dropdown (which has all three modes).
 
 ### Fixed
 
 - **CRITICAL P0**: Chat LLM response timeout that blocked core functionality. Responses longer than 120 seconds would timeout even with continuous data flow from the model. Now properly handles multi-minute responses by monitoring data arrival rather than absolute elapsed time.
+- **P0 Streaming Await Bug**: `/api/chat` now correctly awaits the async streaming runner so HTTP responses stay open until delayed `text-delta` chunks are emitted.
+- **P0 Runtime Map Error**: Added guarded fallback in `app/lib/.server/llm/stream-text.ts` so if `convertToModelMessages()` throws `Cannot read properties of undefined (reading 'map')`, streaming continues with raw message payloads instead of aborting.
 - **P2 Chat Window Layout**: Fixed flexbox layout issue where middle wrapper had overflow-y-auto causing StickToBottom scrolling problems. Changed to overflow-hidden in BaseChat component to restore proper flex layout. Sidebar collapse/expand feature (76px to 340px) now works with correct message hierarchy and input positioning.
 - Fixed production build guardrail failure in `app/components/editor/codemirror/cm-theme.ts` by replacing unresolved `@uiw/codemirror-theme-vscode` imports with local CodeMirror theme extensions.
 - Comprehensive structure cleanup and validation: full typecheck, lint, and unit-test-changed validation passes; orchestration synchronization ensures all discovered issues tracked as P0 with stable taskId markers; fallback JSON payload tracking for n8n open-tasks pending Data Table row-write restoration.
 - N8N orchestrator diagnostic logging enhanced: error tracking for Data Table row-write failures; root cause identified as SQLITE_FULL (n8n dev instance disk at capacity); n8n disk cleanup completed, fallback JSON export deactivated, native API Data Table writes restored and verified operational.
-
-### Fixed
-
+- Signup bootstrap no longer fails on first run when no explicit SQLite env flag is set; local persistence now defaults to enabled unless `BOLT_SQLITE_PERSISTENCE_ENABLED=false`.
+- Send button first-message path no longer dead-ends when starter template preselection fails with `Model not found`; flow now falls back to blank chat generation automatically.
+- Startup icon warnings fixed by replacing unsupported UnoCSS/Phosphor aliases (`ph:git-repository`, `ph:toggles`, `ph:lock-closed`, malformed `ph-filter-duotone`) with valid icon names.
 - Send flow regression in `BaseChat` no longer clears input during normal sends due to speech-recognition state handling.
 - Inline API-key editing controls were removed from chat so API keys can be managed only in settings.
 - Sidebar layout now properly utilizes vertical space - chat list scrolls when long and bottom controls stay fixed.
@@ -225,4 +239,3 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 ---
 
 For historical upstream changes before this fork baseline, refer to the original bolt.diy repository release history.
-

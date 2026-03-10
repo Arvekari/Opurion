@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
 import { Dialog, DialogButton, DialogDescription, DialogRoot, DialogTitle } from '~/components/ui/Dialog';
 import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
+import { setThemeMode, themeModeStore } from '~/lib/stores/theme';
 import { ControlPanel } from '~/components/@settings/core/ControlPanel';
 import { SettingsButton, HelpButton } from '~/components/ui/SettingsButton';
 import { Button } from '~/components/ui/Button';
@@ -41,6 +42,20 @@ function CurrentDateTime() {
   );
 }
 
+function getInitials(name?: string): string {
+  if (!name) {
+    return 'G';
+  }
+
+  const parts = name.trim().split(/\s+/);
+
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+
+  return name.slice(0, 2).toUpperCase();
+}
+
 export const Menu = () => {
   const { duplicateCurrentChat, exportChat } = useChatHistory();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -49,6 +64,7 @@ export const Menu = () => {
   const [dialogContent, setDialogContent] = useState<DialogContent>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const profile = useStore(profileStore);
+  const themeMode = useStore(themeModeStore);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [activeSection, setActiveSection] = useState<'chats' | 'projects' | 'artifacts' | 'code'>('chats');
@@ -266,7 +282,7 @@ export const Menu = () => {
     <>
       <div
         ref={menuRef}
-        style={{ width: collapsed ? '76px' : '340px' }}
+        style={{ width: collapsed ? '72px' : '312px' }}
         className={classNames(
           'flex selection-accent flex-col side-menu relative h-full shrink-0 rounded-r-2xl transition-[width] duration-200',
           'bg-bolt-elements-background-depth-1 border-r border-bolt-elements-borderColor',
@@ -274,84 +290,231 @@ export const Menu = () => {
           isSettingsOpen ? 'z-40' : 'z-sidebar',
         )}
       >
-        <div className="h-12 flex items-center justify-between px-4 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 rounded-tr-2xl">
-          <button
-            className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary"
-            onClick={() => setCollapsed((prev) => !prev)}
-            aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-            title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
-          >
-            <span className={classNames('w-4 h-4', collapsed ? 'i-ph:sidebar-simple-fill' : 'i-ph:sidebar-simple')} />
-          </button>
-          <div className="flex items-center gap-3">
-            {!collapsed && (
+        {/* Sidebar header — adapts to collapsed / expanded */}
+        {collapsed ? (
+          <div className="flex flex-col items-center pt-3 pb-2 gap-2 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 rounded-tr-2xl">
+            <a href="/" className="flex items-center justify-center" title="Bolt2.dyi">
+              <img
+                src="/logo.svg"
+                alt="Bolt2.dyi"
+                style={{ height: '22px', width: 'auto', transform: 'rotate(-90deg)' }}
+              />
+            </a>
+            <button
+              className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary"
+              onClick={() => setCollapsed(false)}
+              aria-label="Expand sidebar"
+              title="Expand sidebar"
+            >
+              <span className="i-ph:sidebar-simple-fill w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <div className="h-12 flex items-center justify-between px-4 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 rounded-tr-2xl">
+            <a href="/" className="flex items-center gap-2" title="Bolt2.dyi">
+              <img src="/logo.svg" alt="Bolt2.dyi" className="h-6 w-auto" />
+            </a>
+            <div className="flex items-center gap-2">
               <HelpButton onClick={() => window.open('https://stackblitz-labs.github.io/bolt.diy/', '_blank')} />
-            )}
-            {!collapsed && (
-              <span className="font-medium text-sm text-bolt-elements-textPrimary truncate">
-                {profile?.username || 'Guest User'}
-              </span>
-            )}
-            <div className="flex items-center justify-center w-[32px] h-[32px] overflow-hidden bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary rounded-full shrink-0">
-              {profile?.avatar ? (
-                <img
-                  src={profile.avatar}
-                  alt={profile?.username || 'User'}
-                  className="w-full h-full object-cover"
-                  loading="eager"
-                  decoding="sync"
-                />
-              ) : (
-                <div className="i-ph:user-fill text-lg" />
-              )}
+              <button
+                className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary"
+                onClick={() => setCollapsed(true)}
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+              >
+                <span className="i-ph:sidebar-simple w-4 h-4" />
+              </button>
             </div>
           </div>
-        </div>
+        )}
         {!collapsed && <CurrentDateTime />}
 
         {collapsed ? (
-          <div className="flex-1 flex flex-col items-center gap-3 py-4">
+          <div className="flex-1 flex flex-col items-center gap-1.5 py-3">
+            {/* New Chat */}
             <a
               href="/"
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent"
-              title="Start new chat"
+              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:brightness-110 transition-colors"
+              title="New chat"
             >
               <span className="inline-block i-ph:plus-circle h-5 w-5" />
             </a>
+            {/* Search */}
             <button
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary"
+              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
+              title="Search chats"
+              onClick={() => {
+                setCollapsed(false);
+                setActiveSection('chats');
+              }}
+            >
+              <span className="inline-block i-ph:magnifying-glass h-5 w-5" />
+            </button>
+            {/* Customize */}
+            <button
+              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
+              title="Customize"
+              onClick={handleSettingsClick}
+            >
+              <span className="inline-block i-ph:sliders-horizontal h-5 w-5" />
+            </button>
+
+            <div className="w-6 h-px bg-bolt-elements-borderColor/70 my-1" />
+
+            {/* Chats */}
+            <button
+              className={classNames(
+                'inline-flex items-center justify-center w-10 h-10 rounded-lg transition-colors',
+                activeSection === 'chats'
+                  ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                  : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
+              )}
+              title="Chats"
+              onClick={() => {
+                setCollapsed(false);
+                setActiveSection('chats');
+              }}
+            >
+              <span className="inline-block i-ph:chat-circle h-5 w-5" />
+            </button>
+            {/* Projects */}
+            <button
+              className={classNames(
+                'inline-flex items-center justify-center w-10 h-10 rounded-lg transition-colors',
+                activeSection === 'projects'
+                  ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                  : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
+              )}
+              title="Projects"
+              onClick={() => {
+                setCollapsed(false);
+                setActiveSection('projects');
+              }}
+            >
+              <span className="inline-block i-ph:folder h-5 w-5" />
+            </button>
+            {/* Artifacts */}
+            <button
+              className={classNames(
+                'inline-flex items-center justify-center w-10 h-10 rounded-lg transition-colors',
+                activeSection === 'artifacts'
+                  ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                  : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
+              )}
+              title="Artifacts"
+              onClick={() => {
+                setCollapsed(false);
+                setActiveSection('artifacts');
+              }}
+            >
+              <span className="inline-block i-ph:cube h-5 w-5" />
+            </button>
+            {/* Code */}
+            <button
+              className={classNames(
+                'inline-flex items-center justify-center w-10 h-10 rounded-lg transition-colors',
+                activeSection === 'code'
+                  ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                  : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
+              )}
+              title="Code"
+              onClick={() => {
+                setCollapsed(false);
+                setActiveSection('code');
+              }}
+            >
+              <span className="inline-block i-ph:brackets-curly h-5 w-5" />
+            </button>
+
+            <div className="w-6 h-px bg-bolt-elements-borderColor/70 my-1" />
+
+            {/* Help */}
+            <button
+              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
               title="Help"
               onClick={() => window.open('https://stackblitz-labs.github.io/bolt.diy/', '_blank')}
             >
               <span className="inline-block i-ph:question h-5 w-5" />
             </button>
-            <button
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary"
-              title="Settings"
-              onClick={handleSettingsClick}
-            >
-              <span className="inline-block i-ph:gear h-5 w-5" />
-            </button>
-            <div className="mt-auto pb-2">
-              <ThemeSwitch />
+            <div className="mt-auto pb-3 flex flex-col items-center gap-2">
+              {/* Profile initials circle */}
+              <button
+                className="flex items-center justify-center w-9 h-9 rounded-full bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent text-xs font-semibold overflow-hidden"
+                title={profile?.username || 'Guest User'}
+                onClick={handleSettingsClick}
+              >
+                {profile?.avatar ? (
+                  <img
+                    src={profile.avatar}
+                    alt={profile?.username || 'User'}
+                    className="w-full h-full object-cover"
+                    loading="eager"
+                    decoding="sync"
+                  />
+                ) : (
+                  getInitials(profile?.username)
+                )}
+              </button>
+              {/* Vertical theme toggle buttons */}
+              <button
+                onClick={() => setThemeMode('light')}
+                className={classNames(
+                  'inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors',
+                  themeMode === 'light'
+                    ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                    : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
+                )}
+                title="Light theme"
+              >
+                <span className="i-ph:sun h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setThemeMode('dark')}
+                className={classNames(
+                  'inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors',
+                  themeMode === 'dark'
+                    ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                    : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
+                )}
+                title="Dark theme"
+              >
+                <span className="i-ph:moon h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setThemeMode('system')}
+                className={classNames(
+                  'inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors',
+                  themeMode === 'system'
+                    ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                    : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
+                )}
+                title="System theme"
+              >
+                <span className="i-ph:monitor h-4 w-4" />
+              </button>
             </div>
           </div>
         ) : (
           <div className="flex-1 flex flex-col h-full w-full overflow-hidden">
-            <div className="px-3 pt-3 pb-3 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/70 space-y-2">
+            <div className="px-3 pt-3 pb-3 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/70 space-y-1.5">
               <a
                 href="/"
-                className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:brightness-110 transition-colors"
+                className="flex items-center rounded-lg px-3 py-2 text-[15px] bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:brightness-110 transition-colors"
               >
-                <span className="i-ph:plus-circle h-4 w-4" />
                 New chat
               </a>
               <button
-                className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
+                className="flex w-full items-center rounded-lg px-3 py-2 text-[15px] bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
                 onClick={() => setActiveSection('chats')}
               >
-                <span className="i-ph:magnifying-glass h-4 w-4" />
                 Search
+              </button>
+
+              <button
+                className="flex w-full items-center rounded-lg px-3 py-2 text-[15px] bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
+                onClick={handleSettingsClick}
+              >
+                Customize
               </button>
 
               <div className="h-px bg-bolt-elements-borderColor/70" />
@@ -362,50 +525,46 @@ export const Menu = () => {
                 </div>
                 <button
                   className={classNames(
-                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                    'flex items-center rounded-lg px-3 py-2 text-[15px] transition-colors',
                     activeSection === 'chats'
                       ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
                       : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
                   )}
                   onClick={() => setActiveSection('chats')}
                 >
-                  <span className="i-ph:chat-circle-text h-4 w-4" />
                   Chats
                 </button>
                 <button
                   className={classNames(
-                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                    'flex items-center rounded-lg px-3 py-2 text-[15px] transition-colors',
                     activeSection === 'projects'
                       ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
                       : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
                   )}
                   onClick={() => setActiveSection('projects')}
                 >
-                  <span className="i-ph:briefcase h-4 w-4" />
                   Projects
                 </button>
                 <button
                   className={classNames(
-                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                    'flex items-center rounded-lg px-3 py-2 text-[15px] transition-colors',
                     activeSection === 'artifacts'
                       ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
                       : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
                   )}
                   onClick={() => setActiveSection('artifacts')}
                 >
-                  <span className="i-ph:stack h-4 w-4" />
                   Artifacts
                 </button>
                 <button
                   className={classNames(
-                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                    'flex items-center rounded-lg px-3 py-2 text-[15px] transition-colors',
                     activeSection === 'code'
                       ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
                       : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
                   )}
                   onClick={() => setActiveSection('code')}
                 >
-                  <span className="i-ph:code h-4 w-4" />
                   Code
                 </button>
               </div>
@@ -622,7 +781,7 @@ export const Menu = () => {
                         decoding="sync"
                       />
                     ) : (
-                      <div className="i-ph:user-fill text-sm" />
+                      <span className="text-xs font-semibold leading-none">{getInitials(profile?.username)}</span>
                     )}
                   </div>
                   <span className="text-xs text-bolt-elements-textSecondary truncate max-w-24">

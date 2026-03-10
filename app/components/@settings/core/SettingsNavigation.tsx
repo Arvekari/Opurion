@@ -76,9 +76,7 @@ const SettingsNavigationSection = ({ title, children }: SettingsNavigationSectio
   return (
     <div className="space-y-1">
       {title ? (
-        <h3 className="px-3 text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider">
-          {title}
-        </h3>
+        <h3 className="px-3 text-xs font-semibold text-bolt-elements-textTertiary uppercase tracking-wider">{title}</h3>
       ) : null}
       <div className="space-y-0.5">{children}</div>
     </div>
@@ -97,7 +95,7 @@ interface SettingsNavigationProps {
 
 const SECTION_ICONS: Record<string, string> = {
   General: 'i-ph:sliders-horizontal',
-  Preferences: 'i-ph:toggles',
+  Preferences: 'i-ph:sliders',
   AI: 'i-ph:brain',
   Integrations: 'i-ph:plugs-connected',
   Security: 'i-ph:shield-check',

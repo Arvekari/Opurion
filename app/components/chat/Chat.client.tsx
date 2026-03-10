@@ -164,6 +164,7 @@ export const ChatImpl = memo(
       onFinish: (message: any, response: any) => {
         const usage = response.usage;
         setData(undefined);
+        console.log('✅ onFinish called - response received!', { content: message?.content?.substring(0, 100), usage });
 
         if (usage) {
           console.log('Token usage:', usage);
@@ -351,6 +352,7 @@ export const ChatImpl = memo(
 
     const handleError = useCallback(
       (error: any, context: 'chat' | 'template' | 'llmcall' = 'chat') => {
+        console.error(`❌${context} error:`, error);
         logger.error(`${context} request failed`, error);
 
         stop();
@@ -540,11 +542,21 @@ export const ChatImpl = memo(
         setFakeLoading(true);
 
         if (autoSelectTemplate) {
-          const { template, title } = await selectStarterTemplate({
-            message: finalMessageContent,
-            model,
-            provider,
-          });
+          let templateSelection: { template: string; title: string } | null = null;
+
+          try {
+            templateSelection = await selectStarterTemplate({
+              message: finalMessageContent,
+              model,
+              provider,
+            });
+          } catch (error) {
+            // Fallback to blank flow if template preflight fails (e.g. model not found).
+            console.warn('Starter template preselection failed, falling back to blank chat flow.', error);
+            templateSelection = { template: 'blank', title: 'Untitled' };
+          }
+
+          const { template, title } = templateSelection;
 
           if (template !== 'blank') {
             const temResp = await getTemplates(template, title).catch((e) => {
@@ -720,6 +732,11 @@ export const ChatImpl = memo(
         const attachmentOptions =
           uploadedFiles.length > 0 ? { experimental_attachments: await filesToAttachments(uploadedFiles) } : undefined;
 
+        console.log('🚀 Sending message via append():', {
+          content: messageText.substring(0, 100),
+          hasAttachments: !!attachmentOptions,
+        });
+
         append(
           {
             role: 'user',
@@ -728,6 +745,8 @@ export const ChatImpl = memo(
           },
           attachmentOptions,
         );
+
+        console.log('✅ Append called, messages state should update soon');
 
         if (collab.selectedConversationId) {
           void fetch('/api/collab/conversations', {

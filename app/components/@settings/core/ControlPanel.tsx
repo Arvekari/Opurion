@@ -319,7 +319,7 @@ export const ControlPanel = ({ open, onClose }: ControlPanelProps) => {
             {/* Header */}
             <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-bolt-elements-borderColor">
               <div className="flex items-center space-x-3">
-                <h1 className="text-xl font-semibold text-gray-900 dark:text-white">Settings</h1>
+                <h1 className="text-xl font-semibold text-bolt-elements-textPrimary">Settings</h1>
               </div>
 
               <button
@@ -351,7 +351,7 @@ export const ControlPanel = ({ open, onClose }: ControlPanelProps) => {
                 <div className="md:hidden px-4 py-3 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2">
                   <label
                     htmlFor="settings-mobile-section"
-                    className="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2"
+                    className="block text-xs font-medium text-bolt-elements-textTertiary mb-2"
                   >
                     Section
                   </label>
@@ -368,7 +368,7 @@ export const ControlPanel = ({ open, onClose }: ControlPanelProps) => {
 
                       handleTabClick(event.target.value as TabType);
                     }}
-                    className="w-full rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-3 py-2 text-sm text-gray-900 dark:text-gray-100 focus:outline-none focus:ring-2 focus:ring-bolt-elements-borderColorActive"
+                    className="w-full rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 px-3 py-2 text-sm text-bolt-elements-textPrimary focus:outline-none focus:ring-2 focus:ring-bolt-elements-borderColorActive"
                   >
                     <option value="__overview__">All Categories</option>
                     {visibleTabs.map((tab) => (

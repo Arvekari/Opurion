@@ -15,8 +15,8 @@ export const SettingsContentPanel = ({ title, description, children, actions }: 
       <div className="flex-shrink-0 px-4 py-4 md:px-8 md:py-6 border-b border-bolt-elements-borderColor">
         <div className="flex items-start justify-between">
           <div className="flex-1 min-w-0">
-            <h1 className="text-xl md:text-2xl font-semibold text-gray-900 dark:text-white">{title}</h1>
-            {description && <p className="mt-2 text-sm text-gray-600 dark:text-gray-400 max-w-3xl">{description}</p>}
+            <h1 className="text-xl md:text-2xl font-semibold text-bolt-elements-textPrimary">{title}</h1>
+            {description && <p className="mt-2 text-sm text-bolt-elements-textSecondary max-w-3xl">{description}</p>}
           </div>
           {actions && <div className="flex-shrink-0 ml-4">{actions}</div>}
         </div>
@@ -48,8 +48,8 @@ export const SettingsGroup = ({ title, description, children }: SettingsGroupPro
   return (
     <div className="mb-8">
       <div className="mb-4">
-        <h2 className="text-lg font-semibold text-gray-900 dark:text-white">{title}</h2>
-        {description && <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{description}</p>}
+        <h2 className="text-lg font-semibold text-bolt-elements-textPrimary">{title}</h2>
+        {description && <p className="mt-1 text-sm text-bolt-elements-textSecondary">{description}</p>}
       </div>
       <div className="space-y-4">{children}</div>
     </div>
@@ -73,8 +73,8 @@ export const SettingsCard = ({ title, description, children, className }: Settin
     >
       {(title || description) && (
         <div className="mb-4">
-          {title && <h3 className="text-base font-medium text-gray-900 dark:text-white">{title}</h3>}
-          {description && <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">{description}</p>}
+          {title && <h3 className="text-base font-medium text-bolt-elements-textPrimary">{title}</h3>}
+          {description && <p className="mt-1 text-sm text-bolt-elements-textSecondary">{description}</p>}
         </div>
       )}
       {children}

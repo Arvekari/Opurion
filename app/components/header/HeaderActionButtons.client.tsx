@@ -8,15 +8,27 @@ interface HeaderActionButtonsProps {
   chatStarted: boolean;
 }
 
-export function HeaderActionButtons({ chatStarted: _chatStarted }: HeaderActionButtonsProps) {
+export function HeaderActionButtons({ chatStarted }: HeaderActionButtonsProps) {
   const [activePreviewIndex] = useState(0);
   const previews = useStore(workbenchStore.previews);
   const activePreview = previews[activePreviewIndex];
+  const showWorkbench = useStore(workbenchStore.showWorkbench);
 
   const shouldShowButtons = activePreview;
 
   return (
     <div className="flex items-center gap-1">
+      {/* Workbench toggle — always visible when chat has started */}
+      {chatStarted && (
+        <button
+          onClick={() => workbenchStore.showWorkbench.set(!showWorkbench)}
+          title={showWorkbench ? 'Hide Workbench' : 'Show Workbench'}
+          className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-3 transition-colors"
+        >
+          <div className="i-ph:layout-duotone text-base" />
+          <span>Workbench</span>
+        </button>
+      )}
       {/* Deploy Button */}
       {shouldShowButtons && <DeployButton />}
 

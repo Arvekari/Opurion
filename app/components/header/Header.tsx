@@ -12,6 +12,20 @@ import { PROVIDER_LIST } from '~/utils/constants';
 import type { ProviderInfo } from '~/types/model';
 import type { ModelInfo } from '~/lib/modules/llm/types';
 
+function getInitials(name?: string): string {
+  if (!name) {
+    return 'G';
+  }
+
+  const parts = name.trim().split(/\s+/);
+
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+
+  return name.slice(0, 2).toUpperCase();
+}
+
 export function Header() {
   const chat = useStore(chatStore);
   const profile = useStore(profileStore);
@@ -101,8 +115,7 @@ export function Header() {
   return (
     <header
       className={classNames('flex items-center px-4 border-b h-[var(--header-height)]', {
-        'border-transparent': !chat.started,
-        'border-bolt-elements-borderColor': chat.started,
+        'border-bolt-elements-borderColor': true,
       })}
     >
       <div className="flex items-center gap-2 z-logo text-bolt-elements-textPrimary cursor-pointer shrink-0">
@@ -115,13 +128,14 @@ export function Header() {
 
       <div className="flex-1 px-4 min-w-0">
         <ClientOnly>
-          {() =>
-            chat.started ? (
-              <div className="w-full max-w-4xl mx-auto flex items-center gap-3">
-                <div className="hidden lg:flex items-center gap-2 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-xs text-bolt-elements-textSecondary">
-                  <span className="i-ph:circles-four h-3.5 w-3.5" />
-                  Workspace
-                </div>
+          {() => (
+            <div className="w-full max-w-5xl mx-auto flex items-center gap-3 min-w-0">
+              <div className="hidden lg:flex items-center gap-2 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2.5 py-1 text-xs text-bolt-elements-textSecondary">
+                <span className="i-ph:circles-four h-3.5 w-3.5" />
+                Workspace
+              </div>
+
+              <div className="min-w-0 flex-1">
                 <ModelSelector
                   key={`${provider?.name || 'none'}:${availableModels.length}`}
                   model={model}
@@ -134,12 +148,14 @@ export function Header() {
                   modelLoading={modelLoading}
                 />
               </div>
-            ) : (
-              <span className="px-4 truncate text-center text-bolt-elements-textPrimary block">
-                <ChatDescription />
-              </span>
-            )
-          }
+
+              {!chat.started && (
+                <span className="hidden xl:block truncate text-xs text-bolt-elements-textTertiary">
+                  <ChatDescription />
+                </span>
+              )}
+            </div>
+          )}
         </ClientOnly>
       </div>
 
@@ -150,7 +166,7 @@ export function Header() {
             {profile?.avatar ? (
               <img src={profile.avatar} alt={profile?.username || 'User'} className="w-full h-full object-cover" />
             ) : (
-              <div className="i-ph:user-fill text-base" />
+              <span className="text-xs font-semibold leading-none">{getInitials(profile?.username)}</span>
             )}
           </div>
           <span className="text-xs text-bolt-elements-textSecondary max-w-28 truncate">

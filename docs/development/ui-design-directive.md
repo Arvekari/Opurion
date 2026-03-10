@@ -218,6 +218,21 @@ Bolt2 should match the quality characteristics of modern enterprise tools:
 - calm
 - structured
 - professional
+
+## 17) Workspace Reference Examples (High Level)
+
+Use the following files as the canonical visual references for where new workspace UI should go and how it should function at a high level:
+
+- `docs/development/index.workspace.html`
+   - Defines the primary workspace shell (sidebar, top bar, content area, section hierarchy).
+- `docs/development/settings.workspace.html`
+   - Defines the settings workspace structure and behavior expectations.
+- `docs/development/layout.css`
+   - Defines shared tokens, layout primitives, and baseline styling rules.
+
+Implementation rule:
+
+- New workspace UI work must map to these references first, then be implemented using existing Bolt2 components and `bolt-elements-*` design tokens.
 - efficient
 
 Reference quality examples:
