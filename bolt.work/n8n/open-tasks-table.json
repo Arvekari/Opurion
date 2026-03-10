@@ -1,9 +1,18 @@
 {
   "tableName": "Project-bolt2-open-tasks",
-  "generatedAt": "2026-03-10T07:01:46.596Z",
-  "rows": [],
+  "generatedAt": "2026-03-10T07:41:38.378Z",
+  "rows": [
+    {
+      "taskKey": "bolt2-p0-n8n-open-tasks-row-write-failed",
+      "priority": "P0",
+      "status": "TODO",
+      "objective": "Fix n8n open-task Data Table row write failure (`open_tasks_row_write_failed`) so `pnpm run n8n:sync-open-tasks` can write rows directly without fallback payload files.",
+      "agent": "markku-dth01",
+      "updatedAt": "2026-03-10T07:41:38.229Z"
+    }
+  ],
   "stats": {
-    "measuredAt": "2026-03-10T07:01:46.594Z",
+    "measuredAt": "2026-03-10T07:41:38.377Z",
     "sampledExecutions": 250,
     "managedWorkflowIds": [
       "FaDMNrIq330kFYpD",
@@ -19,6 +28,6 @@
     "averageRuntimeMs": 159,
     "estimatedTimeSavedMinutes": 1499,
     "manualMinutesPerRun": 6,
-    "openObjectivesCount": 0
+    "openObjectivesCount": 1
   }
 }
