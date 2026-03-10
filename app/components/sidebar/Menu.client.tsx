@@ -51,6 +51,7 @@ export const Menu = () => {
   const profile = useStore(profileStore);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
+  const [activeSection, setActiveSection] = useState<'chats' | 'projects' | 'artifacts' | 'code'>('chats');
 
   const { filteredItems: filteredList, handleSearchChange } = useSearchFilter({
     items: list,
@@ -337,6 +338,76 @@ export const Menu = () => {
           </div>
         ) : (
           <div className="flex-1 flex flex-col h-full w-full overflow-hidden">
+            <div className="px-3 pt-3 pb-2 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/70">
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  className={classNames(
+                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                    activeSection === 'chats'
+                      ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
+                  )}
+                  onClick={() => setActiveSection('chats')}
+                >
+                  <span className="i-ph:chat-circle-text h-4 w-4" />
+                  Chats
+                </button>
+                <button
+                  className={classNames(
+                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                    activeSection === 'projects'
+                      ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
+                  )}
+                  onClick={() => setActiveSection('projects')}
+                >
+                  <span className="i-ph:briefcase h-4 w-4" />
+                  Projects
+                </button>
+                <button
+                  className={classNames(
+                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                    activeSection === 'artifacts'
+                      ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
+                  )}
+                  onClick={() => setActiveSection('artifacts')}
+                >
+                  <span className="i-ph:stack h-4 w-4" />
+                  Artifacts
+                </button>
+                <button
+                  className={classNames(
+                    'flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                    activeSection === 'code'
+                      ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
+                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
+                  )}
+                  onClick={() => setActiveSection('code')}
+                >
+                  <span className="i-ph:code h-4 w-4" />
+                  Code
+                </button>
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-2">
+                <button
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
+                  onClick={() => setActiveSection('chats')}
+                >
+                  <span className="i-ph:magnifying-glass h-4 w-4" />
+                  Search
+                </button>
+                <button
+                  className="flex items-center gap-2 rounded-lg px-3 py-2 text-sm bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
+                  onClick={handleSettingsClick}
+                >
+                  <span className="i-ph:sliders-horizontal h-4 w-4" />
+                  Customize
+                </button>
+              </div>
+            </div>
+
+            {activeSection === 'chats' && (
             <div className="p-4 space-y-3">
               <div className="flex gap-2">
                 <a
@@ -372,6 +443,34 @@ export const Menu = () => {
                 />
               </div>
             </div>
+            )}
+
+            {activeSection === 'projects' && (
+              <div className="p-4 space-y-3">
+                <div className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 text-sm text-bolt-elements-textSecondary">
+                  Projects support shared ownership. Invite users by email in project settings; invite flow and membership validation are handled in persistence.
+                </div>
+                <CollabPanel />
+              </div>
+            )}
+
+            {activeSection === 'artifacts' && (
+              <div className="p-4">
+                <div className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 text-sm text-bolt-elements-textSecondary">
+                  Artifacts can store reusable modules, components, and implementation snippets for future projects.
+                </div>
+              </div>
+            )}
+
+            {activeSection === 'code' && (
+              <div className="p-4">
+                <div className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 text-sm text-bolt-elements-textSecondary">
+                  Code section is reserved for project code context and shared implementation assets.
+                </div>
+              </div>
+            )}
+
+            {activeSection === 'chats' && (
             <div className="flex items-center justify-between text-sm px-4 py-2">
               <div className="font-medium text-bolt-elements-textSecondary">Your Chats</div>
               {selectionMode && (
@@ -390,7 +489,9 @@ export const Menu = () => {
                 </div>
               )}
             </div>
-            <CollabPanel />
+            )}
+
+            {activeSection === 'chats' && (
             <div className="flex-1 overflow-auto px-3 pb-3">
               {filteredList.length === 0 && (
                 <div className="px-4 text-bolt-elements-textTertiary text-sm">
@@ -507,6 +608,7 @@ export const Menu = () => {
                 </Dialog>
               </DialogRoot>
             </div>
+            )}
             <div className="flex items-center justify-between border-t border-gray-200 dark:border-gray-800 px-4 py-3">
               <div className="flex items-center gap-3">
                 <SettingsButton onClick={handleSettingsClick} />

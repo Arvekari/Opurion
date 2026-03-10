@@ -3,7 +3,7 @@
  * Preventing TS checks with files presented in the video for a better presentation.
  */
 import type { JSONValue, Message } from 'ai';
-import React, { type RefCallback, useEffect, useState } from 'react';
+import React, { type RefCallback, useEffect, useMemo, useState } from 'react';
 import { ClientOnly } from 'remix-utils/client-only';
 import { Menu } from '~/components/sidebar/Menu.client';
 import { Workbench } from '~/components/workbench/Workbench.client';
@@ -12,8 +12,6 @@ import { PROVIDER_LIST } from '~/utils/constants';
 import { Messages } from './Messages.client';
 import { getApiKeysFromCookies } from './APIKeyManager';
 import { ModelSelector } from './ModelSelector';
-import { APIKeyManager } from './APIKeyManager';
-import { LOCAL_PROVIDERS } from '~/lib/stores/settings';
 import Cookies from 'js-cookie';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import styles from './BaseChat.module.scss';
@@ -242,6 +240,50 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       }
     }, [providerList, provider]);
 
+    const availableProviders = useMemo(() => {
+      const sourceProviders = providerList || (PROVIDER_LIST as ProviderInfo[]);
+
+      return sourceProviders.filter((candidate) => {
+        const configuredKey = apiKeys[candidate.name];
+        return typeof configuredKey === 'string' && configuredKey.trim().length > 0;
+      });
+    }, [providerList, apiKeys]);
+
+    const availableProviderNames = useMemo(() => new Set(availableProviders.map((entry) => entry.name)), [availableProviders]);
+
+    const availableModels = useMemo(
+      () => modelList.filter((entry) => availableProviderNames.has(entry.provider)),
+      [modelList, availableProviderNames],
+    );
+
+    useEffect(() => {
+      if (!setProvider || availableProviders.length === 0) {
+        return;
+      }
+
+      if (!provider || !availableProviderNames.has(provider.name)) {
+        setProvider(availableProviders[0]);
+      }
+    }, [provider, setProvider, availableProviderNames, availableProviders]);
+
+    useEffect(() => {
+      if (!setModel || !provider) {
+        return;
+      }
+
+      const providerModels = availableModels.filter((entry) => entry.provider === provider.name);
+
+      if (providerModels.length === 0) {
+        return;
+      }
+
+      const hasSelectedModel = providerModels.some((entry) => entry.name === model);
+
+      if (!hasSelectedModel) {
+        setModel(providerModels[0].name);
+      }
+    }, [provider, model, setModel, availableModels]);
+
     const onApiKeysChange = async (providerName: string, apiKey: string) => {
       const newApiKeys = { ...apiKeys, [providerName]: apiKey };
       setApiKeys(newApiKeys);
@@ -371,25 +413,24 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                 <ClientOnly>
                   {() => (
                     <div className="flex flex-col gap-2">
+                      <div className="text-xs text-bolt-elements-textTertiary px-1">
+                        API keys are managed in Settings > Providers.
+                      </div>
                       <ModelSelector
-                        key={provider?.name + ':' + modelList.length}
+                        key={provider?.name + ':' + availableModels.length}
                         model={model}
                         setModel={setModel}
-                        modelList={modelList}
+                        modelList={availableModels}
                         provider={provider}
                         setProvider={setProvider}
-                        providerList={providerList || (PROVIDER_LIST as ProviderInfo[])}
+                        providerList={availableProviders}
                         apiKeys={apiKeys}
                         modelLoading={isModelLoading}
                       />
-                      {(providerList || []).length > 0 && provider && !LOCAL_PROVIDERS.includes(provider.name) && (
-                        <APIKeyManager
-                          provider={provider}
-                          apiKey={apiKeys[provider.name] || ''}
-                          setApiKey={(key) => {
-                            onApiKeysChange(provider.name, key);
-                          }}
-                        />
+                      {availableProviders.length === 0 && (
+                        <div className="text-xs text-amber-400 px-1">
+                          No providers with configured API keys. Open Settings to add keys.
+                        </div>
                       )}
                     </div>
                   )}
@@ -467,10 +508,10 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                 <ChatBox
                   provider={provider}
                   setProvider={setProvider}
-                  providerList={providerList || (PROVIDER_LIST as ProviderInfo[])}
+                  providerList={availableProviders}
                   model={model}
                   setModel={setModel}
-                  modelList={modelList}
+                  modelList={availableModels}
                   apiKeys={apiKeys}
                   isModelLoading={isModelLoading}
                   onApiKeysChange={onApiKeysChange}

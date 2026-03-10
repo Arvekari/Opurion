@@ -15,10 +15,13 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 ### Changed
 
 - Chat shell layout now uses a persistent top model bar and bottom-anchored composer flow by removing the centered intro hero state from `app/components/chat/BaseChat.tsx`.
+- Chat provider/model selector now lists only providers and models that have configured API keys, and key management is routed to Settings > Providers.
+- Sidebar navigation now uses a modern section-based layout (`Chats`, `Projects`, `Artifacts`, `Code`) with quick `Search` and `Customize` actions.
 
 ### Fixed
 
 - Send flow regression in `BaseChat` no longer clears input during normal sends due to speech-recognition state handling.
+- Inline API-key editing controls were removed from chat so API keys can be managed only in settings.
 
 ## [0.1.4] - 2026-03-09
 
