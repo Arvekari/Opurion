@@ -142,12 +142,20 @@ async function ensureContext(env?: Record<string, any>): Promise<SqliteContext |
           CREATE TABLE IF NOT EXISTS users (
             id TEXT PRIMARY KEY,
             username TEXT UNIQUE NOT NULL,
+            email TEXT UNIQUE,
             password_hash TEXT NOT NULL,
             password_salt TEXT NOT NULL,
             is_admin INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
           );
         `);
+
+        // Migration: add email column to existing databases
+        try {
+          db.run('ALTER TABLE users ADD COLUMN email TEXT UNIQUE;');
+        } catch {
+          // Column already exists or table doesn't exist yet, ignore
+        }
 
         db.run(`
           CREATE TABLE IF NOT EXISTS sessions (
@@ -265,6 +273,36 @@ async function ensureContext(env?: Record<string, any>): Promise<SqliteContext |
             FOREIGN KEY(branch_id) REFERENCES collab_branches(id) ON DELETE CASCADE,
             FOREIGN KEY(user_id) REFERENCES users(id)
           );
+        `);
+
+        db.run(`
+          CREATE TABLE IF NOT EXISTS collab_artifacts (
+            id TEXT PRIMARY KEY,
+            project_id TEXT,
+            owner_user_id TEXT NOT NULL,
+            name TEXT NOT NULL,
+            description TEXT,
+            artifact_type TEXT NOT NULL,
+            visibility TEXT NOT NULL DEFAULT 'private',
+            content TEXT NOT NULL,
+            metadata TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY(project_id) REFERENCES collab_projects(id) ON DELETE CASCADE,
+            FOREIGN KEY(owner_user_id) REFERENCES users(id) ON DELETE CASCADE
+          );
+        `);
+
+        db.run(`
+          CREATE INDEX IF NOT EXISTS idx_artifacts_project ON collab_artifacts(project_id) WHERE project_id IS NOT NULL;
+        `);
+
+        db.run(`
+          CREATE INDEX IF NOT EXISTS idx_artifacts_owner ON collab_artifacts(owner_user_id);
+        `);
+
+        db.run(`
+          CREATE INDEX IF NOT EXISTS idx_artifacts_visibility ON collab_artifacts(visibility);
         `);
 
         db.run(`
@@ -491,9 +529,9 @@ export async function getUserCount(env?: Record<string, any>): Promise<number> {
 }
 
 export async function createUser(
-  input: { username: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean },
+  input: { username: string; email?: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean },
   env?: Record<string, any>,
-): Promise<{ id: string; username: string; isAdmin: boolean } | null> {
+): Promise<{ id: string; username: string; email?: string; isAdmin: boolean } | null> {
   const ctx = await ensureContext(env);
 
   if (!ctx) {
@@ -505,12 +543,20 @@ export async function createUser(
 
   try {
     ctx.db.run(
-      'INSERT INTO users (id, username, password_hash, password_salt, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?);',
-      [id, input.username, input.passwordHash, input.passwordSalt, input.isAdmin ? 1 : 0, createdAt],
+      'INSERT INTO users (id, username, email, password_hash, password_salt, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);',
+      [
+        id,
+        input.username,
+        input.email || null,
+        input.passwordHash,
+        input.passwordSalt,
+        input.isAdmin ? 1 : 0,
+        createdAt,
+      ],
     );
     await save(ctx);
 
-    return { id, username: input.username, isAdmin: !!input.isAdmin };
+    return { id, username: input.username, email: input.email, isAdmin: !!input.isAdmin };
   } catch {
     return null;
   }
@@ -522,6 +568,7 @@ export async function findUserByUsername(
 ): Promise<{
   id: string;
   username: string;
+  email?: string;
   passwordHash: string;
   passwordSalt: string;
   isAdmin: boolean;
@@ -533,7 +580,7 @@ export async function findUserByUsername(
   }
 
   const result = ctx.db.exec(
-    'SELECT id, username, password_hash, password_salt, is_admin FROM users WHERE username = ?;',
+    'SELECT id, username, email, password_hash, password_salt, is_admin FROM users WHERE username = ?;',
     [username],
   );
 
@@ -546,9 +593,48 @@ export async function findUserByUsername(
   return {
     id: String(row[0]),
     username: String(row[1]),
-    passwordHash: String(row[2]),
-    passwordSalt: String(row[3]),
-    isAdmin: Number(row[4]) === 1,
+    email: row[2] ? String(row[2]) : undefined,
+    passwordHash: String(row[3]),
+    passwordSalt: String(row[4]),
+    isAdmin: Number(row[5]) === 1,
+  };
+}
+
+export async function findUserByEmail(
+  email: string,
+  env?: Record<string, any>,
+): Promise<{
+  id: string;
+  username: string;
+  email: string;
+  passwordHash: string;
+  passwordSalt: string;
+  isAdmin: boolean;
+} | null> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return null;
+  }
+
+  const result = ctx.db.exec(
+    'SELECT id, username, email, password_hash, password_salt, is_admin FROM users WHERE email = ?;',
+    [email.toLowerCase()],
+  );
+
+  const row = result?.[0]?.values?.[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: String(row[0]),
+    username: String(row[1]),
+    email: String(row[2]),
+    passwordHash: String(row[3]),
+    passwordSalt: String(row[4]),
+    isAdmin: Number(row[5]) === 1,
   };
 }
 
@@ -872,6 +958,20 @@ export type CollabBranch = {
   mergedIntoBranchId: string | null;
   createdAt: string;
   mergedAt: string | null;
+};
+
+export type CollabArtifact = {
+  id: string;
+  projectId: string | null;
+  ownerUserId: string;
+  name: string;
+  description: string | null;
+  artifactType: 'module' | 'component' | 'snippet' | 'asset';
+  visibility: 'private' | 'project' | 'public';
+  content: string;
+  metadata: Record<string, any> | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 export async function createCollabProject(
@@ -1589,6 +1689,377 @@ export async function listAgentRunRecords(limit = 50, env?: Record<string, any>)
     createdAt: String(row[3]),
     updatedAt: String(row[4]),
   }));
+}
+
+// Artifact CRUD operations
+
+async function hasArtifactAccess(artifactId: string, userId: string, env?: Record<string, any>): Promise<boolean> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return false;
+  }
+
+  const result = ctx.db.exec(
+    `
+      SELECT a.id, a.owner_user_id, a.project_id, a.visibility
+      FROM collab_artifacts a
+      WHERE a.id = ?
+      LIMIT 1;
+    `,
+    [artifactId],
+  );
+
+  const row = result?.[0]?.values?.[0];
+
+  if (!row) {
+    return false;
+  }
+
+  const ownerUserId = String(row[1]);
+  const projectId = row[2] ? String(row[2]) : null;
+  const visibility = String(row[3]);
+
+  // Owner always has access
+  if (ownerUserId === userId) {
+    return true;
+  }
+
+  // Public artifacts are readable by anyone
+  if (visibility === 'public') {
+    return true;
+  }
+
+  // Project artifacts require project membership
+  if (visibility === 'project' && projectId) {
+    return hasCollabProjectAccess(projectId, userId, env);
+  }
+
+  // Private artifacts only accessible by owner
+  return false;
+}
+
+export async function createArtifact(
+  input: {
+    ownerUserId: string;
+    projectId?: string | null;
+    name: string;
+    description?: string | null;
+    artifactType: 'module' | 'component' | 'snippet' | 'asset';
+    visibility?: 'private' | 'project' | 'public';
+    content: string;
+    metadata?: Record<string, any> | null;
+  },
+  env?: Record<string, any>,
+): Promise<CollabArtifact | null> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return null;
+  }
+
+  // If project-scoped, verify user has access to the project
+  if (input.projectId) {
+    const hasAccess = await hasCollabProjectAccess(input.projectId, input.ownerUserId, env);
+
+    if (!hasAccess) {
+      return null;
+    }
+  }
+
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const updatedAt = createdAt;
+  const visibility = input.visibility || 'private';
+
+  ctx.db.run(
+    `
+      INSERT INTO collab_artifacts (
+        id, project_id, owner_user_id, name, description, 
+        artifact_type, visibility, content, metadata, 
+        created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+    `,
+    [
+      id,
+      input.projectId || null,
+      input.ownerUserId,
+      input.name,
+      input.description || null,
+      input.artifactType,
+      visibility,
+      input.content,
+      input.metadata ? JSON.stringify(input.metadata) : null,
+      createdAt,
+      updatedAt,
+    ],
+  );
+
+  await save(ctx);
+
+  return {
+    id,
+    projectId: input.projectId || null,
+    ownerUserId: input.ownerUserId,
+    name: input.name,
+    description: input.description || null,
+    artifactType: input.artifactType,
+    visibility,
+    content: input.content,
+    metadata: input.metadata || null,
+    createdAt,
+    updatedAt,
+  };
+}
+
+export async function listArtifactsByProject(
+  projectId: string,
+  userId: string,
+  env?: Record<string, any>,
+): Promise<CollabArtifact[]> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return [];
+  }
+
+  // Verify user has access to the project
+  const hasAccess = await hasCollabProjectAccess(projectId, userId, env);
+
+  if (!hasAccess) {
+    return [];
+  }
+
+  const result = ctx.db.exec(
+    `
+      SELECT 
+        id, project_id, owner_user_id, name, description, 
+        artifact_type, visibility, content, metadata, 
+        created_at, updated_at
+      FROM collab_artifacts
+      WHERE project_id = ?
+      ORDER BY updated_at DESC;
+    `,
+    [projectId],
+  );
+
+  const rows = result?.[0]?.values || [];
+
+  return rows.map((row: any[]) => ({
+    id: String(row[0]),
+    projectId: row[1] ? String(row[1]) : null,
+    ownerUserId: String(row[2]),
+    name: String(row[3]),
+    description: row[4] ? String(row[4]) : null,
+    artifactType: String(row[5]) as 'module' | 'component' | 'snippet' | 'asset',
+    visibility: String(row[6]) as 'private' | 'project' | 'public',
+    content: String(row[7]),
+    metadata: row[8] ? parseJsonRecord(row[8]) : null,
+    createdAt: String(row[9]),
+    updatedAt: String(row[10]),
+  }));
+}
+
+export async function listArtifactsByUser(userId: string, env?: Record<string, any>): Promise<CollabArtifact[]> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return [];
+  }
+
+  const result = ctx.db.exec(
+    `
+      SELECT 
+        id, project_id, owner_user_id, name, description, 
+        artifact_type, visibility, content, metadata, 
+        created_at, updated_at
+      FROM collab_artifacts
+      WHERE owner_user_id = ?
+      ORDER BY updated_at DESC;
+    `,
+    [userId],
+  );
+
+  const rows = result?.[0]?.values || [];
+
+  return rows.map((row: any[]) => ({
+    id: String(row[0]),
+    projectId: row[1] ? String(row[1]) : null,
+    ownerUserId: String(row[2]),
+    name: String(row[3]),
+    description: row[4] ? String(row[4]) : null,
+    artifactType: String(row[5]) as 'module' | 'component' | 'snippet' | 'asset',
+    visibility: String(row[6]) as 'private' | 'project' | 'public',
+    content: String(row[7]),
+    metadata: row[8] ? parseJsonRecord(row[8]) : null,
+    createdAt: String(row[9]),
+    updatedAt: String(row[10]),
+  }));
+}
+
+export async function getArtifact(
+  artifactId: string,
+  userId: string,
+  env?: Record<string, any>,
+): Promise<CollabArtifact | null> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return null;
+  }
+
+  // Check access first
+  const hasAccess = await hasArtifactAccess(artifactId, userId, env);
+
+  if (!hasAccess) {
+    return null;
+  }
+
+  const result = ctx.db.exec(
+    `
+      SELECT 
+        id, project_id, owner_user_id, name, description, 
+        artifact_type, visibility, content, metadata, 
+        created_at, updated_at
+      FROM collab_artifacts
+      WHERE id = ?
+      LIMIT 1;
+    `,
+    [artifactId],
+  );
+
+  const row = result?.[0]?.values?.[0];
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    id: String(row[0]),
+    projectId: row[1] ? String(row[1]) : null,
+    ownerUserId: String(row[2]),
+    name: String(row[3]),
+    description: row[4] ? String(row[4]) : null,
+    artifactType: String(row[5]) as 'module' | 'component' | 'snippet' | 'asset',
+    visibility: String(row[6]) as 'private' | 'project' | 'public',
+    content: String(row[7]),
+    metadata: row[8] ? parseJsonRecord(row[8]) : null,
+    createdAt: String(row[9]),
+    updatedAt: String(row[10]),
+  };
+}
+
+export async function updateArtifact(
+  artifactId: string,
+  input: {
+    userId: string;
+    name?: string;
+    description?: string | null;
+    artifactType?: 'module' | 'component' | 'snippet' | 'asset';
+    visibility?: 'private' | 'project' | 'public';
+    content?: string;
+    metadata?: Record<string, any> | null;
+  },
+  env?: Record<string, any>,
+): Promise<CollabArtifact | null> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return null;
+  }
+
+  // Verify ownership
+  const existing = await getArtifact(artifactId, input.userId, env);
+
+  if (!existing || existing.ownerUserId !== input.userId) {
+    return null;
+  }
+
+  const updatedAt = new Date().toISOString();
+
+  // Build update query dynamically based on provided fields
+  const updates: string[] = [];
+  const params: any[] = [];
+
+  if (input.name !== undefined) {
+    updates.push('name = ?');
+    params.push(input.name);
+  }
+
+  if (input.description !== undefined) {
+    updates.push('description = ?');
+    params.push(input.description);
+  }
+
+  if (input.artifactType !== undefined) {
+    updates.push('artifact_type = ?');
+    params.push(input.artifactType);
+  }
+
+  if (input.visibility !== undefined) {
+    updates.push('visibility = ?');
+    params.push(input.visibility);
+  }
+
+  if (input.content !== undefined) {
+    updates.push('content = ?');
+    params.push(input.content);
+  }
+
+  if (input.metadata !== undefined) {
+    updates.push('metadata = ?');
+    params.push(input.metadata ? JSON.stringify(input.metadata) : null);
+  }
+
+  updates.push('updated_at = ?');
+  params.push(updatedAt);
+  params.push(artifactId);
+
+  if (updates.length === 1) {
+    // Only updated_at, no actual changes
+    return existing;
+  }
+
+  ctx.db.run(
+    `
+      UPDATE collab_artifacts
+      SET ${updates.join(', ')}
+      WHERE id = ?;
+    `,
+    params,
+  );
+
+  await save(ctx);
+
+  return getArtifact(artifactId, input.userId, env);
+}
+
+export async function deleteArtifact(artifactId: string, userId: string, env?: Record<string, any>): Promise<boolean> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return false;
+  }
+
+  // Verify ownership
+  const existing = await getArtifact(artifactId, userId, env);
+
+  if (!existing || existing.ownerUserId !== userId) {
+    return false;
+  }
+
+  ctx.db.run(
+    `
+      DELETE FROM collab_artifacts
+      WHERE id = ?;
+    `,
+    [artifactId],
+  );
+
+  await save(ctx);
+
+  return true;
 }
 
 export function isSqlitePersistenceEnabled(env?: Record<string, any>): boolean {

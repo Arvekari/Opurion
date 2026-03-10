@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { setActiveProfileUser } from '~/lib/stores/profile';
 
 export type SetupDbProvider = 'sqlite' | 'postgres';
 
@@ -60,6 +61,10 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     void loadSession();
   }, []);
+
+  useEffect(() => {
+    setActiveProfileUser(session?.authenticated ? session.user?.id : null);
+  }, [session?.authenticated, session?.user?.id]);
 
   const title = useMemo(() => {
     if (session?.requireSignup || isSignupMode) {

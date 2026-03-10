@@ -10,18 +10,35 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Added
 
-- None.
+- Email-based project sharing with user verification: Projects can now be shared by email in the `Projects` section, with explicit error messages when the email is not registered.
+- `findUserByEmail` persistence function across SQLite and PostgREST backends for email-based user lookup.
+- Email field added to users table schema with unique constraint and migration support.
 
 ### Changed
 
 - Chat shell layout now uses a persistent top model bar and bottom-anchored composer flow by removing the centered intro hero state from `app/components/chat/BaseChat.tsx`.
 - Chat provider/model selector now lists only providers and models that have configured API keys, and key management is routed to Settings > Providers.
+- Provider/model selectors were moved from the main chat workspace into the top toolbar (`app/components/header/Header.tsx`) and synchronized with active chat state.
 - Sidebar navigation now uses a modern section-based layout (`Chats`, `Projects`, `Artifacts`, `Code`) with quick `Search` and `Customize` actions.
+- Sidebar chat list now expands to fill available vertical space with proper scrolling behavior.
+- Bottom bar (Settings and Theme controls) is now fixed at the bottom of the sidebar using `mt-auto` flex positioning.
+- Sidebar chat list section now uses explicit `Recents` labeling and a fixed bottom section containing Settings and user profile affordances.
+- Project sharing API endpoint now accepts `email` parameter instead of `username` for invitations.
+- Profile state persistence now uses session-user-scoped localStorage keys (`bolt_profile:<userId>`) and AuthGate switches active profile context based on authenticated session identity.
+- Auth secure-cookie policy for JWT issuance is now shared between login/signup paths via a common helper.
+- Persistence layer (SQLite + PostgREST) enforces user-scoped data isolation via `hasCollabProjectAccess` guards and JOIN-based filtering on collab operations.
+- Artifact model foundation added with full CRUD support (create/read/update/delete) for reusable modules/components/snippets/assets with project/user ownership scope, visibility controls (private/project/public), and backend-agnostic persistence abstraction. New API route `/api/collab/artifacts` with 14 passing unit tests.
+- Settings control panel was refactored to a modern two-panel architecture with persistent desktop navigation, structured content panel hierarchy, and mobile category selector fallback for responsive behavior.
 
 ### Fixed
 
 - Send flow regression in `BaseChat` no longer clears input during normal sends due to speech-recognition state handling.
 - Inline API-key editing controls were removed from chat so API keys can be managed only in settings.
+- Sidebar layout now properly utilizes vertical space - chat list scrolls when long and bottom controls stay fixed.
+- API key guidance/warning text was removed from the main chat area to keep provider key management out of the chat interface.
+- Deterministic session user resolution now rejects mismatched `bolt_uid` cookie hints to prevent stale cross-user identity resolution.
+- Added regression test coverage for user-scoped profile persistence and server auth user-resolution behavior.
+- P0: OpenAI Codex models (gpt-5.x-codex) now return responses successfully instead of hanging indefinitely; root cause was using unsupported `maxOutputTokens` parameter with responses API (corrected to use standard `maxTokens`).
 
 ## [0.1.4] - 2026-03-09
 

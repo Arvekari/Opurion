@@ -3,7 +3,7 @@ import { getCurrentUserFromRequest } from '~/lib/.server/auth';
 import {
   addCollabProjectMember,
   createCollabProject,
-  findUserByUsername,
+  findUserByEmail,
   listCollabProjectMembers,
   listCollabProjectsForUser,
 } from '~/lib/.server/persistence';
@@ -39,7 +39,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
   const body = await request.json<
     | { intent: 'create'; name?: string }
-    | { intent: 'share'; projectId?: string; username?: string; role?: 'editor' | 'viewer' }
+    | { intent: 'share'; projectId?: string; email?: string; role?: 'editor' | 'viewer' }
   >();
 
   if (body.intent === 'create') {
@@ -60,16 +60,29 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
   if (body.intent === 'share') {
     const projectId = body.projectId?.trim();
-    const username = body.username?.trim().toLowerCase();
+    const email = body.email?.trim().toLowerCase();
 
-    if (!projectId || !username) {
-      return json({ ok: false, error: 'projectId and username are required.' }, { status: 400 });
+    if (!projectId || !email) {
+      return json({ ok: false, error: 'projectId and email are required.' }, { status: 400 });
     }
 
-    const target = await findUserByUsername(username, env);
+    // Validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+    if (!emailRegex.test(email)) {
+      return json({ ok: false, error: 'Invalid email format. Please provide a valid email address.' }, { status: 400 });
+    }
+
+    const target = await findUserByEmail(email, env);
 
     if (!target) {
-      return json({ ok: false, error: 'Target user not found.' }, { status: 404 });
+      return json(
+        {
+          ok: false,
+          error: `Email '${email}' is not registered. The user must create an account before they can be added to a project.`,
+        },
+        { status: 404 },
+      );
     }
 
     const ok = await addCollabProjectMember(

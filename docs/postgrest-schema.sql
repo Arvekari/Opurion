@@ -122,6 +122,24 @@ create table if not exists collab_branch_messages (
 create index if not exists idx_collab_branches_conversation on collab_branches(conversation_id, created_at);
 create index if not exists idx_collab_branch_messages_branch on collab_branch_messages(branch_id, created_at);
 
+create table if not exists collab_artifacts (
+  id text primary key,
+  project_id text references collab_projects(id) on delete cascade,
+  owner_user_id text not null references users(id) on delete cascade,
+  name text not null,
+  description text,
+  artifact_type text not null check (artifact_type in ('module', 'component', 'snippet', 'asset')),
+  visibility text not null default 'private' check (visibility in ('private', 'project', 'public')),
+  content text not null,
+  metadata jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists idx_collab_artifacts_project on collab_artifacts(project_id) where project_id is not null;
+create index if not exists idx_collab_artifacts_owner on collab_artifacts(owner_user_id);
+create index if not exists idx_collab_artifacts_visibility on collab_artifacts(visibility);
+
 insert into app_memory (id)
 values (1)
 on conflict (id) do nothing;

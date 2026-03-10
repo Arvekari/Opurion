@@ -781,6 +781,38 @@ export const ChatImpl = memo(
       Cookies.set('selectedProvider', newProvider.name, { expires: 30 });
     };
 
+    useEffect(() => {
+      if (typeof window === 'undefined') {
+        return undefined;
+      }
+
+      const onSelectionChanged = (event: Event) => {
+        const detail = (event as CustomEvent<{ providerName?: string; model?: string }>).detail;
+
+        if (!detail) {
+          return;
+        }
+
+        if (detail.providerName) {
+          const matchedProvider = PROVIDER_LIST.find((entry) => entry.name === detail.providerName) as
+            | ProviderInfo
+            | undefined;
+
+          if (matchedProvider) {
+            setProvider(matchedProvider);
+          }
+        }
+
+        if (detail.model) {
+          setModel(detail.model);
+        }
+      };
+
+      window.addEventListener('bolt:model-selection-changed', onSelectionChanged);
+
+      return () => window.removeEventListener('bolt:model-selection-changed', onSelectionChanged);
+    }, []);
+
     const handleWebSearchResult = useCallback(
       (result: string) => {
         const currentInput = draftInput || '';

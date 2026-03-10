@@ -11,7 +11,6 @@ import { classNames } from '~/utils/classNames';
 import { PROVIDER_LIST } from '~/utils/constants';
 import { Messages } from './Messages.client';
 import { getApiKeysFromCookies } from './APIKeyManager';
-import { ModelSelector } from './ModelSelector';
 import Cookies from 'js-cookie';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import styles from './BaseChat.module.scss';
@@ -249,7 +248,10 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       });
     }, [providerList, apiKeys]);
 
-    const availableProviderNames = useMemo(() => new Set(availableProviders.map((entry) => entry.name)), [availableProviders]);
+    const availableProviderNames = useMemo(
+      () => new Set(availableProviders.map((entry) => entry.name)),
+      [availableProviders],
+    );
 
     const availableModels = useMemo(
       () => modelList.filter((entry) => availableProviderNames.has(entry.provider)),
@@ -407,36 +409,6 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
               'flex flex-col flex-grow lg:min-w-[var(--chat-min-width)] h-full min-w-0',
             )}
           >
-            <div className="sticky top-0 z-20 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/95 backdrop-blur px-2 sm:px-6 py-2">
-              <div className="w-full max-w-chat mx-auto flex flex-col gap-2">
-                <div className="text-xs font-medium text-bolt-elements-textTertiary px-1">Model</div>
-                <ClientOnly>
-                  {() => (
-                    <div className="flex flex-col gap-2">
-                      <div className="text-xs text-bolt-elements-textTertiary px-1">
-                        API keys are managed in Settings > Providers.
-                      </div>
-                      <ModelSelector
-                        key={provider?.name + ':' + availableModels.length}
-                        model={model}
-                        setModel={setModel}
-                        modelList={availableModels}
-                        provider={provider}
-                        setProvider={setProvider}
-                        providerList={availableProviders}
-                        apiKeys={apiKeys}
-                        modelLoading={isModelLoading}
-                      />
-                      {availableProviders.length === 0 && (
-                        <div className="text-xs text-amber-400 px-1">
-                          No providers with configured API keys. Open Settings to add keys.
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </ClientOnly>
-              </div>
-            </div>
             <StickToBottom
               className={classNames('pt-4 px-2 sm:px-6 relative', {
                 'flex-1 flex flex-col modern-scrollbar': chatStarted,

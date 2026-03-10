@@ -279,9 +279,9 @@ export async function getUserCount(env?: Record<string, any>): Promise<number> {
 }
 
 export async function createUser(
-  input: { username: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean },
+  input: { username: string; email?: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean },
   env?: Record<string, any>,
-): Promise<{ id: string; username: string; isAdmin: boolean } | null> {
+): Promise<{ id: string; username: string; email?: string; isAdmin: boolean } | null> {
   if (!isPostgrestEnabled(env)) {
     return null;
   }
@@ -298,6 +298,7 @@ export async function createUser(
       body: JSON.stringify({
         id,
         username: input.username,
+        email: input.email || null,
         password_hash: input.passwordHash,
         password_salt: input.passwordSalt,
         is_admin: !!input.isAdmin,
@@ -317,6 +318,7 @@ export async function createUser(
   return {
     id: String(row.id),
     username: String(row.username),
+    email: row.email ? String(row.email) : undefined,
     isAdmin: !!row.is_admin,
   };
 }
@@ -327,6 +329,7 @@ export async function findUserByUsername(
 ): Promise<{
   id: string;
   username: string;
+  email?: string;
   passwordHash: string;
   passwordSalt: string;
   isAdmin: boolean;
@@ -336,7 +339,7 @@ export async function findUserByUsername(
   }
 
   const response = await requestPostgrest<any[]>(
-    `/users?username=eq.${encodeURIComponent(username)}&select=id,username,password_hash,password_salt,is_admin&limit=1`,
+    `/users?username=eq.${encodeURIComponent(username)}&select=id,username,email,password_hash,password_salt,is_admin&limit=1`,
     { method: 'GET' },
     env,
   );
@@ -350,6 +353,44 @@ export async function findUserByUsername(
   return {
     id: String(row.id),
     username: String(row.username),
+    email: row.email ? String(row.email) : undefined,
+    passwordHash: String(row.password_hash),
+    passwordSalt: String(row.password_salt),
+    isAdmin: !!row.is_admin,
+  };
+}
+
+export async function findUserByEmail(
+  email: string,
+  env?: Record<string, any>,
+): Promise<{
+  id: string;
+  username: string;
+  email: string;
+  passwordHash: string;
+  passwordSalt: string;
+  isAdmin: boolean;
+} | null> {
+  if (!isPostgrestEnabled(env)) {
+    return null;
+  }
+
+  const response = await requestPostgrest<any[]>(
+    `/users?email=eq.${encodeURIComponent(email.toLowerCase())}&select=id,username,email,password_hash,password_salt,is_admin&limit=1`,
+    { method: 'GET' },
+    env,
+  );
+
+  const row = response.data?.[0];
+
+  if (!response.ok || !row) {
+    return null;
+  }
+
+  return {
+    id: String(row.id),
+    username: String(row.username),
+    email: String(row.email),
     passwordHash: String(row.password_hash),
     passwordSalt: String(row.password_salt),
     isAdmin: !!row.is_admin,
@@ -651,6 +692,20 @@ export type CollabBranch = {
   mergedIntoBranchId: string | null;
   createdAt: string;
   mergedAt: string | null;
+};
+
+export type CollabArtifact = {
+  id: string;
+  projectId: string | null;
+  ownerUserId: string;
+  name: string;
+  description: string | null;
+  artifactType: 'module' | 'component' | 'snippet' | 'asset';
+  visibility: 'private' | 'project' | 'public';
+  content: string;
+  metadata: Record<string, any> | null;
+  createdAt: string;
+  updatedAt: string;
 };
 
 async function hasCollabProjectAccess(projectId: string, userId: string, env?: Record<string, any>): Promise<boolean> {
@@ -1402,4 +1457,349 @@ export async function listAgentRunRecords(limit = 50, env?: Record<string, any>)
     createdAt: String(row.created_at || ''),
     updatedAt: String(row.updated_at || ''),
   }));
+}
+
+// Artifact CRUD operations
+
+async function hasArtifactAccess(artifactId: string, userId: string, env?: Record<string, any>): Promise<boolean> {
+  if (!isPostgrestEnabled(env)) {
+    return false;
+  }
+
+  const response = await requestPostgrest<any[]>(
+    `/collab_artifacts?id=eq.${encodeURIComponent(artifactId)}&select=owner_user_id,project_id,visibility&limit=1`,
+    { method: 'GET' },
+    env,
+  );
+
+  if (!response.ok || !response.data || response.data.length === 0) {
+    return false;
+  }
+
+  const artifact = response.data[0];
+  const ownerUserId = String(artifact.owner_user_id);
+  const projectId = artifact.project_id ? String(artifact.project_id) : null;
+  const visibility = String(artifact.visibility);
+
+  // Owner always has access
+  if (ownerUserId === userId) {
+    return true;
+  }
+
+  // Public artifacts are readable by anyone
+  if (visibility === 'public') {
+    return true;
+  }
+
+  // Project artifacts require project membership
+  if (visibility === 'project' && projectId) {
+    return hasCollabProjectAccess(projectId, userId, env);
+  }
+
+  // Private artifacts only accessible by owner
+  return false;
+}
+
+export async function createArtifact(
+  input: {
+    ownerUserId: string;
+    projectId?: string | null;
+    name: string;
+    description?: string | null;
+    artifactType: 'module' | 'component' | 'snippet' | 'asset';
+    visibility?: 'private' | 'project' | 'public';
+    content: string;
+    metadata?: Record<string, any> | null;
+  },
+  env?: Record<string, any>,
+): Promise<CollabArtifact | null> {
+  if (!isPostgrestEnabled(env)) {
+    return null;
+  }
+
+  // If project-scoped, verify user has access to the project
+  if (input.projectId) {
+    const hasAccess = await hasCollabProjectAccess(input.projectId, input.ownerUserId, env);
+
+    if (!hasAccess) {
+      return null;
+    }
+  }
+
+  const id = crypto.randomUUID();
+  const createdAt = new Date().toISOString();
+  const updatedAt = createdAt;
+  const visibility = input.visibility || 'private';
+
+  const response = await requestPostgrest<any[]>(
+    '/collab_artifacts',
+    {
+      method: 'POST',
+      headers: {
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify({
+        id,
+        project_id: input.projectId || null,
+        owner_user_id: input.ownerUserId,
+        name: input.name,
+        description: input.description || null,
+        artifact_type: input.artifactType,
+        visibility,
+        content: input.content,
+        metadata: input.metadata || null,
+        created_at: createdAt,
+        updated_at: updatedAt,
+      }),
+    },
+    env,
+  );
+
+  if (!response.ok || !response.data || response.data.length === 0) {
+    return null;
+  }
+
+  const row = response.data[0];
+
+  return {
+    id: String(row.id),
+    projectId: row.project_id ? String(row.project_id) : null,
+    ownerUserId: String(row.owner_user_id),
+    name: String(row.name),
+    description: row.description ? String(row.description) : null,
+    artifactType: String(row.artifact_type) as 'module' | 'component' | 'snippet' | 'asset',
+    visibility: String(row.visibility) as 'private' | 'project' | 'public',
+    content: String(row.content),
+    metadata: row.metadata ? asRecord(row.metadata) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+export async function listArtifactsByProject(
+  projectId: string,
+  userId: string,
+  env?: Record<string, any>,
+): Promise<CollabArtifact[]> {
+  if (!isPostgrestEnabled(env)) {
+    return [];
+  }
+
+  // Verify user has access to the project
+  const hasAccess = await hasCollabProjectAccess(projectId, userId, env);
+
+  if (!hasAccess) {
+    return [];
+  }
+
+  const response = await requestPostgrest<any[]>(
+    `/collab_artifacts?project_id=eq.${encodeURIComponent(projectId)}&select=id,project_id,owner_user_id,name,description,artifact_type,visibility,content,metadata,created_at,updated_at&order=updated_at.desc`,
+    { method: 'GET' },
+    env,
+  );
+
+  if (!response.ok || !response.data) {
+    return [];
+  }
+
+  return response.data.map((row) => ({
+    id: String(row.id),
+    projectId: row.project_id ? String(row.project_id) : null,
+    ownerUserId: String(row.owner_user_id),
+    name: String(row.name),
+    description: row.description ? String(row.description) : null,
+    artifactType: String(row.artifact_type) as 'module' | 'component' | 'snippet' | 'asset',
+    visibility: String(row.visibility) as 'private' | 'project' | 'public',
+    content: String(row.content),
+    metadata: row.metadata ? asRecord(row.metadata) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  }));
+}
+
+export async function listArtifactsByUser(userId: string, env?: Record<string, any>): Promise<CollabArtifact[]> {
+  if (!isPostgrestEnabled(env)) {
+    return [];
+  }
+
+  const response = await requestPostgrest<any[]>(
+    `/collab_artifacts?owner_user_id=eq.${encodeURIComponent(userId)}&select=id,project_id,owner_user_id,name,description,artifact_type,visibility,content,metadata,created_at,updated_at&order=updated_at.desc`,
+    { method: 'GET' },
+    env,
+  );
+
+  if (!response.ok || !response.data) {
+    return [];
+  }
+
+  return response.data.map((row) => ({
+    id: String(row.id),
+    projectId: row.project_id ? String(row.project_id) : null,
+    ownerUserId: String(row.owner_user_id),
+    name: String(row.name),
+    description: row.description ? String(row.description) : null,
+    artifactType: String(row.artifact_type) as 'module' | 'component' | 'snippet' | 'asset',
+    visibility: String(row.visibility) as 'private' | 'project' | 'public',
+    content: String(row.content),
+    metadata: row.metadata ? asRecord(row.metadata) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  }));
+}
+
+export async function getArtifact(
+  artifactId: string,
+  userId: string,
+  env?: Record<string, any>,
+): Promise<CollabArtifact | null> {
+  if (!isPostgrestEnabled(env)) {
+    return null;
+  }
+
+  // Check access first
+  const hasAccess = await hasArtifactAccess(artifactId, userId, env);
+
+  if (!hasAccess) {
+    return null;
+  }
+
+  const response = await requestPostgrest<any[]>(
+    `/collab_artifacts?id=eq.${encodeURIComponent(artifactId)}&select=id,project_id,owner_user_id,name,description,artifact_type,visibility,content,metadata,created_at,updated_at&limit=1`,
+    { method: 'GET' },
+    env,
+  );
+
+  if (!response.ok || !response.data || response.data.length === 0) {
+    return null;
+  }
+
+  const row = response.data[0];
+
+  return {
+    id: String(row.id),
+    projectId: row.project_id ? String(row.project_id) : null,
+    ownerUserId: String(row.owner_user_id),
+    name: String(row.name),
+    description: row.description ? String(row.description) : null,
+    artifactType: String(row.artifact_type) as 'module' | 'component' | 'snippet' | 'asset',
+    visibility: String(row.visibility) as 'private' | 'project' | 'public',
+    content: String(row.content),
+    metadata: row.metadata ? asRecord(row.metadata) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+export async function updateArtifact(
+  artifactId: string,
+  input: {
+    userId: string;
+    name?: string;
+    description?: string | null;
+    artifactType?: 'module' | 'component' | 'snippet' | 'asset';
+    visibility?: 'private' | 'project' | 'public';
+    content?: string;
+    metadata?: Record<string, any> | null;
+  },
+  env?: Record<string, any>,
+): Promise<CollabArtifact | null> {
+  if (!isPostgrestEnabled(env)) {
+    return null;
+  }
+
+  // Verify ownership
+  const existing = await getArtifact(artifactId, input.userId, env);
+
+  if (!existing || existing.ownerUserId !== input.userId) {
+    return null;
+  }
+
+  const updatedAt = new Date().toISOString();
+
+  // Build update payload
+  const updatePayload: Record<string, any> = {
+    updated_at: updatedAt,
+  };
+
+  if (input.name !== undefined) {
+    updatePayload.name = input.name;
+  }
+
+  if (input.description !== undefined) {
+    updatePayload.description = input.description;
+  }
+
+  if (input.artifactType !== undefined) {
+    updatePayload.artifact_type = input.artifactType;
+  }
+
+  if (input.visibility !== undefined) {
+    updatePayload.visibility = input.visibility;
+  }
+
+  if (input.content !== undefined) {
+    updatePayload.content = input.content;
+  }
+
+  if (input.metadata !== undefined) {
+    updatePayload.metadata = input.metadata;
+  }
+
+  const response = await requestPostgrest<any[]>(
+    `/collab_artifacts?id=eq.${encodeURIComponent(artifactId)}`,
+    {
+      method: 'PATCH',
+      headers: {
+        Prefer: 'return=representation',
+      },
+      body: JSON.stringify(updatePayload),
+    },
+    env,
+  );
+
+  if (!response.ok || !response.data || response.data.length === 0) {
+    return null;
+  }
+
+  const row = response.data[0];
+
+  return {
+    id: String(row.id),
+    projectId: row.project_id ? String(row.project_id) : null,
+    ownerUserId: String(row.owner_user_id),
+    name: String(row.name),
+    description: row.description ? String(row.description) : null,
+    artifactType: String(row.artifact_type) as 'module' | 'component' | 'snippet' | 'asset',
+    visibility: String(row.visibility) as 'private' | 'project' | 'public',
+    content: String(row.content),
+    metadata: row.metadata ? asRecord(row.metadata) : null,
+    createdAt: String(row.created_at),
+    updatedAt: String(row.updated_at),
+  };
+}
+
+export async function deleteArtifact(artifactId: string, userId: string, env?: Record<string, any>): Promise<boolean> {
+  if (!isPostgrestEnabled(env)) {
+    return false;
+  }
+
+  // Verify ownership
+  const existing = await getArtifact(artifactId, userId, env);
+
+  if (!existing || existing.ownerUserId !== userId) {
+    return false;
+  }
+
+  const response = await requestPostgrest(
+    `/collab_artifacts?id=eq.${encodeURIComponent(artifactId)}`,
+    {
+      method: 'DELETE',
+      headers: {
+        Prefer: 'return=minimal',
+      },
+    },
+    env,
+  );
+
+  return response.ok;
 }

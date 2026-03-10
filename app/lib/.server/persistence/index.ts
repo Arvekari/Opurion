@@ -70,7 +70,7 @@ export async function getUserCount(env?: Record<string, any>) {
 }
 
 export async function createUser(
-  input: { username: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean },
+  input: { username: string; email?: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean },
   env?: Record<string, any>,
 ) {
   return usePostgrest(env) ? postgrest.createUser(input, env) : sqlite.createUser(input, env);
@@ -78,6 +78,10 @@ export async function createUser(
 
 export async function findUserByUsername(username: string, env?: Record<string, any>) {
   return usePostgrest(env) ? postgrest.findUserByUsername(username, env) : sqlite.findUserByUsername(username, env);
+}
+
+export async function findUserByEmail(email: string, env?: Record<string, any>) {
+  return usePostgrest(env) ? postgrest.findUserByEmail(email, env) : sqlite.findUserByEmail(email, env);
 }
 
 export async function createSession(userId: string, env?: Record<string, any>, ttlHours?: number) {
@@ -242,4 +246,62 @@ export async function readAgentRunRecord(runId: string, env?: Record<string, any
 
 export async function listAgentRunRecords(limit = 50, env?: Record<string, any>) {
   return usePostgrest(env) ? postgrest.listAgentRunRecords(limit, env) : sqlite.listAgentRunRecords(limit, env);
+}
+
+// Artifact CRUD operations
+
+export async function createArtifact(
+  input: {
+    ownerUserId: string;
+    projectId?: string | null;
+    name: string;
+    description?: string | null;
+    artifactType: 'module' | 'component' | 'snippet' | 'asset';
+    visibility?: 'private' | 'project' | 'public';
+    content: string;
+    metadata?: Record<string, any> | null;
+  },
+  env?: Record<string, any>,
+) {
+  return usePostgrest(env) ? postgrest.createArtifact(input, env) : sqlite.createArtifact(input, env);
+}
+
+export async function listArtifactsByProject(projectId: string, userId: string, env?: Record<string, any>) {
+  return usePostgrest(env)
+    ? postgrest.listArtifactsByProject(projectId, userId, env)
+    : sqlite.listArtifactsByProject(projectId, userId, env);
+}
+
+export async function listArtifactsByUser(userId: string, env?: Record<string, any>) {
+  return usePostgrest(env) ? postgrest.listArtifactsByUser(userId, env) : sqlite.listArtifactsByUser(userId, env);
+}
+
+export async function getArtifact(artifactId: string, userId: string, env?: Record<string, any>) {
+  return usePostgrest(env)
+    ? postgrest.getArtifact(artifactId, userId, env)
+    : sqlite.getArtifact(artifactId, userId, env);
+}
+
+export async function updateArtifact(
+  artifactId: string,
+  input: {
+    userId: string;
+    name?: string;
+    description?: string | null;
+    artifactType?: 'module' | 'component' | 'snippet' | 'asset';
+    visibility?: 'private' | 'project' | 'public';
+    content?: string;
+    metadata?: Record<string, any> | null;
+  },
+  env?: Record<string, any>,
+) {
+  return usePostgrest(env)
+    ? postgrest.updateArtifact(artifactId, input, env)
+    : sqlite.updateArtifact(artifactId, input, env);
+}
+
+export async function deleteArtifact(artifactId: string, userId: string, env?: Record<string, any>) {
+  return usePostgrest(env)
+    ? postgrest.deleteArtifact(artifactId, userId, env)
+    : sqlite.deleteArtifact(artifactId, userId, env);
 }

@@ -12,6 +12,10 @@ function shouldUseSecureCookies(env?: Record<string, any>): boolean {
   return explicitSecure || runningInDocker || nodeEnv === 'production';
 }
 
+export function getSecureCookieDirective(env?: Record<string, any>): string {
+  return shouldUseSecureCookies(env) ? '; Secure' : '';
+}
+
 function toHex(bytes: Uint8Array): string {
   return Array.from(bytes)
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -43,6 +47,13 @@ export function getSessionTokenFromRequest(request: Request): string | null {
   return cookies[SESSION_COOKIE] || null;
 }
 
+export function getSessionUserIdHintFromRequest(request: Request): string | null {
+  const cookieHeader = request.headers.get('Cookie');
+  const cookies = parseCookies(cookieHeader);
+
+  return cookies[USER_ID_COOKIE] || null;
+}
+
 export async function getCurrentUserFromRequest(request: Request, env?: Record<string, any>) {
   const token = getSessionTokenFromRequest(request);
 
@@ -50,7 +61,19 @@ export async function getCurrentUserFromRequest(request: Request, env?: Record<s
     return null;
   }
 
-  return getSessionUser(token, env);
+  const sessionUser = await getSessionUser(token, env);
+
+  if (!sessionUser) {
+    return null;
+  }
+
+  const userIdHint = getSessionUserIdHintFromRequest(request);
+
+  if (userIdHint && userIdHint !== sessionUser.userId) {
+    return null;
+  }
+
+  return sessionUser;
 }
 
 export async function createAuthCookies(userId: string, env?: Record<string, any>) {
@@ -60,7 +83,7 @@ export async function createAuthCookies(userId: string, env?: Record<string, any
     return [] as string[];
   }
 
-  const secureDirective = shouldUseSecureCookies(env) ? '; Secure' : '';
+  const secureDirective = getSecureCookieDirective(env);
 
   return [
     `${SESSION_COOKIE}=${encodeURIComponent(session.token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=1209600${secureDirective}`,
@@ -75,7 +98,7 @@ export async function clearAuthCookies(request: Request, env?: Record<string, an
     await deleteSession(token, env);
   }
 
-  const secureDirective = shouldUseSecureCookies(env) ? '; Secure' : '';
+  const secureDirective = getSecureCookieDirective(env);
 
   return [
     `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureDirective}`,

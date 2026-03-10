@@ -1,6 +1,6 @@
 import { type ActionFunctionArgs, json } from '@remix-run/cloudflare';
 import { createUser, findUserByUsername, getUserCount } from '~/lib/.server/persistence';
-import { createAuthCookies, generateSalt, hashPassword } from '~/lib/.server/auth';
+import { createAuthCookies, generateSalt, getSecureCookieDirective, hashPassword } from '~/lib/.server/auth';
 import { enforceRateLimit } from '~/platform/security/request-guard';
 import { issueJwtToken } from '~/platform/security/jwt';
 
@@ -62,9 +62,10 @@ export async function action({ request, context }: ActionFunctionArgs) {
       { sub: created.id, role: created.isAdmin ? 'admin' : 'user' },
       { jwtSecret, ttlSeconds: 60 * 60 * 24 * 14 },
     );
+    const secureCookieDirective = getSecureCookieDirective(env);
     headers.append(
       'Set-Cookie',
-      `bolt_jwt=${encodeURIComponent(jwt)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=1209600`,
+      `bolt_jwt=${encodeURIComponent(jwt)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=1209600${secureCookieDirective}`,
     );
 
     headers.set('x-request-id', requestId);

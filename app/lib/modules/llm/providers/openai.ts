@@ -12,13 +12,13 @@ export default class OpenAIProvider extends BaseProvider {
     apiTokenKey: 'OPENAI_API_KEY',
   };
 
-  private isCompletionOnlyModel(modelName: string): boolean {
+  private _isCompletionOnlyModel(modelName: string): boolean {
     const normalized = modelName.toLowerCase();
 
     return normalized.endsWith('-instruct') || normalized.startsWith('text-');
   }
 
-  private isResponsesModel(modelName: string): boolean {
+  private _isResponsesModel(modelName: string): boolean {
     const normalized = modelName.toLowerCase();
     return normalized.includes('codex');
   }
@@ -91,7 +91,7 @@ export default class OpenAIProvider extends BaseProvider {
     },
   ];
 
-  private getNumberFromModelMeta(model: any, keys: string[]): number | undefined {
+  private _getNumberFromModelMeta(model: any, keys: string[]): number | undefined {
     for (const key of keys) {
       const value = model?.[key];
 
@@ -141,7 +141,7 @@ export default class OpenAIProvider extends BaseProvider {
     );
 
     return data.map((m: any) => {
-      const contextFromMeta = this.getNumberFromModelMeta(m, [
+      const contextFromMeta = this._getNumberFromModelMeta(m, [
         'context_window',
         'context_length',
         'input_token_limit',
@@ -162,7 +162,7 @@ export default class OpenAIProvider extends BaseProvider {
         contextWindow = 128000;
       }
 
-      const completionFromMeta = this.getNumberFromModelMeta(m, [
+      const completionFromMeta = this._getNumberFromModelMeta(m, [
         'max_output_tokens',
         'output_token_limit',
         'completion_token_limit',
@@ -222,7 +222,7 @@ export default class OpenAIProvider extends BaseProvider {
       apiKey,
     });
 
-    if (this.isResponsesModel(model)) {
+    if (this._isResponsesModel(model)) {
       const responsesFactory = (openai as any).responses;
 
       if (typeof responsesFactory === 'function') {
@@ -230,7 +230,7 @@ export default class OpenAIProvider extends BaseProvider {
       }
     }
 
-    if (this.isCompletionOnlyModel(model)) {
+    if (this._isCompletionOnlyModel(model)) {
       const completionFactory = (openai as any).completion;
 
       if (typeof completionFactory === 'function') {

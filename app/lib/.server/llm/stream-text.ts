@@ -385,11 +385,7 @@ ${customPromptBody}
   );
 
   const isResponsesModel = isOpenAIResponsesModel(provider.name, modelDetails.name);
-  const tokenParams = isResponsesModel
-    ? { maxOutputTokens: safeMaxTokens }
-    : isReasoning
-      ? { maxCompletionTokens: safeMaxTokens }
-      : { maxTokens: safeMaxTokens };
+  const tokenParams = isReasoning ? { maxCompletionTokens: safeMaxTokens } : { maxTokens: safeMaxTokens };
 
   const streamParams = {
     model: provider.getModelInstance({

@@ -45,6 +45,17 @@
     "workflowName": "Project-bolt2-machine-task-push-sync",
     "tableName": "Project-bolt2-machine-task-queue"
   },
+  "feedbackLoop": {
+    "enabled": true,
+    "inactivitySeconds": 300,
+    "checkIntervalSeconds": 20,
+    "promptCooldownSeconds": 120,
+    "emitFromWatchdog": false,
+    "emitFromCallbacks": true,
+    "minCommandIntervalSeconds": 180,
+    "continueCommand": "pnpm run ongoing:auto:continue",
+    "restartCommand": "pnpm run ongoing:cycle -- scan"
+  },
   "network": {
     "allowedSourceHosts": [
       "127.0.0.1",

@@ -1,0 +1,27 @@
+{
+  "updatedAt": "2026-03-10T06:03:00.000Z",
+  "source": "chat-attachments",
+  "items": [
+    {
+      "taskId": "bolt2-p0-collab-share-invite-email-verify",
+      "label": "UI reference image 01",
+      "expectedFileName": "bolt2-p0-collab-share-invite-email-verify__ui-reference-01.png",
+      "relativePath": "bolt.work/task-assets/bolt2-p0-collab-share-invite-email-verify/bolt2-p0-collab-share-invite-email-verify__ui-reference-01.png",
+      "status": "imported"
+    },
+    {
+      "taskId": "bolt2-p0-collab-share-invite-email-verify",
+      "label": "UI reference image 02",
+      "expectedFileName": "bolt2-p0-collab-share-invite-email-verify__ui-reference-02.png",
+      "relativePath": "bolt.work/task-assets/bolt2-p0-collab-share-invite-email-verify/bolt2-p0-collab-share-invite-email-verify__ui-reference-02.png",
+      "status": "imported"
+    },
+    {
+      "taskId": "bolt2-p0-collab-share-invite-email-verify",
+      "label": "UI reference image 03",
+      "expectedFileName": "bolt2-p0-collab-share-invite-email-verify__ui-reference-03.png",
+      "relativePath": "bolt.work/task-assets/bolt2-p0-collab-share-invite-email-verify/bolt2-p0-collab-share-invite-email-verify__ui-reference-03.png",
+      "status": "imported"
+    }
+  ]
+}

@@ -5,14 +5,14 @@ const {
   listCollabProjectMembersMock,
   listCollabProjectsForUserMock,
   createCollabProjectMock,
-  findUserByUsernameMock,
+  findUserByEmailMock,
   addCollabProjectMemberMock,
 } = vi.hoisted(() => ({
   getCurrentUserFromRequestMock: vi.fn(),
   listCollabProjectMembersMock: vi.fn(),
   listCollabProjectsForUserMock: vi.fn(),
   createCollabProjectMock: vi.fn(),
-  findUserByUsernameMock: vi.fn(),
+  findUserByEmailMock: vi.fn(),
   addCollabProjectMemberMock: vi.fn(),
 }));
 
@@ -24,7 +24,7 @@ vi.mock('~/lib/.server/persistence', () => ({
   listCollabProjectMembers: listCollabProjectMembersMock,
   listCollabProjectsForUser: listCollabProjectsForUserMock,
   createCollabProject: createCollabProjectMock,
-  findUserByUsername: findUserByUsernameMock,
+  findUserByEmail: findUserByEmailMock,
   addCollabProjectMember: addCollabProjectMemberMock,
 }));
 
@@ -69,17 +69,19 @@ describe('/api/collab/projects', () => {
   });
 
   it('action share returns 404 when target user not found', async () => {
-    findUserByUsernameMock.mockResolvedValue(null);
+    findUserByEmailMock.mockResolvedValue(null);
 
     const response = await action({
       request: new Request('http://localhost/api/collab/projects', {
         method: 'POST',
-        body: JSON.stringify({ intent: 'share', projectId: 'p1', username: 'ghost' }),
+        body: JSON.stringify({ intent: 'share', projectId: 'p1', email: 'ghost@example.com' }),
         headers: { 'Content-Type': 'application/json' },
       }),
       context: {},
     } as any);
 
     expect(response.status).toBe(404);
+    const data = await response.json();
+    expect(data.error).toContain('not registered');
   });
 });

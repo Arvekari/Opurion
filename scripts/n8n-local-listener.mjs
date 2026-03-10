@@ -83,6 +83,9 @@ function loadConfig() {
       inactivitySeconds: 300,
       checkIntervalSeconds: 20,
       promptCooldownSeconds: 120,
+      emitFromWatchdog: false,
+      emitFromCallbacks: true,
+      minCommandIntervalSeconds: 180,
       continueCommand: 'pnpm run ongoing:auto:continue',
       restartCommand: 'pnpm run ongoing:cycle -- scan',
     },
@@ -841,7 +844,25 @@ async function main() {
     active: false,
     lastPromptedAt: '',
     lastPromptReason: '',
+    lastCommandAt: '',
+    lastCommand: '',
+    lastCommandTaskId: '',
+    emittedCommandKeys: new Set(),
   };
+
+  function clearEmittedCommandKeysForTask(taskId) {
+    const normalizedTaskId = String(taskId || '').trim();
+
+    if (!normalizedTaskId) {
+      return;
+    }
+
+    for (const key of feedbackState.emittedCommandKeys) {
+      if (key.endsWith(`|${normalizedTaskId}`)) {
+        feedbackState.emittedCommandKeys.delete(key);
+      }
+    }
+  }
 
   function writeFeedbackWatchdogState(extra = {}) {
     writeJsonFile(feedbackWatchdogLatestPath, {
@@ -881,6 +902,7 @@ async function main() {
     } else if (status) {
       if (['done', 'completed', 'success', 'closed', 'cancelled', 'failed'].includes(status)) {
         feedbackState.active = false;
+        clearEmittedCommandKeysForTask(taskId || feedbackState.lastTaskId);
       } else if (['partial', 'in_progress', 'queued', 'running', 'accepted'].includes(status)) {
         feedbackState.active = true;
       }
@@ -893,6 +915,72 @@ async function main() {
       endpoint: envelope?.endpoint || '',
       status,
     });
+  }
+
+  function shouldEmitFeedbackCommand(commandInfo, payload = {}, source = 'callback') {
+    if (!commandInfo?.shouldEmit) {
+      return {
+        shouldEmit: false,
+        reason: 'no-feedback-signal',
+      };
+    }
+
+    if (source === 'watchdog' && !config.feedbackLoop?.emitFromWatchdog) {
+      return {
+        shouldEmit: false,
+        reason: 'watchdog-emission-disabled',
+      };
+    }
+
+    if (source !== 'watchdog' && config.feedbackLoop?.emitFromCallbacks === false) {
+      return {
+        shouldEmit: false,
+        reason: 'callback-emission-disabled',
+      };
+    }
+
+    const nowMs = Date.now();
+    const minIntervalSeconds = Math.max(1, Number(config.feedbackLoop?.minCommandIntervalSeconds || 180));
+
+    if (feedbackState.lastCommandAt) {
+      const lastMs = Date.parse(feedbackState.lastCommandAt);
+
+      if (Number.isFinite(lastMs) && (nowMs - lastMs) / 1000 < minIntervalSeconds) {
+        return {
+          shouldEmit: false,
+          reason: 'command-min-interval',
+        };
+      }
+    }
+
+    const normalized = normalizeCallbackPayload(payload);
+    const taskId = String(normalized.taskId || feedbackState.lastTaskId || 'no-task').trim() || 'no-task';
+    const command = String(commandInfo.command || '').trim();
+    const emissionKey = `${command}|${taskId}`;
+
+    if (feedbackState.emittedCommandKeys.has(emissionKey)) {
+      return {
+        shouldEmit: false,
+        reason: 'duplicate-command-task',
+      };
+    }
+
+    return {
+      shouldEmit: true,
+      reason: '',
+      emissionKey,
+      taskId,
+    };
+  }
+
+  function markFeedbackCommandEmitted(command, taskId, emissionKey) {
+    feedbackState.lastCommandAt = nowIso();
+    feedbackState.lastCommand = String(command || '').trim();
+    feedbackState.lastCommandTaskId = String(taskId || '').trim();
+
+    if (emissionKey) {
+      feedbackState.emittedCommandKeys.add(emissionKey);
+    }
   }
 
   function tryEmitWatchdogContinueCommand() {
@@ -941,17 +1029,31 @@ async function main() {
       },
     };
 
+    const watchdogCommandInfo = {
+      shouldEmit: true,
+      command: String(config.feedbackLoop.continueCommand || 'pnpm run ongoing:auto:continue').trim(),
+      reason: 'watchdog-inactivity-timeout',
+    };
+    const watchdogDecision = shouldEmitFeedbackCommand(watchdogCommandInfo, watchdogEnvelope.payload, 'watchdog');
+
+    if (!watchdogDecision.shouldEmit) {
+      writeFeedbackWatchdogState({
+        source: 'watchdog',
+        silentForSeconds: Math.round(silentForSeconds),
+        inactivityThresholdSeconds: inactivitySeconds,
+        skippedReason: watchdogDecision.reason,
+      });
+      return;
+    }
+
     const feedbackCommand = persistFeedbackCommandArtifacts({
       envelope: watchdogEnvelope,
-      commandInfo: {
-        shouldEmit: true,
-        command: String(config.feedbackLoop.continueCommand || 'pnpm run ongoing:auto:continue').trim(),
-        reason: 'watchdog-inactivity-timeout',
-      },
+      commandInfo: watchdogCommandInfo,
       latestPath: feedbackLoopCommandLatestPath,
       markdownPath: feedbackLoopCommandMarkdownPath,
       historyDir: feedbackLoopCommandHistoryDir,
     });
+    markFeedbackCommandEmitted(feedbackCommand.command, watchdogDecision.taskId, watchdogDecision.emissionKey);
 
     feedbackState.lastPromptedAt = nowIso();
     feedbackState.lastPromptReason = feedbackCommand.reason;
@@ -1087,7 +1189,9 @@ async function main() {
           restartCommand: config.feedbackLoop?.restartCommand,
         });
 
-        if (feedbackCommandInfo.shouldEmit) {
+        const feedbackDecision = shouldEmitFeedbackCommand(feedbackCommandInfo, body || {}, 'publish-status');
+
+        if (feedbackDecision.shouldEmit) {
           feedbackCommand = persistFeedbackCommandArtifacts({
             envelope,
             commandInfo: feedbackCommandInfo,
@@ -1095,6 +1199,7 @@ async function main() {
             markdownPath: feedbackLoopCommandMarkdownPath,
             historyDir: feedbackLoopCommandHistoryDir,
           });
+          markFeedbackCommandEmitted(feedbackCommand.command, feedbackDecision.taskId, feedbackDecision.emissionKey);
         }
 
         sendJson(res, 202, {
@@ -1134,7 +1239,9 @@ async function main() {
         restartCommand: config.feedbackLoop?.restartCommand,
       });
 
-      if (feedbackCommandInfo.shouldEmit) {
+      const feedbackDecision = shouldEmitFeedbackCommand(feedbackCommandInfo, body || {}, 'task-push');
+
+      if (feedbackDecision.shouldEmit) {
         feedbackCommand = persistFeedbackCommandArtifacts({
           envelope,
           commandInfo: feedbackCommandInfo,
@@ -1142,6 +1249,7 @@ async function main() {
           markdownPath: feedbackLoopCommandMarkdownPath,
           historyDir: feedbackLoopCommandHistoryDir,
         });
+        markFeedbackCommandEmitted(feedbackCommand.command, feedbackDecision.taskId, feedbackDecision.emissionKey);
       }
 
       sendJson(res, 202, {

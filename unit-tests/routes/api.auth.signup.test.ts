@@ -9,6 +9,7 @@ vi.mock('~/lib/.server/persistence', () => ({
 vi.mock('~/lib/.server/auth', () => ({
   createAuthCookies: vi.fn(),
   generateSalt: vi.fn(),
+  getSecureCookieDirective: vi.fn(() => ''),
   hashPassword: vi.fn(),
 }));
 
