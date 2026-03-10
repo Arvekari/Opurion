@@ -35,6 +35,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 ### Fixed
 
 - **CRITICAL P0**: Chat LLM response timeout that blocked core functionality. Responses longer than 120 seconds would timeout even with continuous data flow from the model. Now properly handles multi-minute responses by monitoring data arrival rather than absolute elapsed time.
+- Fixed production build guardrail failure in `app/components/editor/codemirror/cm-theme.ts` by replacing unresolved `@uiw/codemirror-theme-vscode` imports with local CodeMirror theme extensions.
 - Comprehensive structure cleanup and validation: full typecheck, lint, and unit-test-changed validation passes; orchestration synchronization ensures all discovered issues tracked as P0 with stable taskId markers; fallback JSON payload tracking for n8n open-tasks pending Data Table row-write restoration.
 - N8N orchestrator diagnostic logging enhanced: error tracking for Data Table row-write failures; root cause identified as SQLITE_FULL (n8n dev instance disk at capacity); n8n disk cleanup completed, fallback JSON export deactivated, native API Data Table writes restored and verified operational.
 

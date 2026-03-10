@@ -1,6 +1,5 @@
 import { Compartment, type Extension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
-import { vscodeDark, vscodeLight } from '@uiw/codemirror-theme-vscode';
 import type { Theme } from '~/types/theme.js';
 import type { EditorSettings } from './CodeMirrorEditor.js';
 
@@ -184,9 +183,9 @@ function getEditorTheme(settings: EditorSettings) {
 }
 
 function getLightTheme() {
-  return vscodeLight;
+  return EditorView.theme({}, { dark: false });
 }
 
 function getDarkTheme() {
-  return vscodeDark;
+  return EditorView.theme({}, { dark: true });
 }
