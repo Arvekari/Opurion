@@ -10,7 +10,8 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Added
 
-- Settings Control Panel UX redesign task (P1): category-grid card layout replacing two-panel architecture; target state shows category sections (General, Preferences, AI, Integrations, Security, System) as clickable cards with icons and description text.
+- Settings Control Panel UX redesign task (P1): category-grid card layout with collapsible left navigation sidebar (expandable to full width with labels + icons, collapses to icon-only compact mode with tooltips). Six category cards: General, Preferences, AI, Integrations, Security, System.
+- Chat window layout review (P2): user reports current chat main window doesn't match design expectations; pending detailed feedback on layout structure, spacing, and visual hierarchy. Also includes collapsible sidebar to icon-only mode matching Settings behavior.
 
 ### Changed
 
