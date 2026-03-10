@@ -13,6 +13,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Settings Control Panel UX redesign task (P1): category-grid card layout with collapsible left navigation sidebar (expandable to full width with labels + icons, collapses to icon-only compact mode with tooltips). Six category cards: General, Preferences, AI, Integrations, Security, System.
 - Chat window layout review (P2): user reports current chat main window doesn't match design expectations; pending detailed feedback on layout structure, spacing, and visual hierarchy. Also includes collapsible sidebar to icon-only mode matching Settings behavior.
 - Runtime parser coverage for build-oriented AI responses in `unit-tests/lib/runtime/runtime.enhanced-message-parser.test.ts`, including automatic `file` and `shell` boltAction interpretation from raw code blocks.
+- Baseline unit test scaffold for CodeMirror theme module in `unit-tests/components/editor/codemirror/cm-theme.test.ts`.
 
 ### Changed
 
