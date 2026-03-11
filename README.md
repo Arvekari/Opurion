@@ -1,6 +1,6 @@
 # bolt2.dyi
 
-bolt2.dyi is a structured and modular fork of the original bolt.diy project.
+bolt2.dyi is a structured and modular fork of the original [bolt.diy](https://github.com/stackblitz-labs/bolt.diy) project.
 
 This fork preserves the familiar user experience while refactoring the internal architecture into a clean, layered, and extensible AI platform model.
 
