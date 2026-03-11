@@ -18,7 +18,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Fixed
 
-- None.
+- Docker production build now resolves `platform/security/authz.ts`, `platform/security/jwt.ts`, and `platform/users/service.ts` correctly: missing platform source files were committed and platform app-wrapper re-exports were changed from wildcard `export *` to explicit named exports to fix Rollup production bundling.
 
 ---
 
