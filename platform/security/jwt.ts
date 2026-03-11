@@ -1,6 +1,8 @@
+import type { PlatformRole } from './authz';
+
 type JwtPayload = {
   sub: string;
-  role: 'admin' | 'user';
+  role: PlatformRole;
   iat: number;
   exp: number;
 };
@@ -44,7 +46,7 @@ async function sign(content: string, secret: string): Promise<string> {
 }
 
 export async function issueJwtToken(
-  input: { sub: string; role: 'admin' | 'user' },
+  input: { sub: string; role: PlatformRole },
   options: { jwtSecret: string; ttlSeconds: number },
 ): Promise<string> {
   const now = Math.floor(Date.now() / 1000);
