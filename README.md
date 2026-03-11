@@ -29,6 +29,12 @@ Design principles:
 - Structured documentation
 - No hidden infrastructure assumptions
 
+<img width="1400" height="883" alt="Bolt2-main" src="https://github.com/user-attachments/assets/6a7e51de-8982-4594-889e-f67d7d4f7317" />
+
+
+<img width="2462" height="1172" alt="image" src="https://github.com/user-attachments/assets/76af0720-a629-4fba-b6ed-86d02c1b7bdf" />
+
+
 ---
 
 ## Architecture Overview
