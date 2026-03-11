@@ -1,1 +1,1 @@
-export * from '../../../platform/security/jwt';
+export { issueJwtToken, verifyJwtToken } from '../../../platform/security/jwt';

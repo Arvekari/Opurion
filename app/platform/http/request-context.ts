@@ -1,1 +1,1 @@
-export * from '../../../platform/http/request-context';
+export { getRequestId, getClientIp, logApiRequest } from '../../../platform/http/request-context';

@@ -1,1 +1,1 @@
-export * from '../../../platform/security/request-guard';
+export { enforceRateLimit } from '../../../platform/security/request-guard';
