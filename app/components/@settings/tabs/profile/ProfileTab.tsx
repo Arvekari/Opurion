@@ -11,7 +11,7 @@ export default function ProfileTab() {
 
   // Create debounced update functions
   const debouncedUpdate = useCallback(
-    debounce((field: 'username' | 'bio', value: string) => {
+    debounce((field: 'username' | 'name' | 'bio', value: string) => {
       updateProfile({ [field]: value });
       toast.success(`${field.charAt(0).toUpperCase() + field.slice(1)} updated`);
     }, 1000),
@@ -51,7 +51,7 @@ export default function ProfileTab() {
     }
   };
 
-  const handleProfileUpdate = (field: 'username' | 'bio', value: string) => {
+  const handleProfileUpdate = (field: 'username' | 'name' | 'bio', value: string) => {
     // Update the store immediately for UI responsiveness
     updateProfile({ [field]: value });
 
@@ -145,6 +145,31 @@ export default function ProfileTab() {
                   'transition-all duration-300 ease-out',
                 )}
                 placeholder="Enter your username"
+              />
+            </div>
+          </div>
+
+          {/* Display Name Input */}
+          <div className="mb-6">
+            <label className="block text-sm font-medium text-gray-900 dark:text-gray-100 mb-2">Display Name (Optional)</label>
+            <div className="relative group">
+              <div className="absolute left-3.5 top-1/2 -translate-y-1/2">
+                <div className="i-ph:user-fill w-5 h-5 text-gray-400 dark:text-gray-500 transition-colors group-focus-within:text-purple-500" />
+              </div>
+              <input
+                type="text"
+                value={profile.name || ''}
+                onChange={(e) => handleProfileUpdate('name', e.target.value)}
+                className={classNames(
+                  'w-full pl-11 pr-4 py-2.5 rounded-xl',
+                  'bg-white dark:bg-gray-800/50',
+                  'border border-gray-200 dark:border-gray-700/50',
+                  'text-gray-900 dark:text-white',
+                  'placeholder-gray-400 dark:placeholder-gray-500',
+                  'focus:outline-none focus:ring-2 focus:ring-purple-500/50 focus:border-purple-500/50',
+                  'transition-all duration-300 ease-out',
+                )}
+                placeholder="Enter your display name (used for profile initials)"
               />
             </div>
           </div>

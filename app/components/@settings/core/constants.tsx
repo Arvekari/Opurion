@@ -1,5 +1,5 @@
 import type { TabType } from './types';
-import { User, Settings, Bell, Star, Database, Cloud, Laptop, Github, Wrench, List } from 'lucide-react';
+import { User, Users, Settings, Bell, Star, Database, Cloud, Laptop, Github, Wrench, List } from 'lucide-react';
 
 // GitLab icon component
 const GitLabIcon = () => (
@@ -40,6 +40,7 @@ const SupabaseIcon = () => (
 
 export const TAB_ICONS: Record<TabType, React.ComponentType<{ className?: string }>> = {
   profile: User,
+  'user-management': Users,
   settings: Settings,
   notifications: Bell,
   features: Star,
@@ -53,10 +54,15 @@ export const TAB_ICONS: Record<TabType, React.ComponentType<{ className?: string
   supabase: () => <SupabaseIcon />,
   'event-logs': List,
   mcp: Wrench,
+  n8n: Wrench,
+  openclaw: Wrench,
+  'http-deploy': Wrench,
+  'system-prompt': Wrench,
 };
 
 export const TAB_LABELS: Record<TabType, string> = {
   profile: 'Profile',
+  'user-management': 'User Management',
   settings: 'Settings',
   notifications: 'Notifications',
   features: 'Features',
@@ -70,10 +76,15 @@ export const TAB_LABELS: Record<TabType, string> = {
   supabase: 'Supabase',
   'event-logs': 'Event Logs',
   mcp: 'MCP Servers',
+  n8n: 'n8n',
+  openclaw: 'OpenClaw',
+  'http-deploy': 'HTTP Deploy',
+  'system-prompt': 'System Prompt',
 };
 
 export const TAB_DESCRIPTIONS: Record<TabType, string> = {
   profile: 'Manage your profile and account settings',
+  'user-management': 'Create, edit, delete, and secure user accounts',
   settings: 'Configure application preferences',
   notifications: 'View and manage your notifications',
   features: 'Explore new and upcoming features',
@@ -87,24 +98,33 @@ export const TAB_DESCRIPTIONS: Record<TabType, string> = {
   supabase: 'Setup Supabase database connection',
   'event-logs': 'View system events and logs',
   mcp: 'Configure MCP (Model Context Protocol) servers',
+  n8n: 'Connect to n8n to trigger and manage workflow automations',
+  openclaw: 'Configure OpenClaw tool bridge and allowed capabilities',
+  'http-deploy': 'Set up Apache + PHP FTP deploy targets for HTTP deployments',
+  'system-prompt': 'Configure the global system prompt and per-session custom instructions',
 };
 
 export const DEFAULT_TAB_CONFIG = [
   // User Window Tabs (Always visible by default)
   { id: 'profile', visible: true, window: 'user' as const, order: 0 },
-  { id: 'settings', visible: true, window: 'user' as const, order: 1 },
-  { id: 'features', visible: true, window: 'user' as const, order: 2 },
-  { id: 'data', visible: true, window: 'user' as const, order: 3 },
-  { id: 'cloud-providers', visible: true, window: 'user' as const, order: 4 },
-  { id: 'local-providers', visible: true, window: 'user' as const, order: 5 },
-  { id: 'github', visible: true, window: 'user' as const, order: 6 },
-  { id: 'gitlab', visible: true, window: 'user' as const, order: 7 },
-  { id: 'netlify', visible: true, window: 'user' as const, order: 8 },
-  { id: 'vercel', visible: true, window: 'user' as const, order: 9 },
-  { id: 'supabase', visible: true, window: 'user' as const, order: 10 },
-  { id: 'notifications', visible: true, window: 'user' as const, order: 11 },
-  { id: 'event-logs', visible: true, window: 'user' as const, order: 12 },
-  { id: 'mcp', visible: true, window: 'user' as const, order: 13 },
+  { id: 'user-management', visible: true, window: 'user' as const, order: 1 },
+  { id: 'settings', visible: true, window: 'user' as const, order: 2 },
+  { id: 'features', visible: true, window: 'user' as const, order: 3 },
+  { id: 'data', visible: true, window: 'user' as const, order: 4 },
+  { id: 'cloud-providers', visible: true, window: 'user' as const, order: 5 },
+  { id: 'local-providers', visible: true, window: 'user' as const, order: 6 },
+  { id: 'github', visible: true, window: 'user' as const, order: 7 },
+  { id: 'gitlab', visible: true, window: 'user' as const, order: 8 },
+  { id: 'netlify', visible: true, window: 'user' as const, order: 9 },
+  { id: 'vercel', visible: true, window: 'user' as const, order: 10 },
+  { id: 'supabase', visible: true, window: 'user' as const, order: 11 },
+  { id: 'notifications', visible: true, window: 'user' as const, order: 12 },
+  { id: 'event-logs', visible: true, window: 'user' as const, order: 13 },
+  { id: 'mcp', visible: true, window: 'user' as const, order: 14 },
+  { id: 'n8n', visible: true, window: 'user' as const, order: 15 },
+  { id: 'openclaw', visible: true, window: 'user' as const, order: 16 },
+  { id: 'http-deploy', visible: true, window: 'user' as const, order: 17 },
+  { id: 'system-prompt', visible: true, window: 'user' as const, order: 18 },
 
   // User Window Tabs (In dropdown, initially hidden)
 ];

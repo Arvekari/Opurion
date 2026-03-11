@@ -27,10 +27,17 @@ import NetlifyTab from '~/components/@settings/tabs/netlify/NetlifyTab';
 import CloudProvidersTab from '~/components/@settings/tabs/providers/cloud/CloudProvidersTab';
 import LocalProvidersTab from '~/components/@settings/tabs/providers/local/LocalProvidersTab';
 import McpTab from '~/components/@settings/tabs/mcp/McpTab';
+import N8nTab from '~/components/@settings/tabs/n8n/N8nTab';
+import OpenClawTab from '~/components/@settings/tabs/openclaw/OpenClawTab';
+import HttpDeployTab from '~/components/@settings/tabs/http-deploy/HttpDeployTab';
+import SystemPromptTab from '~/components/@settings/tabs/system-prompt/SystemPromptTab';
+import UserManagementTab from '../tabs/users/UserManagementTab';
+import type { PlatformRole } from '~/platform/security/authz';
 
 interface ControlPanelProps {
   open: boolean;
   onClose: () => void;
+  initialTab?: TabType;
 }
 
 type SettingsSection = 'General' | 'Preferences' | 'AI' | 'Integrations' | 'Security' | 'System';
@@ -40,6 +47,7 @@ const SECTION_ORDER: SettingsSection[] = ['General', 'Preferences', 'AI', 'Integ
 
 const TAB_SECTION_MAP: Partial<Record<TabType, SettingsSection>> = {
   profile: 'General',
+  'user-management': 'Security',
   settings: 'General',
   notifications: 'Preferences',
   features: 'Preferences',
@@ -51,8 +59,12 @@ const TAB_SECTION_MAP: Partial<Record<TabType, SettingsSection>> = {
   netlify: 'Integrations',
   vercel: 'Integrations',
   supabase: 'Integrations',
+  n8n: 'Integrations',
+  openclaw: 'Integrations',
+  'http-deploy': 'Integrations',
   data: 'System',
   'event-logs': 'System',
+  'system-prompt': 'System',
 };
 
 const SECTION_META: Record<
@@ -95,12 +107,13 @@ const SECTION_META: Record<
   },
 };
 
-export const ControlPanel = ({ open, onClose }: ControlPanelProps) => {
-  // State - Start with 'profile' as default active tab
-  const [activeTab, setActiveTab] = useState<TabType>('profile');
-  const [viewMode, setViewMode] = useState<SettingsViewMode>('overview');
+export const ControlPanel = ({ open, onClose, initialTab = 'profile' }: ControlPanelProps) => {
+  // State - Start with initialTab or 'profile' as default active tab
+  const [activeTab, setActiveTab] = useState<TabType>(initialTab);
+  const [viewMode, setViewMode] = useState<SettingsViewMode>('detail');
   const [loadingTab, setLoadingTab] = useState<TabType | null>(null);
   const [navCollapsed, setNavCollapsed] = useState(false);
+  const [currentRole, setCurrentRole] = useState<PlatformRole>('user');
 
   // Store values
   const tabConfiguration = useStore(tabConfigurationStore);
@@ -140,7 +153,39 @@ export const ControlPanel = ({ open, onClose }: ControlPanelProps) => {
         label: TAB_LABELS[tab.id as TabType] || tab.id,
       }))
       .sort((a, b) => a.order - b.order);
-  }, [tabConfiguration, profile?.preferences?.notifications]);
+  }, [currentRole, tabConfiguration, profile?.preferences?.notifications]);
+
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+
+    let cancelled = false;
+
+    const loadSessionRole = async () => {
+      try {
+        const response = await fetch('/api/auth/session');
+        const data = (await response.json()) as {
+          authenticated?: boolean;
+          user?: { role?: PlatformRole } | null;
+        };
+
+        if (!cancelled) {
+          setCurrentRole(data.authenticated ? data.user?.role || 'user' : 'user');
+        }
+      } catch {
+        if (!cancelled) {
+          setCurrentRole('user');
+        }
+      }
+    };
+
+    void loadSessionRole();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open]);
 
   const sectionedTabs = useMemo(() => {
     const buckets = SECTION_ORDER.reduce(
@@ -163,13 +208,13 @@ export const ControlPanel = ({ open, onClose }: ControlPanelProps) => {
   // Reset to default view when modal opens
   useEffect(() => {
     if (open) {
-      // When opening, show category-grid first and select profile as fallback detail tab.
-      setActiveTab('profile');
-      setViewMode('overview');
+      // When opening, use initialTab or fall back to profile
+      setActiveTab(initialTab || 'profile');
+      setViewMode('detail');
       setLoadingTab(null);
       setNavCollapsed(false);
     }
-  }, [open]);
+  }, [open, initialTab]);
 
   const firstTabBySection = useMemo(() => {
     const result: Partial<Record<SettingsSection, TabType>> = {};
@@ -213,6 +258,8 @@ export const ControlPanel = ({ open, onClose }: ControlPanelProps) => {
     switch (tabId) {
       case 'profile':
         return <ProfileTab />;
+      case 'user-management':
+        return <UserManagementTab />;
       case 'settings':
         return <SettingsTab />;
       case 'notifications':
@@ -239,6 +286,14 @@ export const ControlPanel = ({ open, onClose }: ControlPanelProps) => {
         return <EventLogsTab />;
       case 'mcp':
         return <McpTab />;
+      case 'n8n':
+        return <N8nTab />;
+      case 'openclaw':
+        return <OpenClawTab />;
+      case 'http-deploy':
+        return <HttpDeployTab />;
+      case 'system-prompt':
+        return <SystemPromptTab />;
 
       default:
         return null;
@@ -301,7 +356,7 @@ export const ControlPanel = ({ open, onClose }: ControlPanelProps) => {
   return (
     <>
       {/* Full-screen Settings Workspace */}
-      <div className={classNames('fixed inset-0 z-[101] animate-in fade-in duration-200')}>
+      <div className={classNames('absolute inset-0 z-[101] animate-in fade-in duration-200')}>
         <div
           className={classNames(
             'w-full h-full',

@@ -24,6 +24,10 @@ export function SupabaseConnection() {
     fetchProjectApiKeys,
   } = useSupabaseConnection();
 
+  if (!supabaseConn.enabled) {
+    return null;
+  }
+
   const currentChatId = useStore(chatId);
 
   useEffect(() => {

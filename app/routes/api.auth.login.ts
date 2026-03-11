@@ -3,6 +3,7 @@ import { createAuthCookies, hashPassword } from '~/lib/.server/auth';
 import { findUserByUsername } from '~/lib/.server/persistence';
 import { enforceRateLimit } from '~/platform/security/request-guard';
 import { issueJwtToken } from '~/platform/security/jwt';
+import { normalizePlatformRole } from '~/platform/security/authz';
 
 export async function action({ request, context }: ActionFunctionArgs) {
   const { requestId, blockedResponse } = enforceRateLimit({ request, context } as ActionFunctionArgs, 'api.auth.login');
@@ -37,11 +38,12 @@ export async function action({ request, context }: ActionFunctionArgs) {
     const cookies = await createAuthCookies(user.id, env);
     const headers = new Headers();
     cookies.forEach((cookie) => headers.append('Set-Cookie', cookie));
+    const normalizedRole = normalizePlatformRole(user.role, user.isAdmin);
 
     const jwtSecret = (env?.BOLT_JWT_SECRET || 'bolt-default-jwt-secret') as string;
     const jwt = await issueJwtToken(
-      { sub: user.id, role: user.isAdmin ? 'admin' : 'user' },
-      { jwtSecret, ttlSeconds: 60 * 60 * 24 * 14 },
+      { sub: user.id, role: normalizedRole },
+      { jwtSecret, ttlSeconds: 60 * 60 * 24 * 2 },
     );
     const secureCookieDirective =
       String(env?.BOLT_COOKIE_SECURE || '').toLowerCase() === 'true' ||
@@ -52,13 +54,22 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
     headers.append(
       'Set-Cookie',
-      `bolt_jwt=${encodeURIComponent(jwt)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=1209600${secureCookieDirective}`,
+      `bolt_jwt=${encodeURIComponent(jwt)}; Path=/; HttpOnly; SameSite=Lax${secureCookieDirective}`,
     );
 
     headers.set('x-request-id', requestId);
 
     return json(
-      { ok: true, requestId, user: { id: user.id, username: user.username, isAdmin: user.isAdmin } },
+      {
+        ok: true,
+        requestId,
+        user: {
+          id: user.id,
+          username: user.username,
+          isAdmin: user.isAdmin,
+          role: normalizedRole,
+        },
+      },
       { headers },
     );
   } catch {

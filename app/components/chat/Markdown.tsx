@@ -9,6 +9,7 @@ import type { Message } from 'ai';
 import styles from './Markdown.module.scss';
 import ThoughtBox from './ThoughtBox';
 import type { ProviderInfo } from '~/types/model';
+import { stripExecutableMarkup } from '~/lib/chat/executableMarkup';
 
 const logger = createScopedLogger('MarkdownComponent');
 
@@ -24,7 +25,7 @@ interface MarkdownProps {
 }
 
 export const Markdown = memo(
-  ({ children, html = false, limitedMarkdown = false, append, setChatMode, model, provider }: MarkdownProps) => {
+  ({ children, html = false, limitedMarkdown = false, append, chatMode, setChatMode, model, provider }: MarkdownProps) => {
     logger.trace('Render');
 
     const components = useMemo(() => {
@@ -33,6 +34,10 @@ export const Markdown = memo(
           const dataProps = node?.properties as Record<string, unknown>;
 
           if (className?.includes('__boltArtifact__')) {
+            if (chatMode === 'discuss') {
+              return null;
+            }
+
             const messageId = node?.properties.dataMessageId as string;
             const artifactId = node?.properties.dataArtifactId as string;
 
@@ -191,7 +196,13 @@ export const Markdown = memo(
           return <button {...props}>{children}</button>;
         },
       } satisfies Components;
-    }, []);
+    }, [append, chatMode, model, provider, setChatMode]);
+
+    const renderedContent = useMemo(() => {
+      const normalizedContent = stripCodeFenceFromArtifact(children);
+
+      return chatMode === 'discuss' ? stripExecutableMarkup(normalizedContent) : normalizedContent;
+    }, [children, chatMode]);
 
     return (
       <ReactMarkdown
@@ -201,7 +212,7 @@ export const Markdown = memo(
         remarkPlugins={remarkPlugins(limitedMarkdown)}
         rehypePlugins={rehypePlugins(html)}
       >
-        {stripCodeFenceFromArtifact(children)}
+        {renderedContent}
       </ReactMarkdown>
     );
   },

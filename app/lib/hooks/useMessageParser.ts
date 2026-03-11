@@ -1,64 +1,98 @@
 import type { Message } from 'ai';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { EnhancedStreamingMessageParser } from '~/lib/runtime/enhanced-message-parser';
+import { stripExecutableMarkup } from '~/lib/chat/executableMarkup';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { createScopedLogger } from '~/utils/logger';
 
 const logger = createScopedLogger('useMessageParser');
+const extractTextContent = (message: Message): string => {
+  if (Array.isArray(message.content)) {
+    return (message.content.find((item: any) => item.type === 'text')?.text as string) || '';
+  }
 
-const messageParser = new EnhancedStreamingMessageParser({
-  callbacks: {
-    onArtifactOpen: (data) => {
-      logger.trace('onArtifactOpen', data);
+  if (message.content) {
+    return message.content;
+  }
 
-      workbenchStore.showWorkbench.set(true);
-      workbenchStore.addArtifact(data);
-    },
-    onArtifactClose: (data) => {
-      logger.trace('onArtifactClose');
+  // v3 UIMessage: text lives in parts, not content
+  const parts = (message as any).parts;
 
-      workbenchStore.updateArtifact(data, { closed: true });
-    },
-    onActionOpen: (data) => {
-      logger.trace('onActionOpen', data.action);
+  if (Array.isArray(parts)) {
+    return parts
+      .filter((p: any) => p.type === 'text')
+      .map((p: any) => p.text ?? '')
+      .join('');
+  }
 
-      /*
-       * File actions are streamed, so we add them immediately to show progress
-       * Shell actions are complete when created by enhanced parser, so we wait for close
-       */
-      if (data.action.type === 'file') {
-        workbenchStore.addAction(data);
-      }
-    },
-    onActionClose: (data) => {
-      logger.trace('onActionClose', data.action);
-
-      /*
-       * Add non-file actions (shell, build, start, etc.) when they close
-       * Enhanced parser creates complete shell actions, so they're ready to execute
-       */
-      if (data.action.type !== 'file') {
-        workbenchStore.addAction(data);
-      }
-
-      workbenchStore.runAction(data);
-    },
-    onActionStream: (data) => {
-      logger.trace('onActionStream', data.action);
-      workbenchStore.runAction(data, true);
-    },
-  },
-});
-const extractTextContent = (message: Message) =>
-  Array.isArray(message.content)
-    ? (message.content.find((item: any) => item.type === 'text')?.text as string) || ''
-    : message.content;
+  return '';
+};
 
 export function useMessageParser() {
   const [parsedMessages, setParsedMessages] = useState<{ [key: number]: string }>({});
+  const chatModeRef = useRef<'discuss' | 'build'>('build');
+  const messageParserRef = useRef<EnhancedStreamingMessageParser>();
 
-  const parseMessages = useCallback((messages: Message[], isLoading: boolean) => {
+  if (!messageParserRef.current) {
+    messageParserRef.current = new EnhancedStreamingMessageParser({
+      callbacks: {
+        onArtifactOpen: (data) => {
+          if (chatModeRef.current === 'discuss') {
+            return;
+          }
+
+          logger.trace('onArtifactOpen', data);
+          workbenchStore.showWorkbench.set(true);
+          workbenchStore.addArtifact(data);
+        },
+        onArtifactClose: (data) => {
+          if (chatModeRef.current === 'discuss') {
+            return;
+          }
+
+          logger.trace('onArtifactClose');
+          workbenchStore.updateArtifact(data, { closed: true });
+        },
+        onActionOpen: (data) => {
+          if (chatModeRef.current === 'discuss') {
+            return;
+          }
+
+          logger.trace('onActionOpen', data.action);
+
+          if (data.action.type === 'file') {
+            workbenchStore.addAction(data);
+          }
+        },
+        onActionClose: (data) => {
+          if (chatModeRef.current === 'discuss') {
+            return;
+          }
+
+          logger.trace('onActionClose', data.action);
+
+          if (data.action.type !== 'file') {
+            workbenchStore.addAction(data);
+          }
+
+          workbenchStore.runAction(data);
+        },
+        onActionStream: (data) => {
+          if (chatModeRef.current === 'discuss') {
+            return;
+          }
+
+          logger.trace('onActionStream', data.action);
+          workbenchStore.runAction(data, true);
+        },
+      },
+    });
+  }
+
+  const parseMessages = useCallback((messages: Message[], isLoading: boolean, chatMode: 'discuss' | 'build') => {
+    chatModeRef.current = chatMode;
     let reset = false;
+    const messageParser = messageParserRef.current!;
 
     if (import.meta.env.DEV && !isLoading) {
       reset = true;
@@ -67,7 +101,9 @@ export function useMessageParser() {
 
     for (const [index, message] of messages.entries()) {
       if (message.role === 'assistant' || message.role === 'user') {
-        const newParsedContent = messageParser.parse(message.id, extractTextContent(message));
+        const rawContent = extractTextContent(message);
+        const parseableContent = chatMode === 'discuss' ? stripExecutableMarkup(rawContent) : rawContent;
+        const newParsedContent = messageParser.parse(message.id, parseableContent);
         setParsedMessages((prevParsed) => ({
           ...prevParsed,
           [index]: !reset ? (prevParsed[index] || '') + newParsedContent : newParsedContent,

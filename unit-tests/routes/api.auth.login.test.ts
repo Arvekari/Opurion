@@ -112,7 +112,7 @@ describe('/api/auth/login', () => {
     expect(findUserByUsername).toHaveBeenCalledWith('alice', {});
     expect(setCookie).toContain('HttpOnly');
     expect(setCookie).toContain('SameSite=Lax');
-    expect(setCookie).toContain('Max-Age=1209600');
+    expect(setCookie).toContain('bolt_jwt=');
     expect(response.headers.get('x-request-id')).toBe('req-test-id');
   });
 

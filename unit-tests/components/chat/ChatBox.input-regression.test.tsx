@@ -5,6 +5,17 @@ import { fireEvent, render, screen } from '@testing-library/react';
 import { useState } from 'react';
 import { ChatBox } from '../../../app/components/chat/ChatBox';
 
+vi.mock('@nanostores/react', () => ({
+  useStore: (store: any) => (store && typeof store.get === 'function' ? store.get() : store),
+}));
+
+vi.mock('~/lib/stores/workbench', () => ({
+  workbenchStore: {
+    showWorkbench: { get: () => false, subscribe: () => () => {} },
+    setShowWorkbench: vi.fn(),
+  },
+}));
+
 vi.mock('remix-utils/client-only', () => ({
   ClientOnly: ({ children }: any) => (typeof children === 'function' ? children() : children ?? null),
 }));
@@ -149,9 +160,34 @@ describe('chat input regression guard', () => {
     render(<Wrapper />);
 
     const textarea = screen.getByRole('textbox');
+    fireEvent.change(textarea, { target: { value: 'hello from enter' } });
     fireEvent.keyDown(textarea, { key: 'Enter', code: 'Enter' });
 
     expect(handleSendMessage).toHaveBeenCalledTimes(1);
+    expect(handleSendMessage).toHaveBeenCalledWith(expect.anything(), 'hello from enter');
+  });
+
+  it('sends the live textarea value on click even when prop input is stale', () => {
+    const handleSendMessage = vi.fn();
+    const textareaRef = { current: null as HTMLTextAreaElement | null };
+
+    render(
+      <ChatBox
+        {...buildBaseProps({
+          input: '',
+          textareaRef,
+          handleSendMessage,
+        })}
+      />,
+    );
+
+    const textarea = screen.getByRole('textbox') as HTMLTextAreaElement;
+    textarea.value = 'typed directly in textarea';
+
+    fireEvent.click(screen.getByLabelText('send'));
+
+    expect(handleSendMessage).toHaveBeenCalledTimes(1);
+    expect(handleSendMessage).toHaveBeenCalledWith(expect.anything(), 'typed directly in textarea');
   });
 
   it('supports mid-text insertion without losing edit flow', () => {

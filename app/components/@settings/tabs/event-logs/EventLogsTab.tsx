@@ -277,9 +277,11 @@ export function EventLogsTab() {
     const allLogs = Object.values(logs);
 
     if (selectedLevel === 'all') {
-      return allLogs.filter((log) =>
+      return allLogs
+        .filter((log) =>
         searchQuery ? log.message.toLowerCase().includes(searchQuery.toLowerCase()) : true,
-      );
+        )
+        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
     }
 
     return allLogs.filter((log) => {
@@ -287,7 +289,7 @@ export function EventLogsTab() {
       const matchesSearch = searchQuery ? log.message.toLowerCase().includes(searchQuery.toLowerCase()) : true;
 
       return matchesType && matchesSearch;
-    });
+     }).sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   }, [logs, selectedLevel, searchQuery]);
 
   // Add performance tracking on mount

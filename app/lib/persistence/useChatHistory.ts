@@ -17,6 +17,7 @@ import {
   setSnapshot,
   type IChatMetadata,
 } from './db';
+import { deriveChatTitleFromMessages } from './chatTitle';
 import type { FileMap } from '~/lib/stores/files';
 import type { Snapshot } from './types';
 import { webcontainer } from '~/lib/webcontainer';
@@ -307,8 +308,12 @@ ${value.content}
 
       takeSnapshot(messages[messages.length - 1].id, workbenchStore.files.get(), _urlId, chatSummary);
 
-      if (!description.get() && firstArtifact?.title) {
-        description.set(firstArtifact?.title);
+      if (!description.get()) {
+        const derivedTitle = deriveChatTitleFromMessages(messages, firstArtifact?.title);
+
+        if (derivedTitle) {
+          description.set(derivedTitle);
+        }
       }
 
       // Ensure chatId.get() is used here as well

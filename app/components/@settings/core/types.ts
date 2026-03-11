@@ -5,6 +5,7 @@ export type SettingCategory = 'profile' | 'file_sharing' | 'connectivity' | 'sys
 
 export type TabType =
   | 'profile'
+  | 'user-management'
   | 'settings'
   | 'notifications'
   | 'features'
@@ -17,7 +18,11 @@ export type TabType =
   | 'vercel'
   | 'supabase'
   | 'event-logs'
-  | 'mcp';
+  | 'mcp'
+  | 'n8n'
+  | 'openclaw'
+  | 'http-deploy'
+  | 'system-prompt';
 
 export type WindowType = 'user' | 'developer';
 
@@ -68,6 +73,7 @@ export interface TabWindowConfig {
 
 export const TAB_LABELS: Record<TabType, string> = {
   profile: 'Profile',
+  'user-management': 'User Management',
   settings: 'Settings',
   notifications: 'Notifications',
   features: 'Features',
@@ -81,6 +87,10 @@ export const TAB_LABELS: Record<TabType, string> = {
   supabase: 'Supabase',
   'event-logs': 'Event Logs',
   mcp: 'MCP Servers',
+  n8n: 'n8n',
+  openclaw: 'OpenClaw',
+  'http-deploy': 'HTTP Deploy',
+  'system-prompt': 'System Prompt',
 };
 
 export const categoryLabels: Record<SettingCategory, string> = {

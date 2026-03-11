@@ -24,6 +24,7 @@ type SessionResponse = {
     id: string;
     username: string;
     isAdmin: boolean;
+    role: 'global_admin' | 'developer_admin' | 'user';
   } | null;
 };
 
@@ -210,13 +211,21 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
         {!session?.requireSignup && (
           <div className="flex gap-2 text-xs">
             <button
-              className={`px-2 py-1 rounded ${!isSignupMode ? 'bg-purple-500/20 text-purple-500' : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary'}`}
+              className={`px-3 py-1.5 rounded-md border transition-colors ${
+                !isSignupMode
+                  ? 'border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                  : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary'
+              }`}
               onClick={() => setIsSignupMode(false)}
             >
               Sign in
             </button>
             <button
-              className={`px-2 py-1 rounded ${isSignupMode ? 'bg-purple-500/20 text-purple-500' : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary'}`}
+              className={`px-3 py-1.5 rounded-md border transition-colors ${
+                isSignupMode
+                  ? 'border-amber-500/40 bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                  : 'border-bolt-elements-borderColor bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary'
+              }`}
               onClick={() => setIsSignupMode(true)}
             >
               Create account
@@ -224,29 +233,37 @@ export function AuthGate({ children }: { children: React.ReactNode }) {
           </div>
         )}
 
-        <input
-          value={username}
-          onChange={(e) => setUsername(e.target.value)}
-          placeholder="Username"
-          className="w-full p-2 rounded bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor text-bolt-elements-textPrimary"
-        />
-        <input
-          value={password}
-          onChange={(e) => setPassword(e.target.value)}
-          placeholder="Password"
-          type="password"
-          className="w-full p-2 rounded bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor text-bolt-elements-textPrimary"
-        />
-
-        {error && <div className="text-sm text-red-500">{error}</div>}
-
-        <button
-          onClick={() => void submit()}
-          disabled={submitting}
-          className="w-full p-2 rounded bg-purple-500/20 text-purple-500 hover:bg-purple-500/30 disabled:opacity-60"
+        <form
+          className="w-full flex flex-col gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submit();
+          }}
         >
-          {submitting ? 'Please wait…' : isSignupMode ? 'Create account' : 'Sign in'}
-        </button>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Username"
+            className="w-full p-2 rounded bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor text-bolt-elements-textPrimary"
+          />
+          <input
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            placeholder="Password"
+            type="password"
+            className="w-full p-2 rounded bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor text-bolt-elements-textPrimary"
+          />
+
+          {error && <div className="text-sm text-red-500">{error}</div>}
+
+          <button
+            type="submit"
+            disabled={submitting}
+            className="w-full p-2.5 rounded-md bg-amber-500 text-white font-medium hover:bg-amber-400 disabled:opacity-60 disabled:cursor-not-allowed transition-colors shadow-sm"
+          >
+            {submitting ? 'Please wait…' : isSignupMode ? 'Create account' : 'Log in'}
+          </button>
+        </form>
       </div>
     </div>
   );

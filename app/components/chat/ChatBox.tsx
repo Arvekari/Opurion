@@ -16,6 +16,7 @@ import type { DesignScheme } from '~/types/design-scheme';
 import type { ElementInfo } from '~/components/workbench/Inspector';
 import { McpTools } from './MCPTools';
 import { WebSearch } from './WebSearch.client';
+import type { SupabaseConnectionState } from '~/lib/stores/supabase';
 
 interface ChatBoxProps {
   provider: any;
@@ -57,13 +58,20 @@ interface ChatBoxProps {
   setDesignScheme?: (scheme: DesignScheme) => void;
   selectedElement?: ElementInfo | null;
   setSelectedElement?: ((element: ElementInfo | null) => void) | undefined;
+  supabaseConnection?: SupabaseConnectionState;
+  constrainToPane?: boolean;
 }
 
 export const ChatBox: React.FC<ChatBoxProps> = (props) => {
+  const liveTextareaValue = props.textareaRef?.current?.value ?? '';
+  const hasMessageDraft = props.input.trim().length > 0 || liveTextareaValue.trim().length > 0;
+  const hasAttachments = props.uploadedFiles.length > 0;
+
   return (
     <div
       className={classNames(
-        'relative bg-bolt-elements-background-depth-2 p-3 rounded-lg border border-bolt-elements-borderColor w-full max-w-chat mx-auto z-prompt',
+        'relative bg-bolt-elements-background-depth-2 p-3 rounded-lg border border-bolt-elements-borderColor w-full mx-auto z-prompt',
+        props.constrainToPane ? 'max-w-none' : 'max-w-chat',
 
         /*
          * {
@@ -71,6 +79,7 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
          * },
          */
       )}
+      style={{ boxSizing: 'border-box' }}
     >
       <FilePreview
         files={props.uploadedFiles}
@@ -112,7 +121,7 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
         <textarea
           ref={props.textareaRef}
           className={classNames(
-            'w-full pl-4 pt-4 pr-16 outline-none resize-none text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary bg-transparent text-sm',
+            'w-full pl-4 pt-4 pr-28 outline-none resize-none text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary bg-transparent text-sm',
             'transition-all duration-200',
             'hover:border-bolt-elements-focus',
           )}
@@ -164,7 +173,8 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
                 return;
               }
 
-              props.handleSendMessage?.(event);
+              const currentValue = (event.currentTarget as HTMLTextAreaElement).value;
+              props.handleSendMessage?.(event, currentValue);
             }
           }}
           value={props.input}
@@ -181,21 +191,66 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
         />
         <ClientOnly>
           {() => (
-            <SendButton
-              show={props.input.length > 0 || props.isStreaming || props.uploadedFiles.length > 0}
-              isStreaming={props.isStreaming}
-              disabled={!props.provider || !props.model}
-              onClick={(event) => {
-                if (props.isStreaming) {
-                  props.handleStop?.();
-                  return;
-                }
-
-                if (props.input.length > 0 || props.uploadedFiles.length > 0) {
-                  props.handleSendMessage?.(event);
-                }
+            <div
+              style={{
+                position: 'absolute',
+                right: '10px',
+                bottom: '10px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'flex-end',
+                gap: '6px',
+                zIndex: 2,
               }}
-            />
+            >
+              {Boolean(
+                props.supabaseConnection?.enabled &&
+                props.supabaseConnection?.token?.trim() &&
+                  props.supabaseConnection?.credentials?.anonKey?.trim() &&
+                  props.supabaseConnection?.credentials?.supabaseUrl?.trim(),
+              ) && (
+                <button
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '4px',
+                    padding: '4px 8px',
+                    borderRadius: '6px',
+                    background: 'var(--bolt-elements-background-depth-1)',
+                    border: '1px solid var(--bolt-elements-borderColor)',
+                    color: 'var(--bolt-elements-textSecondary)',
+                    cursor: 'pointer',
+                    fontSize: '11px',
+                    fontWeight: 500,
+                  }}
+                  title={`Supabase connected${props.supabaseConnection?.project ? ': ' + props.supabaseConnection.project.name : ''}`}
+                >
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M13.776 0.39a.5.5 0 0 0-.552 0L1.224 8.39A.5.5 0 0 0 1.5 9.25h8.75v14a.5.5 0 0 0 .948.224l12-18a.5.5 0 0 0-.448-.724H13.776z" fill="#3ECF8E"/>
+                  </svg>
+                </button>
+              )}
+              <SendButton
+                show={true}
+                isStreaming={props.isStreaming}
+                disabled={Boolean(
+                  !props.isStreaming &&
+                    (!hasMessageDraft && !hasAttachments),
+                )}
+                onClick={(event) => {
+                  if (props.isStreaming) {
+                    props.handleStop?.();
+                    return;
+                  }
+
+                  const currentValue = props.textareaRef?.current?.value ?? props.input;
+
+                  if (currentValue.trim().length > 0 || hasAttachments) {
+                    props.handleSendMessage?.(event, currentValue);
+                  }
+                }}
+              />
+            </div>
           )}
         </ClientOnly>
         <div className="flex justify-between items-center text-sm p-4 pt-2">
@@ -228,29 +283,27 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
               onStop={props.stopListening}
               disabled={props.isStreaming}
             />
-            {props.chatStarted && (
-              <IconButton
-                title="Discuss"
-                className={classNames(
-                  'transition-all flex items-center gap-1 px-1.5',
-                  props.chatMode === 'discuss' ? uiStateClassTokens.toggleActive : uiStateClassTokens.toggleInactive,
-                )}
-                onClick={() => {
-                  props.setChatMode?.(props.chatMode === 'discuss' ? 'build' : 'discuss');
-                }}
-              >
-                <div className={`i-ph:chats text-xl`} />
-                {props.chatMode === 'discuss' ? <span>Discuss</span> : <span />}
-              </IconButton>
-            )}
+            <IconButton
+              title={props.chatMode === 'discuss' ? 'Switch to Build mode' : 'Switch to Discuss mode'}
+              className={classNames(
+                'transition-all flex items-center gap-1 px-1.5',
+                props.chatMode === 'discuss' ? uiStateClassTokens.toggleActive : uiStateClassTokens.toggleInactive,
+              )}
+              onClick={() => {
+                props.setChatMode?.(props.chatMode === 'discuss' ? 'build' : 'discuss');
+              }}
+            >
+              <div className={`i-ph:chats text-xl`} />
+              <span>{props.chatMode === 'discuss' ? 'Discuss' : 'Build'}</span>
+            </IconButton>
           </div>
           {props.input.length > 3 ? (
-            <div className="text-xs text-bolt-elements-textTertiary">
+            <div className="text-xs text-bolt-elements-textTertiary pr-12">
               Use <kbd className="kdb px-1.5 py-0.5 rounded bg-bolt-elements-background-depth-2">Shift</kbd> +{' '}
               <kbd className="kdb px-1.5 py-0.5 rounded bg-bolt-elements-background-depth-2">Return</kbd> a new line
             </div>
           ) : null}
-          <SupabaseConnection />
+          {props.supabaseConnection?.enabled ? <SupabaseConnection /> : null}
           <ExpoQrModal open={props.qrModalOpen} onClose={() => props.setQrModalOpen(false)} />
         </div>
       </div>

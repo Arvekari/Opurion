@@ -14,9 +14,11 @@ create table if not exists app_memory (
 create table if not exists users (
   id text primary key,
   username text unique not null,
+  email text unique,
   password_hash text not null,
   password_salt text not null,
   is_admin boolean not null default false,
+  role text not null default 'user' check (role in ('global_admin', 'developer_admin', 'user')),
   created_at timestamptz not null default now()
 );
 

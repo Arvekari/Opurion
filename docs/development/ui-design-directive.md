@@ -224,11 +224,11 @@ Bolt2 should match the quality characteristics of modern enterprise tools:
 Use the following files as the canonical visual references for where new workspace UI should go and how it should function at a high level:
 
 - `docs/development/index.workspace.html`
-   - Defines the primary workspace shell (sidebar, top bar, content area, section hierarchy).
+  - Defines the primary workspace shell (sidebar, top bar, content area, section hierarchy).
 - `docs/development/settings.workspace.html`
-   - Defines the settings workspace structure and behavior expectations.
+  - Defines the settings workspace structure and behavior expectations.
 - `docs/development/layout.css`
-   - Defines shared tokens, layout primitives, and baseline styling rules.
+  - Defines shared tokens, layout primitives, and baseline styling rules.
 
 Implementation rule:
 

@@ -9,9 +9,18 @@ type ChatData = {
   description?: string; // Optional description
 };
 
-export function ImportButtons(importChat: ((description: string, messages: Message[]) => Promise<void>) | undefined) {
+interface ImportButtonsOptions {
+  compact?: boolean;
+}
+
+export function ImportButtons(
+  importChat: ((description: string, messages: Message[]) => Promise<void>) | undefined,
+  options: ImportButtonsOptions = {},
+) {
+  const compact = options.compact ?? false;
+
   return (
-    <div className="flex flex-col items-center justify-center w-auto">
+    <div className={classNames('flex flex-col items-center justify-center', compact ? 'w-auto min-w-0' : 'w-auto')}>
       <input
         type="file"
         id="chat-import"
@@ -57,8 +66,8 @@ export function ImportButtons(importChat: ((description: string, messages: Messa
           }
         }}
       />
-      <div className="flex flex-col items-center gap-4 max-w-2xl text-center">
-        <div className="flex gap-2">
+      <div className={classNames('flex flex-col items-center text-center', compact ? 'w-auto max-w-none gap-2' : 'gap-4 max-w-2xl')}>
+        <div className={classNames('flex gap-2', compact ? 'w-auto min-w-0' : '')}>
           <Button
             onClick={() => {
               const input = document.getElementById('chat-import');
@@ -71,7 +80,7 @@ export function ImportButtons(importChat: ((description: string, messages: Messa
               'text-bolt-elements-textPrimary',
               'hover:bg-bolt-elements-background-depth-2',
               'border border-bolt-elements-borderColor',
-              'h-10 px-4 py-2 min-w-[120px] justify-center',
+              compact ? 'h-10 px-2 py-2 min-w-0 w-full justify-center text-sm' : 'h-10 px-4 py-2 min-w-[120px] justify-center',
               'transition-all duration-200 ease-in-out',
             )}
           >
@@ -85,7 +94,7 @@ export function ImportButtons(importChat: ((description: string, messages: Messa
               'text-bolt-elements-textPrimary',
               'hover:bg-bolt-elements-background-depth-2',
               'border border-[rgba(0,0,0,0.08)] dark:border-[rgba(255,255,255,0.08)]',
-              'h-10 px-4 py-2 min-w-[120px] justify-center',
+              compact ? 'h-10 px-2 py-2 min-w-0 w-full justify-center text-sm' : 'h-10 px-4 py-2 min-w-[120px] justify-center',
               'transition-all duration-200 ease-in-out rounded-lg',
             )}
           />

@@ -1,6 +1,7 @@
 import type { WebContainer } from '@webcontainer/api';
 import { path as nodePath } from '~/utils/path';
 import { atom, map, type MapStore } from 'nanostores';
+import { logStore } from '~/lib/stores/logs';
 import type { ActionAlert, BoltAction, DeployAlert, FileHistory, SupabaseAction, SupabaseAlert } from '~/types/actions';
 import { createScopedLogger } from '~/utils/logger';
 import { unreachable } from '~/utils/unreachable';
@@ -112,6 +113,14 @@ export class ActionRunner {
       abortSignal: abortController.signal,
     });
 
+    logStore.logUserAction('Action queued', {
+      component: 'ActionRunner',
+      actionId,
+      artifactId: data.artifactId,
+      actionType: data.action.type,
+      filePath: data.action.type === 'file' ? data.action.filePath : undefined,
+    });
+
     this.#currentExecutionPromise.then(() => {
       this.#updateAction(actionId, { status: 'running' });
     });
@@ -152,6 +161,13 @@ export class ActionRunner {
     const action = this.actions.get()[actionId];
 
     this.#updateAction(actionId, { status: 'running' });
+    logStore.logSystem('Action started', {
+      component: 'ActionRunner',
+      actionId,
+      actionType: action.type,
+      isStreaming,
+      status: 'running',
+    });
 
     try {
       switch (action.type) {
@@ -223,12 +239,33 @@ export class ActionRunner {
       this.#updateAction(actionId, {
         status: isStreaming ? 'running' : action.abortSignal.aborted ? 'aborted' : 'complete',
       });
+
+      if (!isStreaming) {
+        logStore.logSystem('Action completed', {
+          component: 'ActionRunner',
+          actionId,
+          actionType: action.type,
+          status: action.abortSignal.aborted ? 'aborted' : 'complete',
+        });
+      }
     } catch (error) {
       if (action.abortSignal.aborted) {
+        logStore.logSystem('Action aborted', {
+          component: 'ActionRunner',
+          actionId,
+          actionType: action.type,
+          status: 'aborted',
+        });
         return;
       }
 
       this.#updateAction(actionId, { status: 'failed', error: 'Action failed' });
+      logStore.logError('Action failed', error, {
+        component: 'ActionRunner',
+        actionId,
+        actionType: action.type,
+        status: 'failed',
+      });
       logger.error(`[${action.type}]:Action failed\n\n`, error);
 
       if (!(error instanceof ActionCommandError)) {

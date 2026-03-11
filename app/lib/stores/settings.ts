@@ -248,10 +248,9 @@ const updateAutoEnabledTracking = (providerName: string, isEnabled: boolean) => 
   }
 };
 
-export const isDebugMode = atom(false);
-
 // Define keys for localStorage
 const SETTINGS_KEYS = {
+  DEBUG_MODE: 'isDebugEnabled',
   LATEST_BRANCH: 'isLatestBranch',
   AUTO_SELECT_TEMPLATE: 'autoSelectTemplate',
   CONTEXT_OPTIMIZATION: 'contextOptimizationEnabled',
@@ -284,6 +283,7 @@ const getInitialSettings = () => {
   };
 
   return {
+    debugMode: getStoredBoolean(SETTINGS_KEYS.DEBUG_MODE, false),
     latestBranch: getStoredBoolean(SETTINGS_KEYS.LATEST_BRANCH, false),
     autoSelectTemplate: getStoredBoolean(SETTINGS_KEYS.AUTO_SELECT_TEMPLATE, true),
     contextOptimization: getStoredBoolean(SETTINGS_KEYS.CONTEXT_OPTIMIZATION, true),
@@ -299,6 +299,7 @@ const getInitialSettings = () => {
 // Initialize stores with persisted values
 const initialSettings = getInitialSettings();
 
+export const isDebugMode = atom<boolean>(initialSettings.debugMode);
 export const latestBranchStore = atom<boolean>(initialSettings.latestBranch);
 export const autoSelectStarterTemplate = atom<boolean>(initialSettings.autoSelectTemplate);
 export const enableContextOptimizationStore = atom<boolean>(initialSettings.contextOptimization);
@@ -315,6 +316,11 @@ export const dbProviderStore = atom<'sqlite' | 'postgres'>(
 export const dbPostgresUrlStore = atom<string>(isBrowser ? localStorage.getItem('dbPostgresUrl') || '' : '');
 
 // Helper functions to update settings with persistence
+export const updateDebugMode = (enabled: boolean) => {
+  isDebugMode.set(enabled);
+  localStorage.setItem(SETTINGS_KEYS.DEBUG_MODE, JSON.stringify(enabled));
+};
+
 export const updateLatestBranch = (enabled: boolean) => {
   latestBranchStore.set(enabled);
   localStorage.setItem(SETTINGS_KEYS.LATEST_BRANCH, JSON.stringify(enabled));

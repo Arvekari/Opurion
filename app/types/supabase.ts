@@ -51,4 +51,5 @@ export interface SupabaseApiKey {
 export interface SupabaseCredentials {
   anonKey?: string;
   supabaseUrl?: string;
+  customEndpoint?: string;
 }

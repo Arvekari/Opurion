@@ -374,7 +374,7 @@ export const Workbench = memo(
     }, []);
 
     return (
-      chatStarted && (
+      (chatStarted || showWorkbench) && (
         <motion.div
           initial="closed"
           animate={showWorkbench ? 'open' : 'closed'}

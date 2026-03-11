@@ -3,12 +3,19 @@ import type { Message } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { useAnimate } from 'framer-motion';
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { BoltChatTransport } from '~/lib/chat/boltChatTransport';
 import { toast } from 'react-toastify';
 import { useMessageParser, usePromptEnhancer, useShortcuts } from '~/lib/hooks';
 import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
+import {
+  selectedModelStore,
+  selectedProviderStore,
+  setSelectedModel,
+  setSelectedProvider,
+} from '~/lib/stores/model';
 import { cubicEasingFn } from '~/utils/easings';
 import { createScopedLogger, renderLogger } from '~/utils/logger';
 import { BaseChat } from './BaseChat';
@@ -18,7 +25,6 @@ import { useSettings } from '~/lib/hooks/useSettings';
 import type { ProviderInfo } from '~/types/model';
 import { useSearchParams } from '@remix-run/react';
 import { createSampler } from '~/utils/sampler';
-import { getTemplates, selectStarterTemplate } from '~/utils/selectStarterTemplate';
 import { logStore } from '~/lib/stores/logs';
 import { streamingState } from '~/lib/stores/streaming';
 import { filesToArtifacts } from '~/utils/fileUtils';
@@ -62,11 +68,12 @@ const processSampledMessages = createSampler(
     messages: Message[];
     initialMessages: Message[];
     isLoading: boolean;
-    parseMessages: (messages: Message[], isLoading: boolean) => void;
+    chatMode: 'discuss' | 'build';
+    parseMessages: (messages: Message[], isLoading: boolean, chatMode: 'discuss' | 'build') => void;
     storeMessageHistory: (messages: Message[]) => Promise<void>;
   }) => {
-    const { messages, initialMessages, isLoading, parseMessages, storeMessageHistory } = options;
-    parseMessages(messages, isLoading);
+    const { messages, initialMessages, isLoading, chatMode, parseMessages, storeMessageHistory } = options;
+    parseMessages(messages, isLoading, chatMode);
 
     if (messages.length > initialMessages.length) {
       storeMessageHistory(messages).catch((error) => toast.error(error.message));
@@ -106,14 +113,10 @@ export const ChatImpl = memo(
     const supabaseAlert = useStore(workbenchStore.supabaseAlert);
     const { activeProviders, promptId, autoSelectTemplate, contextOptimizationEnabled } = useSettings();
     const [llmErrorAlert, setLlmErrorAlert] = useState<LlmErrorAlertType | undefined>(undefined);
-    const [model, setModel] = useState(() => {
-      const savedModel = Cookies.get('selectedModel');
-      return savedModel || DEFAULT_MODEL;
-    });
-    const [provider, setProvider] = useState(() => {
-      const savedProvider = Cookies.get('selectedProvider');
-      return (PROVIDER_LIST.find((p) => p.name === savedProvider) || DEFAULT_PROVIDER) as ProviderInfo;
-    });
+    const model = useStore(selectedModelStore);
+    const provider = useStore(selectedProviderStore);
+    const setModel = (m: string) => setSelectedModel(m);
+    const setProvider = (p: ProviderInfo) => setSelectedProvider(p);
     const { showChat } = useStore(chatStore);
     const [animationScope, animate] = useAnimate();
     const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
@@ -125,46 +128,62 @@ export const ChatImpl = memo(
     const mcpSettings = useMCPStore((state) => state.settings);
     const collab = useStore(collabStore);
 
+    // Keep a ref with the current dynamic body values so the stable transport always
+    // reads the most recent state without needing to be recreated.
+    const chatBodyRef = useRef<Record<string, unknown>>({});
+    chatBodyRef.current = {
+      files,
+      promptId,
+      contextOptimization: contextOptimizationEnabled,
+      chatMode,
+      designScheme,
+      supabase: {
+        isConnected: supabaseConn.isConnected,
+        hasSelectedProject: !!selectedProject,
+        credentials: {
+          supabaseUrl: supabaseConn?.credentials?.supabaseUrl,
+          anonKey: supabaseConn?.credentials?.anonKey,
+        },
+      },
+      maxLLMSteps: mcpSettings.maxLLMSteps,
+    };
+
+    // Create transport once; it reads chatBodyRef.current on every request.
+    const chatTransportRef = useRef<BoltChatTransport | null>(null);
+
+    if (!chatTransportRef.current) {
+      chatTransportRef.current = new BoltChatTransport('/api/chat', () => chatBodyRef.current);
+    }
+
     const {
       messages,
-      isLoading,
-      setInput,
+      status,
       stop,
-      append,
+      sendMessage: chatSendMessage,
       setMessages,
-      reload,
       error,
-      data: chatData,
-      setData,
-      addToolResult,
+      addToolOutput,
     } = (useChat as any)({
-      api: '/api/chat',
-      body: {
-        apiKeys,
-        files,
-        promptId,
-        contextOptimization: contextOptimizationEnabled,
-        chatMode,
-        designScheme,
-        supabase: {
-          isConnected: supabaseConn.isConnected,
-          hasSelectedProject: !!selectedProject,
-          credentials: {
-            supabaseUrl: supabaseConn?.credentials?.supabaseUrl,
-            anonKey: supabaseConn?.credentials?.anonKey,
-          },
-        },
-        maxLLMSteps: mcpSettings.maxLLMSteps,
-      },
-      sendExtraMessageFields: true,
+      transport: chatTransportRef.current,
+      messages: initialMessages,
       onError: (e: unknown) => {
         setFakeLoading(false);
         handleError(e, 'chat');
       },
-      onFinish: (message: any, response: any) => {
-        const usage = response.usage;
-        setData(undefined);
-        console.log('✅ onFinish called - response received!', { content: message?.content?.substring(0, 100), usage });
+      onFinish: (eventOrMessage: any) => {
+        // v3 passes { message, ... }; guard for both shapes
+        const message = eventOrMessage?.message ?? eventOrMessage;
+        const msgContent: string =
+          typeof message?.content === 'string'
+            ? message.content
+            : (message?.parts ?? [])
+                .filter((p: any) => p.type === 'text')
+                .map((p: any) => p.text ?? '')
+                .join('');
+        const usage = eventOrMessage?.usage ?? eventOrMessage?.response?.usage;
+
+        setFakeLoading(false);
+        console.log('✅ onFinish called - response received!', { content: msgContent.substring(0, 100), usage });
 
         if (usage) {
           console.log('Token usage:', usage);
@@ -174,13 +193,13 @@ export const ChatImpl = memo(
             model,
             provider: provider.name,
             usage,
-            messageLength: String(message?.content || '').length,
+            messageLength: msgContent.length,
           });
         }
 
         logger.debug('Finished streaming');
 
-        if (collab.selectedConversationId && message?.content) {
+        if (collab.selectedConversationId && msgContent) {
           void fetch('/api/collab/conversations', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -188,15 +207,36 @@ export const ChatImpl = memo(
               intent: 'addMessage',
               conversationId: collab.selectedConversationId,
               role: 'assistant',
-              content: message.content,
+              content: msgContent,
               branchMode: collab.branchMode,
             }),
           });
         }
       },
-      initialMessages,
-      initialInput: initialPrompt,
     });
+
+    // v3 useChat no longer returns isLoading — derive from status
+    const isLoading = status === 'streaming' || status === 'submitted';
+
+    // Compatibility shim: expose append() so BaseChat action buttons keep working
+    const append = useCallback(
+      (message: any) => {
+        if (typeof chatSendMessage !== 'function') {
+          return Promise.reject(new TypeError('sendMessage not available'));
+        }
+
+        const text =
+          typeof message.content === 'string'
+            ? message.content
+            : (message.parts ?? [])
+                .filter((p: any) => p.type === 'text')
+                .map((p: any) => p.text ?? '')
+                .join('');
+
+        return chatSendMessage({ text });
+      },
+      [chatSendMessage],
+    );
     useEffect(() => {
       const prompt = searchParams.get('prompt');
 
@@ -205,10 +245,13 @@ export const ChatImpl = memo(
       if (prompt) {
         setSearchParams({});
         runAnimation();
-        append({
-          role: 'user',
-          content: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${prompt}`,
-        });
+        void sendViaChatApi(
+          {
+            role: 'user',
+            content: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${prompt}`,
+          },
+          undefined,
+        );
       }
     }, [model, provider, searchParams]);
 
@@ -223,7 +266,7 @@ export const ChatImpl = memo(
 
     useEffect(() => {
       if (collab.selectedConversationId) {
-        parseMessages(messages, isLoading);
+        parseMessages(messages, isLoading, chatMode);
         return;
       }
 
@@ -236,6 +279,7 @@ export const ChatImpl = memo(
         messages,
         initialMessages,
         isLoading,
+          chatMode,
         parseMessages,
         storeMessageHistory,
       });
@@ -352,7 +396,6 @@ export const ChatImpl = memo(
 
     const handleError = useCallback(
       (error: any, context: 'chat' | 'template' | 'llmcall' = 'chat') => {
-        console.error(`❌${context} error:`, error);
         logger.error(`${context} request failed`, error);
 
         stop();
@@ -408,7 +451,6 @@ export const ChatImpl = memo(
           provider: provider.name,
         });
 
-        // Create API error alert
         setLlmErrorAlert({
           type: 'error',
           title,
@@ -416,7 +458,6 @@ export const ChatImpl = memo(
           provider: provider.name,
           errorType,
         });
-        setData([]);
       },
       [provider.name, stop],
     );
@@ -453,9 +494,7 @@ export const ChatImpl = memo(
       setChatStarted(true);
     };
 
-    // Helper function to create message parts array from text and images
     const createMessageParts = (text: string, images: string[] = []): Array<TextUIPart | FileUIPart> => {
-      // Create an array of properly typed message parts
       const parts: Array<TextUIPart | FileUIPart> = [
         {
           type: 'text',
@@ -463,12 +502,9 @@ export const ChatImpl = memo(
         },
       ];
 
-      // Add image parts if any
       images.forEach((imageData) => {
-        // Extract correct MIME type from the data URL
         const mimeType = imageData.split(';')[0].split(':')[1] || 'image/jpeg';
 
-        // Create file part according to AI SDK format
         parts.push({
           type: 'file',
           mimeType,
@@ -479,7 +515,6 @@ export const ChatImpl = memo(
       return parts;
     };
 
-    // Helper function to convert File[] to Attachment[] for AI SDK
     const filesToAttachments = async (files: File[]): Promise<Attachment[] | undefined> => {
       if (files.length === 0) {
         return undefined;
@@ -506,16 +541,55 @@ export const ChatImpl = memo(
       return attachments;
     };
 
+    const sendViaChatApi = async (
+      userMessage: {
+        role: 'user';
+        content: string;
+        parts?: Array<TextUIPart | FileUIPart>;
+      },
+      _attachmentOptions?: { experimental_attachments?: Attachment[] | undefined },
+    ) => {
+      if (typeof chatSendMessage !== 'function') {
+        throw new TypeError('Chat SDK sendMessage is not available');
+      }
+
+      return chatSendMessage({ text: userMessage.content });
+    };
+
     const sendMessage = async (_event: React.UIEvent, messageInput?: string) => {
       const messageContent = messageInput || draftInput;
       const hasAttachments = uploadedFiles.length > 0 || imageDataList.length > 0;
+
+      logStore.logUserAction('Send requested', {
+        component: 'Chat',
+        action: 'sendMessage:init',
+        provider: provider.name,
+        model,
+        chatStarted,
+        hasAttachments,
+        messageLength: messageContent?.length ?? 0,
+      });
 
       if (!messageContent?.trim() && !hasAttachments) {
         return;
       }
 
       if (isLoading) {
-        if (isStalledStream) {
+        // Recovery path: if UI is stuck in loading state with no visible messages,
+        // clear loading and continue with the new send instead of hard-aborting.
+        if (messages.length === 0 || fakeLoading) {
+          logStore.logSystem('Recovered from stuck loading state before send', {
+            component: 'Chat',
+            action: 'sendMessage:recover-stuck-loading',
+            isLoading,
+            fakeLoading,
+            isStalledStream,
+            messagesLength: messages.length,
+          });
+          stop();
+          setFakeLoading(false);
+          setIsStalledStream(false);
+        } else if (isStalledStream) {
           stop();
         } else {
           abort();
@@ -540,111 +614,56 @@ export const ChatImpl = memo(
 
       if (!chatStarted) {
         setFakeLoading(true);
+        setChatStarted(true);
+        chatStore.setKey('started', true);
 
-        if (autoSelectTemplate) {
-          let templateSelection: { template: string; title: string } | null = null;
-
-          try {
-            templateSelection = await selectStarterTemplate({
-              message: finalMessageContent,
-              model,
-              provider,
-            });
-          } catch (error) {
-            // Fallback to blank flow if template preflight fails (e.g. model not found).
-            console.warn('Starter template preselection failed, falling back to blank chat flow.', error);
-            templateSelection = { template: 'blank', title: 'Untitled' };
-          }
-
-          const { template, title } = templateSelection;
-
-          if (template !== 'blank') {
-            const temResp = await getTemplates(template, title).catch((e) => {
-              if (e.message.includes('rate limit')) {
-                toast.warning('Rate limit exceeded. Skipping starter template\n Continuing with blank template');
-              } else {
-                toast.warning('Failed to import starter template\n Continuing with blank template');
-              }
-
-              return null;
-            });
-
-            if (temResp) {
-              const { assistantMessage, userMessage } = temResp;
-              const userMessageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${finalMessageContent}`;
-
-              setMessages([
-                {
-                  id: `1-${new Date().getTime()}`,
-                  role: 'user',
-                  content: userMessageText,
-                  parts: createMessageParts(userMessageText, imageDataList),
-                },
-                {
-                  id: `2-${new Date().getTime()}`,
-                  role: 'assistant',
-                  content: assistantMessage,
-                },
-                {
-                  id: `3-${new Date().getTime()}`,
-                  role: 'user',
-                  content: `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${userMessage}`,
-                  annotations: ['hidden'],
-                },
-              ]);
-
-              const reloadOptions =
-                uploadedFiles.length > 0
-                  ? { experimental_attachments: await filesToAttachments(uploadedFiles) }
-                  : undefined;
-
-              reload(reloadOptions);
-
-              if (collab.selectedConversationId) {
-                void fetch('/api/collab/conversations', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({
-                    intent: 'addMessage',
-                    conversationId: collab.selectedConversationId,
-                    role: 'user',
-                    content: userMessageText,
-                    branchMode: collab.branchMode,
-                  }),
-                });
-              }
-
-              setInput('');
-              setDraftInput('');
-              Cookies.remove(PROMPT_COOKIE_KEY);
-
-              setUploadedFiles([]);
-              setImageDataList([]);
-
-              resetEnhancer();
-
-              textareaRef.current?.blur();
-              setFakeLoading(false);
-
-              return;
-            }
-          }
-        }
-
-        // If autoSelectTemplate is disabled or template selection failed, proceed with normal message
         const userMessageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${finalMessageContent}`;
-        const attachments = uploadedFiles.length > 0 ? await filesToAttachments(uploadedFiles) : undefined;
+        const capturedImageDataList = [...imageDataList];
+        const capturedUploadedFiles = [...uploadedFiles];
 
-        setMessages([
-          {
-            id: `${new Date().getTime()}`,
-            role: 'user',
-            content: userMessageText,
-            parts: createMessageParts(userMessageText, imageDataList),
-            experimental_attachments: attachments,
-          },
-        ]);
-        reload(attachments ? { experimental_attachments: attachments } : undefined);
+        setDraftInput('');
+        Cookies.remove(PROMPT_COOKIE_KEY);
+        setUploadedFiles([]);
+        setImageDataList([]);
+        resetEnhancer();
+        textareaRef.current?.blur();
+
+        const attachmentOptions =
+          capturedUploadedFiles.length > 0
+            ? { experimental_attachments: await filesToAttachments(capturedUploadedFiles) }
+            : undefined;
+
+        try {
+          logStore.logProvider('Submitting first message to /api/chat', {
+            component: 'Chat',
+            action: 'sendMessage:first-append',
+            provider: provider.name,
+            model,
+            hasAttachments: !!attachmentOptions,
+          });
+
+          await Promise.resolve(
+            sendViaChatApi(
+              {
+                role: 'user',
+                content: userMessageText,
+                parts: createMessageParts(userMessageText, capturedImageDataList),
+              },
+              attachmentOptions,
+            ),
+          );
+        } catch (appendError) {
+          logger.error('First message append failed', appendError);
+          logStore.logError('First message append failed', appendError, {
+            component: 'Chat',
+            action: 'sendMessage:first-append',
+            provider: provider.name,
+            model,
+          });
+          handleError(appendError, 'chat');
+          setFakeLoading(false);
+          return;
+        }
 
         if (collab.selectedConversationId) {
           void fetch('/api/collab/conversations', {
@@ -661,17 +680,6 @@ export const ChatImpl = memo(
         }
 
         setFakeLoading(false);
-        setInput('');
-        setDraftInput('');
-        Cookies.remove(PROMPT_COOKIE_KEY);
-
-        setUploadedFiles([]);
-        setImageDataList([]);
-
-        resetEnhancer();
-
-        textareaRef.current?.blur();
-
         return;
       }
 
@@ -702,14 +710,36 @@ export const ChatImpl = memo(
         const attachmentOptions =
           uploadedFiles.length > 0 ? { experimental_attachments: await filesToAttachments(uploadedFiles) } : undefined;
 
-        append(
-          {
-            role: 'user',
-            content: messageText,
-            parts: createMessageParts(messageText, imageDataList),
-          },
-          attachmentOptions,
-        );
+        try {
+          await Promise.resolve(
+            sendViaChatApi(
+              {
+                role: 'user',
+                content: messageText,
+                parts: createMessageParts(messageText, imageDataList),
+              },
+              attachmentOptions,
+            ),
+          );
+        } catch (appendError) {
+          logger.error('Message append failed (modified files path)', appendError);
+          logStore.logError('Message append failed (modified files path)', appendError, {
+            component: 'Chat',
+            action: 'sendMessage:append-modified-files',
+            provider: provider.name,
+            model,
+          });
+          handleError(appendError, 'chat');
+          return;
+        }
+
+        logStore.logProvider('Submitting message update to /api/chat', {
+          component: 'Chat',
+          action: 'sendMessage:append-modified-files',
+          provider: provider.name,
+          model,
+          hasAttachments: !!attachmentOptions,
+        });
 
         if (collab.selectedConversationId) {
           void fetch('/api/collab/conversations', {
@@ -732,19 +762,41 @@ export const ChatImpl = memo(
         const attachmentOptions =
           uploadedFiles.length > 0 ? { experimental_attachments: await filesToAttachments(uploadedFiles) } : undefined;
 
-        console.log('🚀 Sending message via append():', {
+        console.log('🚀 Sending message via chat API:', {
           content: messageText.substring(0, 100),
           hasAttachments: !!attachmentOptions,
         });
 
-        append(
-          {
-            role: 'user',
-            content: messageText,
-            parts: createMessageParts(messageText, imageDataList),
-          },
-          attachmentOptions,
-        );
+        try {
+          await Promise.resolve(
+            sendViaChatApi(
+              {
+                role: 'user',
+                content: messageText,
+                parts: createMessageParts(messageText, imageDataList),
+              },
+              attachmentOptions,
+            ),
+          );
+        } catch (appendError) {
+          logger.error('Message append failed', appendError);
+          logStore.logError('Message append failed', appendError, {
+            component: 'Chat',
+            action: 'sendMessage:append',
+            provider: provider.name,
+            model,
+          });
+          handleError(appendError, 'chat');
+          return;
+        }
+
+        logStore.logProvider('Submitting message to /api/chat', {
+          component: 'Chat',
+          action: 'sendMessage:append',
+          provider: provider.name,
+          model,
+          hasAttachments: !!attachmentOptions,
+        });
 
         console.log('✅ Append called, messages state should update soon');
 
@@ -763,7 +815,6 @@ export const ChatImpl = memo(
         }
       }
 
-      setInput('');
       setDraftInput('');
       Cookies.remove(PROMPT_COOKIE_KEY);
 
@@ -782,7 +833,6 @@ export const ChatImpl = memo(
     const onTextareaChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
       const nextValue = event.target.value;
       setDraftInput(nextValue);
-      setInput(nextValue);
     };
 
     /**
@@ -853,9 +903,8 @@ export const ChatImpl = memo(
         const newInput = currentInput.length > 0 ? `${result}\n\n${currentInput}` : result;
 
         setDraftInput(newInput);
-        setInput(newInput);
       },
-      [draftInput, setInput],
+      [draftInput],
     );
 
     const effectiveStreaming = resolveEffectiveStreamingState({
@@ -893,12 +942,21 @@ export const ChatImpl = memo(
         exportChat={exportChat}
         messages={messages.map((message: Message, i: number) => {
           if (message.role === 'user') {
+            // v3 UIMessages use parts instead of content — populate content for rendering
+            if (!message.content && (message as any).parts?.length) {
+              const textFromParts = (message as any).parts
+                .filter((p: any) => p.type === 'text')
+                .map((p: any) => p.text ?? '')
+                .join('');
+              return { ...message, content: textFromParts };
+            }
+
             return message;
           }
 
           return {
             ...message,
-            content: parsedMessages[i] || '',
+            content: parsedMessages[i] || message.content || '',
           };
         })}
         enhancePrompt={() => {
@@ -906,7 +964,6 @@ export const ChatImpl = memo(
             draftInput,
             (input) => {
               setDraftInput(input);
-              setInput(input);
               scrollTextArea();
             },
             model,
@@ -926,7 +983,7 @@ export const ChatImpl = memo(
         clearDeployAlert={() => workbenchStore.clearDeployAlert()}
         llmErrorAlert={llmErrorAlert}
         clearLlmErrorAlert={clearApiErrorAlert}
-        data={chatData}
+        data={undefined}
         chatMode={chatMode}
         setChatMode={setChatMode}
         append={append}
@@ -934,7 +991,7 @@ export const ChatImpl = memo(
         setDesignScheme={setDesignScheme}
         selectedElement={selectedElement}
         setSelectedElement={setSelectedElement}
-        addToolResult={addToolResult}
+        addToolResult={addToolOutput}
         onWebSearchResult={handleWebSearchResult}
       />
     );

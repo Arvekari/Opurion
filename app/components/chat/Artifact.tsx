@@ -4,10 +4,12 @@ import { computed } from 'nanostores';
 import { memo, useEffect, useRef, useState } from 'react';
 import { createHighlighter, type BundledLanguage, type BundledTheme, type HighlighterGeneric } from 'shiki';
 import type { ActionState } from '~/lib/runtime/action-runner';
+import { isDebugMode } from '~/lib/stores/settings';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { classNames } from '~/utils/classNames';
 import { cubicEasingFn } from '~/utils/easings';
 import { WORK_DIR } from '~/utils/constants';
+import { DebugLogPanel } from './DebugLogPanel';
 
 const highlighterOptions = {
   langs: ['shell'],
@@ -30,6 +32,8 @@ export const Artifact = memo(({ artifactId }: ArtifactProps) => {
   const userToggledActions = useRef(false);
   const [showActions, setShowActions] = useState(false);
   const [allActionFinished, setAllActionFinished] = useState(false);
+  const [isDebugPanelOpen, setIsDebugPanelOpen] = useState(false);
+  const debugEnabled = useStore(isDebugMode);
 
   const artifacts = useStore(workbenchStore.artifacts);
   const artifact = artifacts[artifactId];
@@ -98,6 +102,20 @@ export const Artifact = memo(({ artifactId }: ArtifactProps) => {
               </div>
             </div>
           </button>
+          {debugEnabled && <div className="bg-bolt-elements-artifacts-borderColor w-[1px]" />}
+          {debugEnabled && (
+            <button
+              type="button"
+              className="bg-bolt-elements-artifacts-background hover:bg-bolt-elements-artifacts-backgroundHover px-3 text-xs text-bolt-elements-textPrimary"
+              onClick={(_event) => {
+                setIsDebugPanelOpen((value) => !value);
+              }}
+              aria-expanded={isDebugPanelOpen}
+              aria-controls={`artifact-debug-panel-${artifactId}`}
+            >
+              {isDebugPanelOpen ? 'Hide debug panel' : 'Show debug panel'}
+            </button>
+          )}
           {artifact.type !== 'bundled' && <div className="bg-bolt-elements-artifacts-borderColor w-[1px]" />}
           <AnimatePresence>
             {actions.length && artifact.type !== 'bundled' && (
@@ -148,6 +166,24 @@ export const Artifact = memo(({ artifactId }: ArtifactProps) => {
 
               <div className="p-5 text-left bg-bolt-elements-actions-background">
                 <ActionList actions={actions} />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+        <AnimatePresence>
+          {debugEnabled && isDebugPanelOpen && (
+            <motion.div
+              initial={{ height: 0 }}
+              animate={{ height: 'auto' }}
+              exit={{ height: 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              <div className="bg-bolt-elements-artifacts-borderColor h-[1px]" />
+              <div className="px-5 pb-5 bg-bolt-elements-actions-background">
+                <DebugLogPanel
+                  panelId={`artifact-debug-panel-${artifactId}`}
+                  emptyMessage="No action logs available yet."
+                />
               </div>
             </motion.div>
           )}

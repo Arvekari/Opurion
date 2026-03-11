@@ -1,73 +1,35 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import { Dialog, DialogButton, DialogDescription, DialogRoot, DialogTitle } from '~/components/ui/Dialog';
-import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
 import { setThemeMode, themeModeStore } from '~/lib/stores/theme';
-import { ControlPanel } from '~/components/@settings/core/ControlPanel';
-import { SettingsButton, HelpButton } from '~/components/ui/SettingsButton';
-import { Button } from '~/components/ui/Button';
 import { db, deleteById, getAll, chatId, type ChatHistoryItem, useChatHistory } from '~/lib/persistence';
 import { HistoryItem } from './HistoryItem';
 import { binDates } from './date-binning';
 import { useSearchFilter } from '~/lib/hooks/useSearchFilter';
-import { classNames } from '~/utils/classNames';
 import { useStore } from '@nanostores/react';
 import { profileStore } from '~/lib/stores/profile';
-import { CollabPanel } from './CollabPanel';
 
-type DialogContent =
-  | { type: 'delete'; item: ChatHistoryItem }
-  | { type: 'bulkDelete'; items: ChatHistoryItem[] }
-  | null;
-
-function CurrentDateTime() {
-  const [dateTime, setDateTime] = useState(new Date());
-
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setDateTime(new Date());
-    }, 60000);
-
-    return () => clearInterval(timer);
-  }, []);
-
-  return (
-    <div className="flex items-center gap-2 px-4 py-2 text-sm text-bolt-elements-textSecondary border-b border-bolt-elements-borderColor">
-      <div className="h-4 w-4 i-ph:clock opacity-80" />
-      <div className="flex gap-2">
-        <span>{dateTime.toLocaleDateString()}</span>
-        <span>{dateTime.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-      </div>
-    </div>
-  );
+interface MenuProps {
+  collapsed: boolean;
+  onToggle: () => void;
+  onOpenSettings: (tab?: 'profile' | 'settings') => void;
 }
 
 function getInitials(name?: string): string {
-  if (!name) {
-    return 'G';
-  }
-
+  if (!name) return 'U';
   const parts = name.trim().split(/\s+/);
-
-  if (parts.length >= 2) {
-    return (parts[0][0] + parts[1][0]).toUpperCase();
-  }
-
-  return name.slice(0, 2).toUpperCase();
+  if (parts.length >= 2) return (parts[0][0] + parts[1][0]).toUpperCase();
+  return parts[0][0].toUpperCase();
 }
 
-export const Menu = () => {
-  const { duplicateCurrentChat, exportChat } = useChatHistory();
-  const menuRef = useRef<HTMLDivElement>(null);
+export const Menu = ({ collapsed, onToggle, onOpenSettings }: MenuProps) => {
+  const { exportChat } = useChatHistory();
   const [list, setList] = useState<ChatHistoryItem[]>([]);
-  const [collapsed, setCollapsed] = useState(false);
-  const [dialogContent, setDialogContent] = useState<DialogContent>(null);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [dialogContent, setDialogContent] = useState<{ type: 'delete'; item: ChatHistoryItem } | null>(null);
+  const [activeSection, setActiveSection] = useState<'chats' | 'projects' | 'artifacts' | 'code'>('chats');
+  const [loggingOut, setLoggingOut] = useState(false);
   const profile = useStore(profileStore);
   const themeMode = useStore(themeModeStore);
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedItems, setSelectedItems] = useState<string[]>([]);
-  const [activeSection, setActiveSection] = useState<'chats' | 'projects' | 'artifacts' | 'code'>('chats');
 
   const { filteredItems: filteredList, handleSearchChange } = useSearchFilter({
     items: list,
@@ -77,685 +39,286 @@ export const Menu = () => {
   const loadEntries = useCallback(() => {
     if (db) {
       getAll(db)
-        .then((list) => list.filter((item) => item.urlId && item.description))
+        .then((items) => items.filter((item) => item.urlId && item.description))
         .then(setList)
         .catch((error) => toast.error(error.message));
     }
   }, []);
 
-  const deleteChat = useCallback(
-    async (id: string): Promise<void> => {
-      if (!db) {
-        throw new Error('Database not available');
-      }
-
-      // Delete chat snapshot from localStorage
-      try {
-        const snapshotKey = `snapshot:${id}`;
-        localStorage.removeItem(snapshotKey);
-        console.log('Removed snapshot for chat:', id);
-      } catch (snapshotError) {
-        console.error(`Error deleting snapshot for chat ${id}:`, snapshotError);
-      }
-
-      // Delete the chat from the database
-      await deleteById(db, id);
-      console.log('Successfully deleted chat:', id);
-    },
-    [db],
-  );
-
   const deleteItem = useCallback(
     (event: React.UIEvent, item: ChatHistoryItem) => {
       event.preventDefault();
-      event.stopPropagation();
 
-      // Log the delete operation to help debugging
-      console.log('Attempting to delete chat:', { id: item.id, description: item.description });
+      if (!db) return;
 
-      deleteChat(item.id)
+      deleteById(db, item.id)
         .then(() => {
-          toast.success('Chat deleted successfully', {
-            position: 'bottom-right',
-            autoClose: 3000,
-          });
-
-          // Always refresh the list
+          toast.success('Chat deleted');
           loadEntries();
 
           if (chatId.get() === item.id) {
-            // hard page navigation to clear the stores
-            console.log('Navigating away from deleted chat');
             window.location.pathname = '/';
           }
         })
-        .catch((error) => {
-          console.error('Failed to delete chat:', error);
-          toast.error('Failed to delete conversation', {
-            position: 'bottom-right',
-            autoClose: 3000,
-          });
-
-          // Still try to reload entries in case data has changed
-          loadEntries();
-        });
+        .catch((err) => toast.error(err.message));
     },
-    [loadEntries, deleteChat],
+    [loadEntries],
   );
-
-  const deleteSelectedItems = useCallback(
-    async (itemsToDeleteIds: string[]) => {
-      if (!db || itemsToDeleteIds.length === 0) {
-        console.log('Bulk delete skipped: No DB or no items to delete.');
-        return;
-      }
-
-      console.log(`Starting bulk delete for ${itemsToDeleteIds.length} chats`, itemsToDeleteIds);
-
-      let deletedCount = 0;
-      const errors: string[] = [];
-      const currentChatId = chatId.get();
-      let shouldNavigate = false;
-
-      // Process deletions sequentially using the shared deleteChat logic
-      for (const id of itemsToDeleteIds) {
-        try {
-          await deleteChat(id);
-          deletedCount++;
-
-          if (id === currentChatId) {
-            shouldNavigate = true;
-          }
-        } catch (error) {
-          console.error(`Error deleting chat ${id}:`, error);
-          errors.push(id);
-        }
-      }
-
-      // Show appropriate toast message
-      if (errors.length === 0) {
-        toast.success(`${deletedCount} chat${deletedCount === 1 ? '' : 's'} deleted successfully`);
-      } else {
-        toast.warning(`Deleted ${deletedCount} of ${itemsToDeleteIds.length} chats. ${errors.length} failed.`, {
-          autoClose: 5000,
-        });
-      }
-
-      // Reload the list after all deletions
-      await loadEntries();
-
-      // Clear selection state
-      setSelectedItems([]);
-      setSelectionMode(false);
-
-      // Navigate if needed
-      if (shouldNavigate) {
-        console.log('Navigating away from deleted chat');
-        window.location.pathname = '/';
-      }
-    },
-    [deleteChat, loadEntries, db],
-  );
-
-  const closeDialog = () => {
-    setDialogContent(null);
-  };
-
-  const toggleSelectionMode = () => {
-    setSelectionMode(!selectionMode);
-
-    if (selectionMode) {
-      // If turning selection mode OFF, clear selection
-      setSelectedItems([]);
-    }
-  };
-
-  const toggleItemSelection = useCallback((id: string) => {
-    setSelectedItems((prev) => {
-      const newSelectedItems = prev.includes(id) ? prev.filter((itemId) => itemId !== id) : [...prev, id];
-      console.log('Selected items updated:', newSelectedItems);
-
-      return newSelectedItems; // Return the new array
-    });
-  }, []); // No dependencies needed
-
-  const handleBulkDeleteClick = useCallback(() => {
-    if (selectedItems.length === 0) {
-      toast.info('Select at least one chat to delete');
-      return;
-    }
-
-    const selectedChats = list.filter((item) => selectedItems.includes(item.id));
-
-    if (selectedChats.length === 0) {
-      toast.error('Could not find selected chats');
-      return;
-    }
-
-    setDialogContent({ type: 'bulkDelete', items: selectedChats });
-  }, [selectedItems, list]); // Keep list dependency
-
-  const selectAll = useCallback(() => {
-    const allFilteredIds = filteredList.map((item) => item.id);
-    setSelectedItems((prev) => {
-      const allFilteredAreSelected = allFilteredIds.length > 0 && allFilteredIds.every((id) => prev.includes(id));
-
-      if (allFilteredAreSelected) {
-        // Deselect only the filtered items
-        const newSelectedItems = prev.filter((id) => !allFilteredIds.includes(id));
-        console.log('Deselecting all filtered items. New selection:', newSelectedItems);
-
-        return newSelectedItems;
-      } else {
-        // Select all filtered items, adding them to any existing selections
-        const newSelectedItems = [...new Set([...prev, ...allFilteredIds])];
-        console.log('Selecting all filtered items. New selection:', newSelectedItems);
-
-        return newSelectedItems;
-      }
-    });
-  }, [filteredList]); // Depends only on filteredList
 
   useEffect(() => {
     loadEntries();
   }, [loadEntries]);
 
-  const handleDuplicate = async (id: string) => {
-    await duplicateCurrentChat(id);
-    loadEntries(); // Reload the list after duplication
-  };
+  const handleLogout = useCallback(async () => {
+    if (loggingOut) {
+      return;
+    }
 
-  const handleSettingsClick = () => {
-    setIsSettingsOpen(true);
-  };
+    setLoggingOut(true);
 
-  const handleSettingsClose = () => {
-    setIsSettingsOpen(false);
-  };
+    try {
+      const response = await fetch('/api/auth/logout', {
+        method: 'POST',
+      });
 
-  const setDialogContentWithLogging = useCallback((content: DialogContent) => {
-    console.log('Setting dialog content:', content);
-    setDialogContent(content);
-  }, []);
+      if (!response.ok) {
+        throw new Error('Logout failed');
+      }
+
+      window.location.href = '/';
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Logout failed');
+      setLoggingOut(false);
+    }
+  }, [loggingOut]);
+
+  // Ordered: Projects / Artifacts / Code — gap — Chats
+  const navItems: Array<{ key: 'projects' | 'artifacts' | 'code' | 'chats'; label: string; icon: string; separator?: boolean }> = [
+    { key: 'projects', label: 'Projects', icon: '📁' },
+    { key: 'artifacts', label: 'Artifacts', icon: '📦' },
+    { key: 'code', label: 'Code', icon: '{ }' },
+    { key: 'chats', label: 'Chats', icon: '💬', separator: true },
+  ];
 
   return (
     <>
       <div
-        ref={menuRef}
-        style={{ width: collapsed ? '72px' : '312px' }}
-        className={classNames(
-          'flex selection-accent flex-col side-menu relative h-full shrink-0 rounded-r-2xl transition-[width] duration-200',
-          'bg-bolt-elements-background-depth-1 border-r border-bolt-elements-borderColor',
-          'shadow-sm text-sm',
-          isSettingsOpen ? 'z-40' : 'z-sidebar',
-        )}
+        style={{
+          gridRow: '1 / span 2',
+          background: 'var(--bolt-elements-sidebar-background)',
+          borderRight: '1px solid var(--bolt-elements-borderColor)',
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          overflow: 'hidden',
+          fontSize: '14px',
+          color: 'var(--bolt-elements-textPrimary)',
+        }}
       >
-        {/* Sidebar header — adapts to collapsed / expanded */}
-        {collapsed ? (
-          <div className="flex flex-col items-center pt-3 pb-2 gap-2 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 rounded-tr-2xl">
-            <a href="/" className="flex items-center justify-center" title="Bolt2.dyi">
-              <img
-                src="/logo.svg"
-                alt="Bolt2.dyi"
-                style={{ height: '22px', width: 'auto', transform: 'rotate(-90deg)' }}
+        {/* Logo + toggle */}
+        <div
+          style={{
+            display: 'flex',
+            flexDirection: collapsed ? 'column' : 'row',
+            justifyContent: collapsed ? 'flex-start' : 'space-between',
+            alignItems: 'center',
+            padding: collapsed ? '10px 6px' : '14px',
+            fontWeight: 600,
+            borderBottom: '1px solid var(--bolt-elements-borderColor)',
+            minHeight: '60px',
+            gap: collapsed ? '6px' : '8px',
+          }}
+        >
+          {!collapsed && (
+            <img
+              src="/logo.svg"
+              alt="bolt2.dyi"
+              style={{ height: '30px', width: 'auto', objectFit: 'contain', flex: 1, minWidth: 0 }}
+            />
+          )}
+          {collapsed && (
+            /* Just the bolt-mark icon portion of the logo */
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              viewBox="0 0 128 128"
+              style={{ width: '36px', height: '36px', flexShrink: 0 }}
+              aria-hidden="true"
+            >
+              <defs>
+                <linearGradient id="boltPurpleMenu" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0%" stopColor="#A578FF" />
+                  <stop offset="100%" stopColor="#7C3AED" />
+                </linearGradient>
+              </defs>
+              <rect x="8" y="8" width="112" height="112" rx="24" fill="url(#boltPurpleMenu)" />
+              <path d="M66 30L40 74H61L50 106L88 59H66L80 30Z" fill="#FFFFFF" />
+            </svg>
+          )}
+          <button
+            onClick={onToggle}
+            style={{
+              background: 'none',
+              border: 'none',
+              color: 'var(--bolt-elements-textPrimary)',
+              cursor: 'pointer',
+              fontSize: '18px',
+              lineHeight: 1,
+              padding: '2px 4px',
+              borderRadius: '4px',
+              flexShrink: 0,
+            }}
+            aria-label="Toggle sidebar"
+          >
+            ☰
+          </button>
+        </div>
+
+        {/* Nav */}
+        <nav
+          style={{
+            padding: '8px',
+            display: 'flex',
+            flexDirection: 'column',
+            gap: '2px',
+            flex: 1,
+            overflow: 'hidden',
+          }}
+        >
+          {/* New chat */}
+          <a
+            href="/"
+            style={{
+              display: 'block',
+              padding: '8px 10px',
+              borderRadius: '6px',
+              textDecoration: 'none',
+              color: 'var(--bolt-elements-textPrimary)',
+              background: 'rgba(120,120,120,.12)',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              textAlign: collapsed ? 'center' : 'left',
+            }}
+            title="New chat"
+          >
+            {collapsed ? '✏' : 'New chat'}
+          </a>
+
+          {/* Section nav items */}
+          {navItems.map(({ key, label, icon, separator }) => (
+            <>
+              {separator && (
+                <div key={`sep-${key}`} style={{ height: '1px', background: 'var(--bolt-elements-borderColor, #2b2b33)', margin: '4px 0' }} />
+              )}
+              <button
+                key={key}
+                onClick={() => {
+                  if (collapsed) onToggle();
+                  setActiveSection(key);
+                }}
+                style={{
+                  display: 'block',
+                  width: '100%',
+                  textAlign: collapsed ? 'center' : 'left',
+                  padding: '8px 10px',
+                  borderRadius: '6px',
+                  border: 'none',
+                  background: 'transparent',
+                  color: 'var(--bolt-elements-textPrimary)',
+                  fontSize: '14px',
+                  fontWeight: activeSection === key ? 700 : 400,
+                  cursor: 'pointer',
+                  whiteSpace: 'nowrap',
+                  overflow: 'hidden',
+                }}
+                title={label}
+              >
+                {collapsed ? icon : label}
+              </button>
+            </>
+          ))}
+
+          {/* Chat history list (only when expanded and Chats active) */}
+          {!collapsed && activeSection === 'chats' && (
+            <div
+              style={{
+                marginTop: '8px',
+                flex: 1,
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                minHeight: 0,
+              }}
+            >
+              <input
+                type="search"
+                placeholder="Search chats…"
+                onChange={handleSearchChange}
+                style={{
+                  width: '100%',
+                  padding: '6px 10px',
+                  borderRadius: '6px',
+                  border: '1px solid var(--bolt-elements-borderColor)',
+                  background: 'var(--bolt-elements-background-depth-2)',
+                  color: 'var(--bolt-elements-textPrimary)',
+                  fontSize: '13px',
+                  marginBottom: '6px',
+                  boxSizing: 'border-box',
+                  outline: 'none',
+                }}
               />
-            </a>
-            <button
-              className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary"
-              onClick={() => setCollapsed(false)}
-              aria-label="Expand sidebar"
-              title="Expand sidebar"
-            >
-              <span className="i-ph:sidebar-simple-fill w-4 h-4" />
-            </button>
-          </div>
-        ) : (
-          <div className="h-12 flex items-center justify-between px-4 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 rounded-tr-2xl">
-            <a href="/" className="flex items-center gap-2" title="Bolt2.dyi">
-              <img src="/logo.svg" alt="Bolt2.dyi" className="h-6 w-auto" />
-            </a>
-            <div className="flex items-center gap-2">
-              <HelpButton onClick={() => window.open('https://stackblitz-labs.github.io/bolt.diy/', '_blank')} />
-              <button
-                className="inline-flex items-center justify-center w-8 h-8 rounded-md bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary"
-                onClick={() => setCollapsed(true)}
-                aria-label="Collapse sidebar"
-                title="Collapse sidebar"
-              >
-                <span className="i-ph:sidebar-simple w-4 h-4" />
-              </button>
-            </div>
-          </div>
-        )}
-        {!collapsed && <CurrentDateTime />}
-
-        {collapsed ? (
-          <div className="flex-1 flex flex-col items-center gap-1.5 py-3">
-            {/* New Chat */}
-            <a
-              href="/"
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:brightness-110 transition-colors"
-              title="New chat"
-            >
-              <span className="inline-block i-ph:plus-circle h-5 w-5" />
-            </a>
-            {/* Search */}
-            <button
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
-              title="Search chats"
-              onClick={() => {
-                setCollapsed(false);
-                setActiveSection('chats');
-              }}
-            >
-              <span className="inline-block i-ph:magnifying-glass h-5 w-5" />
-            </button>
-            {/* Customize */}
-            <button
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
-              title="Customize"
-              onClick={handleSettingsClick}
-            >
-              <span className="inline-block i-ph:sliders-horizontal h-5 w-5" />
-            </button>
-
-            <div className="w-6 h-px bg-bolt-elements-borderColor/70 my-1" />
-
-            {/* Chats */}
-            <button
-              className={classNames(
-                'inline-flex items-center justify-center w-10 h-10 rounded-lg transition-colors',
-                activeSection === 'chats'
-                  ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                  : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
-              )}
-              title="Chats"
-              onClick={() => {
-                setCollapsed(false);
-                setActiveSection('chats');
-              }}
-            >
-              <span className="inline-block i-ph:chat-circle h-5 w-5" />
-            </button>
-            {/* Projects */}
-            <button
-              className={classNames(
-                'inline-flex items-center justify-center w-10 h-10 rounded-lg transition-colors',
-                activeSection === 'projects'
-                  ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                  : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
-              )}
-              title="Projects"
-              onClick={() => {
-                setCollapsed(false);
-                setActiveSection('projects');
-              }}
-            >
-              <span className="inline-block i-ph:folder h-5 w-5" />
-            </button>
-            {/* Artifacts */}
-            <button
-              className={classNames(
-                'inline-flex items-center justify-center w-10 h-10 rounded-lg transition-colors',
-                activeSection === 'artifacts'
-                  ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                  : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
-              )}
-              title="Artifacts"
-              onClick={() => {
-                setCollapsed(false);
-                setActiveSection('artifacts');
-              }}
-            >
-              <span className="inline-block i-ph:cube h-5 w-5" />
-            </button>
-            {/* Code */}
-            <button
-              className={classNames(
-                'inline-flex items-center justify-center w-10 h-10 rounded-lg transition-colors',
-                activeSection === 'code'
-                  ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                  : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
-              )}
-              title="Code"
-              onClick={() => {
-                setCollapsed(false);
-                setActiveSection('code');
-              }}
-            >
-              <span className="inline-block i-ph:brackets-curly h-5 w-5" />
-            </button>
-
-            <div className="w-6 h-px bg-bolt-elements-borderColor/70 my-1" />
-
-            {/* Help */}
-            <button
-              className="inline-flex items-center justify-center w-10 h-10 rounded-lg bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
-              title="Help"
-              onClick={() => window.open('https://stackblitz-labs.github.io/bolt.diy/', '_blank')}
-            >
-              <span className="inline-block i-ph:question h-5 w-5" />
-            </button>
-            <div className="mt-auto pb-3 flex flex-col items-center gap-2">
-              {/* Profile initials circle */}
-              <button
-                className="flex items-center justify-center w-9 h-9 rounded-full bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent text-xs font-semibold overflow-hidden"
-                title={profile?.username || 'Guest User'}
-                onClick={handleSettingsClick}
-              >
-                {profile?.avatar ? (
-                  <img
-                    src={profile.avatar}
-                    alt={profile?.username || 'User'}
-                    className="w-full h-full object-cover"
-                    loading="eager"
-                    decoding="sync"
-                  />
-                ) : (
-                  getInitials(profile?.username)
-                )}
-              </button>
-              {/* Vertical theme toggle buttons */}
-              <button
-                onClick={() => setThemeMode('light')}
-                className={classNames(
-                  'inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors',
-                  themeMode === 'light'
-                    ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                    : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
-                )}
-                title="Light theme"
-              >
-                <span className="i-ph:sun h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setThemeMode('dark')}
-                className={classNames(
-                  'inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors',
-                  themeMode === 'dark'
-                    ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                    : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
-                )}
-                title="Dark theme"
-              >
-                <span className="i-ph:moon h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setThemeMode('system')}
-                className={classNames(
-                  'inline-flex items-center justify-center w-8 h-8 rounded-md transition-colors',
-                  themeMode === 'system'
-                    ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                    : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary hover:text-bolt-elements-textSecondary',
-                )}
-                title="System theme"
-              >
-                <span className="i-ph:monitor h-4 w-4" />
-              </button>
-            </div>
-          </div>
-        ) : (
-          <div className="flex-1 flex flex-col h-full w-full overflow-hidden">
-            <div className="px-3 pt-3 pb-3 border-b border-bolt-elements-borderColor bg-bolt-elements-background-depth-2/70 space-y-1.5">
-              <a
-                href="/"
-                className="flex items-center rounded-lg px-3 py-2 text-[15px] bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent hover:brightness-110 transition-colors"
-              >
-                New chat
-              </a>
-              <button
-                className="flex w-full items-center rounded-lg px-3 py-2 text-[15px] bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
-                onClick={() => setActiveSection('chats')}
-              >
-                Search
-              </button>
-
-              <button
-                className="flex w-full items-center rounded-lg px-3 py-2 text-[15px] bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 transition-colors"
-                onClick={handleSettingsClick}
-              >
-                Customize
-              </button>
-
-              <div className="h-px bg-bolt-elements-borderColor/70" />
-
-              <div className="space-y-1">
-                <div className="px-1 text-xs font-medium uppercase tracking-wide text-bolt-elements-textTertiary">
-                  Navigation
-                </div>
-                <button
-                  className={classNames(
-                    'flex items-center rounded-lg px-3 py-2 text-[15px] transition-colors',
-                    activeSection === 'chats'
-                      ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
-                  )}
-                  onClick={() => setActiveSection('chats')}
-                >
-                  Chats
-                </button>
-                <button
-                  className={classNames(
-                    'flex items-center rounded-lg px-3 py-2 text-[15px] transition-colors',
-                    activeSection === 'projects'
-                      ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
-                  )}
-                  onClick={() => setActiveSection('projects')}
-                >
-                  Projects
-                </button>
-                <button
-                  className={classNames(
-                    'flex items-center rounded-lg px-3 py-2 text-[15px] transition-colors',
-                    activeSection === 'artifacts'
-                      ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
-                  )}
-                  onClick={() => setActiveSection('artifacts')}
-                >
-                  Artifacts
-                </button>
-                <button
-                  className={classNames(
-                    'flex items-center rounded-lg px-3 py-2 text-[15px] transition-colors',
-                    activeSection === 'code'
-                      ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent'
-                      : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2',
-                  )}
-                  onClick={() => setActiveSection('code')}
-                >
-                  Code
-                </button>
-              </div>
-            </div>
-
-            {activeSection === 'chats' && (
-              <div className="p-4 space-y-3">
-                <div className="flex gap-2">
-                  <button
-                    onClick={toggleSelectionMode}
-                    className={classNames(
-                      'flex gap-1 items-center rounded-lg px-3 py-2 transition-colors',
-                      selectionMode
-                        ? 'bg-bolt-elements-item-backgroundAccent text-bolt-elements-item-contentAccent border border-bolt-elements-borderColor'
-                        : 'bg-bolt-elements-background-depth-3 text-bolt-elements-textSecondary hover:bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor',
-                    )}
-                    aria-label={selectionMode ? 'Exit selection mode' : 'Enter selection mode'}
-                  >
-                    <span className={selectionMode ? 'i-ph:x h-4 w-4' : 'i-ph:check-square h-4 w-4'} />
-                  </button>
-                </div>
-                <div className="relative w-full">
-                  <div className="absolute left-3 top-1/2 -translate-y-1/2">
-                    <span className="i-ph:magnifying-glass h-4 w-4 text-bolt-elements-textTertiary" />
-                  </div>
-                  <input
-                    className="w-full bg-bolt-elements-background-depth-2 relative pl-9 pr-3 py-2 rounded-lg focus:outline-none focus:ring-1 focus:ring-bolt-elements-focus text-sm text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary border border-bolt-elements-borderColor"
-                    type="search"
-                    placeholder="Search chats..."
-                    onChange={handleSearchChange}
-                    aria-label="Search chats"
-                  />
-                </div>
-              </div>
-            )}
-
-            {activeSection === 'projects' && (
-              <div className="p-4 space-y-3">
-                <div className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 text-sm text-bolt-elements-textSecondary">
-                  Projects is a first-class workspace area for collaboration, ownership, and shared conversations.
-                </div>
-                <CollabPanel />
-              </div>
-            )}
-
-            {activeSection === 'artifacts' && (
-              <div className="p-4">
-                <div className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 text-sm text-bolt-elements-textSecondary">
-                  Artifacts can store reusable modules, components, and implementation snippets for future projects.
-                </div>
-              </div>
-            )}
-
-            {activeSection === 'code' && (
-              <div className="p-4">
-                <div className="rounded-xl border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-3 text-sm text-bolt-elements-textSecondary">
-                  Code section is reserved for project code context and shared implementation assets.
-                </div>
-              </div>
-            )}
-
-            {activeSection === 'chats' && (
-              <div className="flex items-center justify-between text-sm px-4 py-2">
-                <div className="font-medium text-bolt-elements-textSecondary">Recents</div>
-                {selectionMode && (
-                  <div className="flex items-center gap-2">
-                    <Button variant="text" size="sm" onClick={selectAll}>
-                      {selectedItems.length === filteredList.length ? 'Deselect all' : 'Select all'}
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      onClick={handleBulkDeleteClick}
-                      disabled={selectedItems.length === 0}
-                    >
-                      Delete selected
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeSection === 'chats' && (
-              <div className="flex-1 overflow-y-auto px-3 pb-3 min-h-0">
+              <div style={{ flex: 1, overflowY: 'auto', fontSize: '13px' }}>
                 {filteredList.length === 0 && (
-                  <div className="px-4 text-bolt-elements-textTertiary text-sm">
-                    {list.length === 0 ? 'No previous conversations' : 'No matches found'}
-                  </div>
+                  <div style={{ padding: '6px 10px', color: 'var(--bolt-elements-textTertiary)' }}>No conversations</div>
                 )}
                 <DialogRoot open={dialogContent !== null}>
                   {binDates(filteredList).map(({ category, items }) => (
-                    <div key={category} className="mt-2 first:mt-0 space-y-1">
-                      <div className="text-xs font-medium text-bolt-elements-textTertiary sticky top-0 z-1 bg-bolt-elements-background-depth-1 px-4 py-1">
+                    <div key={category}>
+                      <div
+                        style={{
+                          padding: '4px 10px',
+                        color: 'var(--bolt-elements-textTertiary)',
+                          fontSize: '11px',
+                          textTransform: 'uppercase',
+                          letterSpacing: '.05em',
+                        }}
+                      >
                         {category}
                       </div>
-                      <div className="space-y-0.5 pr-1">
-                        {items.map((item) => (
-                          <HistoryItem
-                            key={item.id}
-                            item={item}
-                            exportChat={exportChat}
-                            onDelete={(event) => {
-                              event.preventDefault();
-                              event.stopPropagation();
-                              console.log('Delete triggered for item:', item);
-                              setDialogContentWithLogging({ type: 'delete', item });
-                            }}
-                            onDuplicate={() => handleDuplicate(item.id)}
-                            selectionMode={selectionMode}
-                            isSelected={selectedItems.includes(item.id)}
-                            onToggleSelection={toggleItemSelection}
-                          />
-                        ))}
-                      </div>
+                      {items.map((item) => (
+                        <HistoryItem
+                          key={item.id}
+                          item={item}
+                          exportChat={exportChat}
+                          onDelete={(e) => {
+                            e.preventDefault();
+                            setDialogContent({ type: 'delete', item });
+                          }}
+                          onDuplicate={loadEntries}
+                          selectionMode={false}
+                          isSelected={false}
+                          onToggleSelection={() => {}}
+                        />
+                      ))}
                     </div>
                   ))}
-                  <Dialog onBackdrop={closeDialog} onClose={closeDialog}>
+                  <Dialog onBackdrop={() => setDialogContent(null)} onClose={() => setDialogContent(null)}>
                     {dialogContent?.type === 'delete' && (
                       <>
                         <div className="p-6 bg-white dark:bg-gray-950">
                           <DialogTitle className="text-gray-900 dark:text-white">Delete Chat?</DialogTitle>
                           <DialogDescription className="mt-2 text-gray-600 dark:text-gray-400">
-                            <p>
-                              You are about to delete{' '}
-                              <span className="font-medium text-gray-900 dark:text-white">
-                                {dialogContent.item.description}
-                              </span>
-                            </p>
-                            <p className="mt-2">Are you sure you want to delete this chat?</p>
+                            Delete &quot;{dialogContent.item.description}&quot;?
                           </DialogDescription>
                         </div>
                         <div className="flex justify-end gap-3 px-6 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800">
-                          <DialogButton type="secondary" onClick={closeDialog}>
+                          <DialogButton type="secondary" onClick={() => setDialogContent(null)}>
                             Cancel
                           </DialogButton>
                           <DialogButton
                             type="danger"
-                            onClick={(event) => {
-                              console.log('Dialog delete button clicked for item:', dialogContent.item);
-                              deleteItem(event, dialogContent.item);
-                              closeDialog();
-                            }}
-                          >
-                            Delete
-                          </DialogButton>
-                        </div>
-                      </>
-                    )}
-                    {dialogContent?.type === 'bulkDelete' && (
-                      <>
-                        <div className="p-6 bg-white dark:bg-gray-950">
-                          <DialogTitle className="text-gray-900 dark:text-white">Delete Selected Chats?</DialogTitle>
-                          <DialogDescription className="mt-2 text-gray-600 dark:text-gray-400">
-                            <p>
-                              You are about to delete {dialogContent.items.length}{' '}
-                              {dialogContent.items.length === 1 ? 'chat' : 'chats'}:
-                            </p>
-                            <div className="mt-2 max-h-32 overflow-auto border border-gray-100 dark:border-gray-800 rounded-md bg-gray-50 dark:bg-gray-900 p-2">
-                              <ul className="list-disc pl-5 space-y-1">
-                                {dialogContent.items.map((item) => (
-                                  <li key={item.id} className="text-sm">
-                                    <span className="font-medium text-gray-900 dark:text-white">
-                                      {item.description}
-                                    </span>
-                                  </li>
-                                ))}
-                              </ul>
-                            </div>
-                            <p className="mt-3">Are you sure you want to delete these chats?</p>
-                          </DialogDescription>
-                        </div>
-                        <div className="flex justify-end gap-3 px-6 py-4 bg-gray-50 dark:bg-gray-900 border-t border-gray-100 dark:border-gray-800">
-                          <DialogButton type="secondary" onClick={closeDialog}>
-                            Cancel
-                          </DialogButton>
-                          <DialogButton
-                            type="danger"
-                            onClick={() => {
-                              /*
-                               * Pass the current selectedItems to the delete function.
-                               * This captures the state at the moment the user confirms.
-                               */
-                              const itemsToDeleteNow = [...selectedItems];
-                              console.log(
-                                'Bulk delete confirmed for',
-                                itemsToDeleteNow.length,
-                                'items',
-                                itemsToDeleteNow,
-                              );
-                              deleteSelectedItems(itemsToDeleteNow);
-                              closeDialog();
+                            onClick={(e) => {
+                              deleteItem(e, dialogContent.item);
+                              setDialogContent(null);
                             }}
                           >
                             Delete
@@ -766,36 +329,197 @@ export const Menu = () => {
                   </Dialog>
                 </DialogRoot>
               </div>
-            )}
-            <div className="mt-auto flex items-center justify-between border-t border-gray-200 dark:border-gray-800 px-4 py-3">
-              <div className="flex items-center gap-3 min-w-0">
-                <SettingsButton onClick={handleSettingsClick} />
-                <div className="flex items-center gap-2 min-w-0 rounded-full border border-bolt-elements-borderColor px-2 py-1">
-                  <div className="flex items-center justify-center w-7 h-7 overflow-hidden bg-bolt-elements-background-depth-3 text-bolt-elements-textTertiary rounded-full shrink-0">
-                    {profile?.avatar ? (
-                      <img
-                        src={profile.avatar}
-                        alt={profile?.username || 'User'}
-                        className="w-full h-full object-cover"
-                        loading="eager"
-                        decoding="sync"
-                      />
-                    ) : (
-                      <span className="text-xs font-semibold leading-none">{getInitials(profile?.username)}</span>
-                    )}
-                  </div>
-                  <span className="text-xs text-bolt-elements-textSecondary truncate max-w-24">
-                    {profile?.username || 'Guest User'}
-                  </span>
-                </div>
-              </div>
-              <ThemeSwitch />
             </div>
-          </div>
-        )}
-      </div>
+          )}
 
-      <ControlPanel open={isSettingsOpen} onClose={handleSettingsClose} />
+          {/* Project / Artifact / Code stub panels */}
+          {!collapsed && activeSection !== 'chats' && (
+            <div
+              style={{
+                marginTop: '8px',
+                padding: '10px',
+                borderRadius: '8px',
+              border: '1px solid var(--bolt-elements-borderColor)',
+              background: 'var(--bolt-elements-background-depth-2)',
+              color: 'var(--bolt-elements-textTertiary)',
+                fontSize: '13px',
+              }}
+            >
+              {activeSection === 'projects' && 'Projects will show shared workspaces and collaboration here.'}
+              {activeSection === 'artifacts' && 'Artifacts will show reusable components and modules here.'}
+              {activeSection === 'code' && 'Code section will show project code context and shared assets here.'}
+            </div>
+          )}
+        </nav>
+
+        {/* Footer: theme + settings + profile */}
+        <div
+          style={{
+            padding: '12px',
+            borderTop: '1px solid var(--bolt-elements-borderColor)',
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: collapsed ? 'center' : 'stretch',
+            gap: '8px',
+          }}
+        >
+          {/* Theme slider — horizontal when expanded, vertical when collapsed */}
+          {!collapsed ? (
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }} title={themeMode === 'dark' ? 'Switch to light' : 'Switch to dark'}>
+              <span style={{ fontSize: '13px' }}>☀️</span>
+              <label style={{ position: 'relative', width: '36px', height: '20px', cursor: 'pointer', flexShrink: 0 }}>
+                <input
+                  type="checkbox"
+                  checked={themeMode === 'dark'}
+                  onChange={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+                  style={{ display: 'none' }}
+                />
+                <span style={{
+                  position: 'absolute', inset: 0,
+                  background: themeMode === 'dark' ? '#5a5a7a' : '#888',
+                  borderRadius: '20px',
+                  transition: '.2s',
+                }} />
+                <span style={{
+                  position: 'absolute',
+                  top: '2px',
+                  left: themeMode === 'dark' ? '18px' : '2px',
+                  width: '16px', height: '16px',
+                  background: 'white',
+                  borderRadius: '50%',
+                  transition: '.2s',
+                }} />
+              </label>
+              <span style={{ fontSize: '13px' }}>🌙</span>
+            </div>
+          ) : (
+            // Vertical slider when collapsed
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '4px' }} title={themeMode === 'dark' ? 'Switch to light' : 'Switch to dark'}>
+              <span style={{ fontSize: '11px' }}>☀️</span>
+              <label style={{ position: 'relative', width: '20px', height: '36px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={themeMode === 'dark'}
+                  onChange={() => setThemeMode(themeMode === 'dark' ? 'light' : 'dark')}
+                  style={{ display: 'none' }}
+                />
+                <span style={{
+                  position: 'absolute', inset: 0,
+                  background: themeMode === 'dark' ? '#5a5a7a' : '#888',
+                  borderRadius: '20px',
+                  transition: '.2s',
+                }} />
+                <span style={{
+                  position: 'absolute',
+                  left: '2px',
+                  top: themeMode === 'dark' ? '18px' : '2px',
+                  width: '16px', height: '16px',
+                  background: 'white',
+                  borderRadius: '50%',
+                  transition: '.2s',
+                }} />
+              </label>
+              <span style={{ fontSize: '11px' }}>🌙</span>
+            </div>
+          )}
+
+          {/* Settings */}
+          <button
+            onClick={() => onOpenSettings('settings')}
+            title="Settings"
+            style={{
+              background: 'none',
+              border: 'none',
+              cursor: 'pointer',
+              color: 'var(--bolt-elements-textPrimary)',
+              textAlign: collapsed ? 'center' : 'left',
+              padding: '4px 0',
+              fontSize: '13px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              width: '100%',
+            }}
+          >
+            {collapsed ? '⚙' : '⚙ Settings'}
+          </button>
+
+          <button
+            onClick={() => void handleLogout()}
+            title="Log out"
+            disabled={loggingOut}
+            style={{
+              background: 'var(--bolt-elements-background-depth-2)',
+              border: '1px solid var(--bolt-elements-borderColor)',
+              borderRadius: '8px',
+              cursor: loggingOut ? 'default' : 'pointer',
+              color: 'var(--bolt-elements-textPrimary)',
+              textAlign: collapsed ? 'center' : 'left',
+              padding: collapsed ? '6px 0' : '6px 10px',
+              fontSize: '13px',
+              whiteSpace: 'nowrap',
+              overflow: 'hidden',
+              width: '100%',
+              opacity: loggingOut ? 0.6 : 1,
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: collapsed ? 'center' : 'flex-start',
+              gap: collapsed ? '0' : '8px',
+            }}
+          >
+            <span className="i-ph:sign-out text-[14px]" aria-hidden="true" />
+            {!collapsed && (loggingOut ? 'Logging out…' : 'Log out')}
+          </button>
+
+          {/* Profile */}
+          {!collapsed && (
+            <button
+              onClick={() => onOpenSettings('profile')}
+              title="Go to profile settings"
+              style={{
+                color: 'var(--bolt-elements-textSecondary)',
+                fontSize: '13px',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+                whiteSpace: 'nowrap',
+                background: 'none',
+                border: 'none',
+                cursor: 'pointer',
+                width: '100%',
+                textAlign: 'left',
+                padding: '0',
+                fontWeight: 500,
+              }}
+            >
+              {profile?.name || profile?.username || 'user'}
+            </button>
+          )}
+
+          {collapsed && (
+            <button
+              onClick={() => onOpenSettings('profile')}
+              title={`${profile?.name || profile?.username || 'User'} - Go to profile settings`}
+              style={{
+                width: '28px',
+                height: '28px',
+                borderRadius: '50%',
+                background: 'rgba(120,120,120,.3)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontSize: '11px',
+                fontWeight: 600,
+                color: 'var(--bolt-elements-textPrimary)',
+                marginTop: '2px',
+                border: 'none',
+                cursor: 'pointer',
+                padding: 0,
+              }}
+            >
+              {getInitials(profile?.name || profile?.username)}
+            </button>
+          )}
+        </div>
+      </div>
     </>
   );
 };

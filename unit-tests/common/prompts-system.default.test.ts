@@ -6,5 +6,6 @@ describe('getSystemPrompt default', () => {
     const prompt = getSystemPrompt();
     expect(prompt).toContain('You are Bolt');
     expect(prompt).toContain('system_constraints');
+    expect(prompt).toContain('MUST respond with exactly one <boltArtifact>');
   });
 });

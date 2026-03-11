@@ -3,6 +3,7 @@ import { createUser, findUserByUsername, getUserCount } from '~/lib/.server/pers
 import { createAuthCookies, generateSalt, getSecureCookieDirective, hashPassword } from '~/lib/.server/auth';
 import { enforceRateLimit } from '~/platform/security/request-guard';
 import { issueJwtToken } from '~/platform/security/jwt';
+import { normalizePlatformRole } from '~/platform/security/authz';
 
 export async function action({ request, context }: ActionFunctionArgs) {
   const { requestId, blockedResponse } = enforceRateLimit(
@@ -56,22 +57,32 @@ export async function action({ request, context }: ActionFunctionArgs) {
     const cookies = await createAuthCookies(created.id, env);
     const headers = new Headers();
     cookies.forEach((cookie) => headers.append('Set-Cookie', cookie));
+    const normalizedRole = normalizePlatformRole(created.role, created.isAdmin);
 
     const jwtSecret = (env?.BOLT_JWT_SECRET || 'bolt-default-jwt-secret') as string;
     const jwt = await issueJwtToken(
-      { sub: created.id, role: created.isAdmin ? 'admin' : 'user' },
-      { jwtSecret, ttlSeconds: 60 * 60 * 24 * 14 },
+      { sub: created.id, role: normalizedRole },
+      { jwtSecret, ttlSeconds: 60 * 60 * 24 * 2 },
     );
     const secureCookieDirective = getSecureCookieDirective(env);
     headers.append(
       'Set-Cookie',
-      `bolt_jwt=${encodeURIComponent(jwt)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=1209600${secureCookieDirective}`,
+      `bolt_jwt=${encodeURIComponent(jwt)}; Path=/; HttpOnly; SameSite=Lax${secureCookieDirective}`,
     );
 
     headers.set('x-request-id', requestId);
 
     return json(
-      { ok: true, requestId, user: { id: created.id, username: created.username, isAdmin: created.isAdmin } },
+      {
+        ok: true,
+        requestId,
+        user: {
+          id: created.id,
+          username: created.username,
+          isAdmin: created.isAdmin,
+          role: normalizedRole,
+        },
+      },
       { headers },
     );
   } catch {

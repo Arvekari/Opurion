@@ -8,6 +8,7 @@ import {
   isFetchingStats,
   isFetchingApiKeys,
   updateSupabaseConnection,
+  setSupabaseEnabled,
   fetchProjectApiKeys,
   initializeSupabaseConnection,
 } from '~/lib/stores/supabase';
@@ -22,6 +23,10 @@ export function useSupabaseConnection() {
 
   useEffect(() => {
     const initConnection = async () => {
+      if (!supabaseConnection.get().enabled) {
+        return;
+      }
+
       console.log('useSupabaseConnection: Initializing connection...');
 
       // First, try to initialize from server-side token
@@ -65,6 +70,10 @@ export function useSupabaseConnection() {
     isConnecting.set(true);
 
     try {
+      if (!connection.enabled) {
+        setSupabaseEnabled(true);
+      }
+
       const cleanToken = connection.token.trim();
 
       const response = await fetch('/api/supabase', {
@@ -166,5 +175,6 @@ export function useSupabaseConnection() {
 
       return Promise.reject(new Error('No token available'));
     },
+    setSupabaseEnabled,
   };
 }

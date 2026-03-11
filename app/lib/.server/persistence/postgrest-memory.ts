@@ -1,3 +1,5 @@
+import type { PlatformRole } from '~/platform/security/authz';
+
 import { createScopedLogger } from '~/utils/logger';
 
 type PersistedMemory = {
@@ -279,14 +281,16 @@ export async function getUserCount(env?: Record<string, any>): Promise<number> {
 }
 
 export async function createUser(
-  input: { username: string; email?: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean },
+  input: { username: string; email?: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean; role?: PlatformRole },
   env?: Record<string, any>,
-): Promise<{ id: string; username: string; email?: string; isAdmin: boolean } | null> {
+): Promise<{ id: string; username: string; email?: string; isAdmin: boolean; role: PlatformRole } | null> {
   if (!isPostgrestEnabled(env)) {
     return null;
   }
 
   const id = (globalThis as any)?.crypto?.randomUUID?.() || `user_${Date.now()}`;
+
+  const role = input.role || (input.isAdmin ? 'global_admin' : 'user');
 
   const response = await requestPostgrest<any[]>(
     '/users',
@@ -301,7 +305,8 @@ export async function createUser(
         email: input.email || null,
         password_hash: input.passwordHash,
         password_salt: input.passwordSalt,
-        is_admin: !!input.isAdmin,
+        is_admin: role !== 'user',
+        role,
         created_at: new Date().toISOString(),
       }),
     },
@@ -320,6 +325,7 @@ export async function createUser(
     username: String(row.username),
     email: row.email ? String(row.email) : undefined,
     isAdmin: !!row.is_admin,
+    role: (row.role ? String(row.role) : row.is_admin ? 'global_admin' : 'user') as PlatformRole,
   };
 }
 
@@ -333,13 +339,14 @@ export async function findUserByUsername(
   passwordHash: string;
   passwordSalt: string;
   isAdmin: boolean;
+  role: PlatformRole;
 } | null> {
   if (!isPostgrestEnabled(env)) {
     return null;
   }
 
   const response = await requestPostgrest<any[]>(
-    `/users?username=eq.${encodeURIComponent(username)}&select=id,username,email,password_hash,password_salt,is_admin&limit=1`,
+    `/users?username=eq.${encodeURIComponent(username)}&select=id,username,email,password_hash,password_salt,is_admin,role&limit=1`,
     { method: 'GET' },
     env,
   );
@@ -357,6 +364,7 @@ export async function findUserByUsername(
     passwordHash: String(row.password_hash),
     passwordSalt: String(row.password_salt),
     isAdmin: !!row.is_admin,
+    role: (row.role ? String(row.role) : row.is_admin ? 'global_admin' : 'user') as PlatformRole,
   };
 }
 
@@ -370,13 +378,14 @@ export async function findUserByEmail(
   passwordHash: string;
   passwordSalt: string;
   isAdmin: boolean;
+  role: PlatformRole;
 } | null> {
   if (!isPostgrestEnabled(env)) {
     return null;
   }
 
   const response = await requestPostgrest<any[]>(
-    `/users?email=eq.${encodeURIComponent(email.toLowerCase())}&select=id,username,email,password_hash,password_salt,is_admin&limit=1`,
+    `/users?email=eq.${encodeURIComponent(email.toLowerCase())}&select=id,username,email,password_hash,password_salt,is_admin,role&limit=1`,
     { method: 'GET' },
     env,
   );
@@ -394,13 +403,14 @@ export async function findUserByEmail(
     passwordHash: String(row.password_hash),
     passwordSalt: String(row.password_salt),
     isAdmin: !!row.is_admin,
+    role: (row.role ? String(row.role) : row.is_admin ? 'global_admin' : 'user') as PlatformRole,
   };
 }
 
 export async function createSession(
   userId: string,
   env?: Record<string, any>,
-  ttlHours: number = 24 * 14,
+  ttlHours: number = 48,
 ): Promise<{ token: string; expiresAt: string } | null> {
   if (!isPostgrestEnabled(env)) {
     return null;
@@ -437,13 +447,15 @@ export async function createSession(
 export async function getSessionUser(
   token: string,
   env?: Record<string, any>,
-): Promise<{ userId: string; username: string; isAdmin: boolean; expiresAt: string } | null> {
+): Promise<{ userId: string; username: string; isAdmin: boolean; role: PlatformRole; expiresAt: string } | null> {
+  const processStartedAt = Date.now();
+
   if (!isPostgrestEnabled(env)) {
     return null;
   }
 
   const response = await requestPostgrest<any[]>(
-    `/sessions?token=eq.${encodeURIComponent(token)}&select=user_id,expires_at,users(username,is_admin)&limit=1`,
+    `/sessions?token=eq.${encodeURIComponent(token)}&select=user_id,expires_at,created_at,users(username,is_admin,role)&limit=1`,
     { method: 'GET' },
     env,
   );
@@ -455,8 +467,14 @@ export async function getSessionUser(
   }
 
   const expiresAt = String(row.expires_at || '');
+  const createdAt = String(row.created_at || '');
 
   if (!expiresAt || new Date(expiresAt).getTime() < Date.now()) {
+    await deleteSession(token, env);
+    return null;
+  }
+
+  if (!createdAt || new Date(createdAt).getTime() < processStartedAt) {
     await deleteSession(token, env);
     return null;
   }
@@ -467,8 +485,94 @@ export async function getSessionUser(
     userId: String(row.user_id),
     username: String(user.username || ''),
     isAdmin: !!user.is_admin,
+    role: (user.role ? String(user.role) : user.is_admin ? 'global_admin' : 'user') as PlatformRole,
     expiresAt,
   };
+}
+
+export async function listUsers(
+  env?: Record<string, any>,
+): Promise<Array<{ id: string; username: string; email?: string; isAdmin: boolean; role: PlatformRole; createdAt: string }>> {
+  if (!isPostgrestEnabled(env)) {
+    return [];
+  }
+
+  const response = await requestPostgrest<any[]>(
+    '/users?select=id,username,email,is_admin,role,created_at&order=created_at.asc',
+    { method: 'GET' },
+    env,
+  );
+
+  if (!response.ok || !response.data) {
+    return [];
+  }
+
+  return response.data.map((row) => ({
+    id: String(row.id),
+    username: String(row.username),
+    email: row.email ? String(row.email) : undefined,
+    isAdmin: !!row.is_admin,
+    role: (row.role ? String(row.role) : row.is_admin ? 'global_admin' : 'user') as PlatformRole,
+    createdAt: String(row.created_at),
+  }));
+}
+
+export async function updateUserRecord(
+  input: { id: string; username?: string; email?: string | null; role?: PlatformRole },
+  env?: Record<string, any>,
+): Promise<boolean> {
+  if (!isPostgrestEnabled(env)) {
+    return false;
+  }
+
+  const body: Record<string, unknown> = {};
+
+  if (input.username !== undefined) {
+    body.username = input.username;
+  }
+
+  if (input.email !== undefined) {
+    body.email = input.email;
+  }
+
+  if (input.role !== undefined) {
+    body.role = input.role;
+    body.is_admin = input.role !== 'user';
+  }
+
+  const response = await requestPostgrest(`/users?id=eq.${encodeURIComponent(input.id)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify(body),
+  }, env);
+
+  return response.ok;
+}
+
+export async function updateUserPassword(
+  input: { id: string; passwordHash: string; passwordSalt: string },
+  env?: Record<string, any>,
+): Promise<boolean> {
+  if (!isPostgrestEnabled(env)) {
+    return false;
+  }
+
+  const response = await requestPostgrest(`/users?id=eq.${encodeURIComponent(input.id)}`, {
+    method: 'PATCH',
+    headers: { Prefer: 'return=minimal' },
+    body: JSON.stringify({ password_hash: input.passwordHash, password_salt: input.passwordSalt }),
+  }, env);
+
+  return response.ok;
+}
+
+export async function deleteUserRecord(id: string, env?: Record<string, any>): Promise<boolean> {
+  if (!isPostgrestEnabled(env)) {
+    return false;
+  }
+
+  const response = await requestPostgrest(`/users?id=eq.${encodeURIComponent(id)}`, { method: 'DELETE' }, env);
+  return response.ok;
 }
 
 export async function deleteSession(token: string, env?: Record<string, any>): Promise<void> {

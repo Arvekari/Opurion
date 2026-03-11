@@ -18,6 +18,8 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Changed
 
+- Build-mode prompt guardrails now enforce Workbench-first implementation delivery: implementable requests must be returned as a single executable `<boltArtifact>` instead of standalone copy/paste code blocks in chat.
+- Prompt identity/authorship baseline in the fine-tuned system prompt is now explicitly `Bolt2.dyi` (created by Markku Arvekari, year 2026), and matching unit-test baselines were updated.
 - Chat shell layout now uses a persistent top model bar and bottom-anchored composer flow by removing the centered intro hero state from `app/components/chat/BaseChat.tsx`.
 - Chat provider/model selector now lists only providers and models that have configured API keys, and key management is routed to Settings > Providers.
 - Provider/model selectors were moved from the main chat workspace into the top toolbar (`app/components/header/Header.tsx`) and synchronized with active chat state.
@@ -46,6 +48,8 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 ### Fixed
 
+- Neutral discussion mode no longer executes leaked build actions: executable artifact/action markup is stripped before parse/render in discuss mode, preventing premature "initial files" creation/stall behavior.
+- Action cards now include the same feature-gated debug-panel functionality as chat streaming, backed by shared action lifecycle logs for queued/started/completed/aborted/failed states.
 - **CRITICAL P0**: Chat LLM response timeout that blocked core functionality. Responses longer than 120 seconds would timeout even with continuous data flow from the model. Now properly handles multi-minute responses by monitoring data arrival rather than absolute elapsed time.
 - **P0 Streaming Await Bug**: `/api/chat` now correctly awaits the async streaming runner so HTTP responses stay open until delayed `text-delta` chunks are emitted.
 - **P0 Runtime Map Error**: Added guarded fallback in `app/lib/.server/llm/stream-text.ts` so if `convertToModelMessages()` throws `Cannot read properties of undefined (reading 'map')`, streaming continues with raw message payloads instead of aborting.

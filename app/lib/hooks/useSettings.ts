@@ -15,6 +15,7 @@ import {
   tabConfigurationStore,
   resetTabConfiguration as resetTabConfig,
   updateProviderSettings as updateProviderSettingsStore,
+  updateDebugMode,
   updateLatestBranch,
   updateAutoSelectTemplate,
   updateContextOptimization,
@@ -139,7 +140,7 @@ export function useSettings(): UseSettingsReturn {
   }, []);
 
   const enableDebugMode = useCallback((enabled: boolean) => {
-    isDebugMode.set(enabled);
+    updateDebugMode(enabled);
     logStore.logSystem(`Debug mode ${enabled ? 'enabled' : 'disabled'}`);
     Cookies.set('isDebugEnabled', String(enabled));
   }, []);

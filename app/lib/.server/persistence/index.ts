@@ -70,7 +70,7 @@ export async function getUserCount(env?: Record<string, any>) {
 }
 
 export async function createUser(
-  input: { username: string; email?: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean },
+  input: { username: string; email?: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean; role?: import('~/platform/security/authz').PlatformRole },
   env?: Record<string, any>,
 ) {
   return usePostgrest(env) ? postgrest.createUser(input, env) : sqlite.createUser(input, env);
@@ -96,6 +96,28 @@ export async function getSessionUser(token: string, env?: Record<string, any>) {
 
 export async function deleteSession(token: string, env?: Record<string, any>) {
   return usePostgrest(env) ? postgrest.deleteSession(token, env) : sqlite.deleteSession(token, env);
+}
+
+export async function listUsers(env?: Record<string, any>) {
+  return usePostgrest(env) ? postgrest.listUsers(env) : sqlite.listUsers(env);
+}
+
+export async function updateUserRecord(
+  input: { id: string; username?: string; email?: string | null; role?: import('~/platform/security/authz').PlatformRole },
+  env?: Record<string, any>,
+) {
+  return usePostgrest(env) ? postgrest.updateUserRecord(input, env) : sqlite.updateUserRecord(input, env);
+}
+
+export async function updateUserPassword(
+  input: { id: string; passwordHash: string; passwordSalt: string },
+  env?: Record<string, any>,
+) {
+  return usePostgrest(env) ? postgrest.updateUserPassword(input, env) : sqlite.updateUserPassword(input, env);
+}
+
+export async function deleteUserRecord(id: string, env?: Record<string, any>) {
+  return usePostgrest(env) ? postgrest.deleteUserRecord(id, env) : sqlite.deleteUserRecord(id, env);
 }
 
 export async function readPersistedMemoryForUser(userId: string, env?: Record<string, any>) {

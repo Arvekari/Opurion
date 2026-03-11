@@ -4,6 +4,7 @@ import { toast } from 'react-toastify';
 import { useStore } from '@nanostores/react';
 import { classNames } from '~/utils/classNames';
 import { Button } from '~/components/ui/Button';
+import { Switch } from '~/components/ui/Switch';
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '~/components/ui/Collapsible';
 import {
   supabaseConnection,
@@ -11,6 +12,7 @@ import {
   isFetchingStats,
   isFetchingApiKeys,
   updateSupabaseConnection,
+  setSupabaseEnabled,
   fetchSupabaseStats,
   fetchProjectApiKeys,
   initializeSupabaseConnection,
@@ -57,6 +59,7 @@ export default function SupabaseTab() {
   const fetchingApiKeys = useStore(isFetchingApiKeys);
 
   const [tokenInput, setTokenInput] = useState('');
+  const [customEndpointInput, setCustomEndpointInput] = useState(connection?.customEndpoint || '');
   const [isProjectsExpanded, setIsProjectsExpanded] = useState(false);
   const [connectionTest, setConnectionTest] = useState<ConnectionTestResult | null>(null);
   const [isProjectActionLoading, setIsProjectActionLoading] = useState(false);
@@ -191,6 +194,10 @@ export default function SupabaseTab() {
   // Initialize connection on component mount - check server-side token first
   useEffect(() => {
     const initializeConnection = async () => {
+      if (!supabaseConnection.get().enabled) {
+        return;
+      }
+
       try {
         // First try to initialize using server-side token
         await initializeSupabaseConnection();
@@ -226,6 +233,10 @@ export default function SupabaseTab() {
     isConnecting.set(true);
 
     try {
+      if (!connection.enabled) {
+        setSupabaseEnabled(true);
+      }
+
       await fetchSupabaseStats(tokenInput);
       updateSupabaseConnection({
         token: tokenInput,
@@ -255,6 +266,22 @@ export default function SupabaseTab() {
     setConnectionTest(null);
     setSelectedProjectId('');
     toast.success('Disconnected from Supabase');
+  };
+
+  const handleToggleSupabase = (enabled: boolean) => {
+    setSupabaseEnabled(enabled);
+
+    if (!enabled) {
+      setTokenInput('');
+      setCustomEndpointInput('');
+      setConnectionTest(null);
+      setSelectedProjectId('');
+      toast.success('Supabase disabled');
+      return;
+    }
+
+    toast.success('Supabase enabled');
+    void initializeSupabaseConnection();
   };
 
   const handleProjectAction = async (projectId: string, action: ProjectAction) => {
@@ -698,7 +725,21 @@ export default function SupabaseTab() {
         transition={{ delay: 0.2 }}
       >
         <div className="p-6 space-y-6">
-          {!connection.user ? (
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-4">
+            <div>
+              <h3 className="text-sm font-medium text-bolt-elements-textPrimary">Enable Supabase</h3>
+              <p className="mt-1 text-xs text-bolt-elements-textSecondary">
+                When off, Supabase controls are hidden and saved Supabase connection data is cleared.
+              </p>
+            </div>
+            <Switch checked={connection.enabled} onCheckedChange={handleToggleSupabase} />
+          </div>
+
+          {!connection.enabled ? (
+            <div className="rounded-lg border border-dashed border-bolt-elements-borderColor p-4 text-sm text-bolt-elements-textSecondary">
+              Supabase is off. Turn it on to configure a token, endpoint, and project credentials.
+            </div>
+          ) : !connection.user ? (
             <div className="space-y-4">
               <div className="text-xs text-bolt-elements-textSecondary bg-bolt-elements-background-depth-1 dark:bg-bolt-elements-background-depth-1 p-3 rounded-lg mb-4">
                 <p className="flex items-center gap-1 mb-1">
@@ -741,8 +782,35 @@ export default function SupabaseTab() {
                 </div>
               </div>
 
+              <div>
+                <label className="block text-sm text-bolt-elements-textSecondary mb-2">Custom Supabase Endpoint (Optional)</label>
+                <input
+                  type="text"
+                  value={customEndpointInput}
+                  onChange={(e) => setCustomEndpointInput(e.target.value)}
+                  disabled={connecting}
+                  placeholder="e.g., https://your-project.supabase.co"
+                  className={classNames(
+                    'w-full px-3 py-2 rounded-lg text-sm',
+                    'bg-[#F8F8F8] dark:bg-[#1A1A1A]',
+                    'border border-[#E5E5E5] dark:border-[#333333]',
+                    'text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary',
+                    'focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive',
+                    'disabled:opacity-50',
+                  )}
+                />
+                <div className="mt-1 text-xs text-bolt-elements-textTertiary">
+                  Leave empty to use the default Supabase API endpoint
+                </div>
+              </div>
+
               <button
-                onClick={handleConnect}
+                onClick={() => {
+                  handleConnect();
+                  if (customEndpointInput) {
+                    updateSupabaseConnection({ customEndpoint: customEndpointInput });
+                  }
+                }}
                 disabled={connecting || !tokenInput}
                 className={classNames(
                   'px-4 py-2 rounded-lg text-sm flex items-center gap-2',

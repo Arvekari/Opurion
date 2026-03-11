@@ -9,6 +9,7 @@ Use the following files in this folder as the canonical visual reference example
 - `docs/development/layout.css`
 
 Notes:
+
 - `index.workspace.html` defines the primary workspace shell structure and visual direction.
 - `settings.workspace.html` defines the settings page/surface structure and styling.
 - `layout.css` contains the shared style tokens and layout rules used by the reference examples.

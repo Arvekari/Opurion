@@ -21,10 +21,10 @@ describe('layered structure imports', () => {
   });
 
   it('exposes platform auth/rbac/audit modules', async () => {
-    expect(hasRequiredRole('admin', 'user')).toBe(true);
+    expect(hasRequiredRole('global_admin', 'user')).toBe(true);
 
     const token = await issueJwtToken(
-      { sub: 'u1', role: 'admin' },
+      { sub: 'u1', role: 'global_admin' },
       { jwtSecret: 'secret', ttlSeconds: 60 },
     );
 

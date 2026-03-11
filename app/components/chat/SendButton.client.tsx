@@ -16,12 +16,14 @@ export const SendButton = ({ show, isStreaming, disabled, onClick }: SendButtonP
     <AnimatePresence>
       {show ? (
         <motion.button
-          className={`absolute top-4 right-4 w-8 h-8 rounded-md transition-theme ${uiButtonClassTokens.primaryIconCompact}`}
+          className="w-8 h-8 rounded-md transition-theme text-white flex items-center justify-center"
+          style={{ backgroundColor: '#F59E0B' }}
           transition={{ ease: customEasingFn, duration: 0.17 }}
-          initial={{ opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: 10 }}
+          initial={{ opacity: 0, scale: 0.8 }}
+          animate={{ opacity: 1, scale: 1 }}
+          exit={{ opacity: 0, scale: 0.8 }}
           disabled={disabled}
+          aria-label={isStreaming ? 'Stop response' : 'Send message'}
           onClick={(event) => {
             event.preventDefault();
 
@@ -29,8 +31,9 @@ export const SendButton = ({ show, isStreaming, disabled, onClick }: SendButtonP
               onClick?.(event);
             }
           }}
+          title={isStreaming ? 'Stop' : 'Send'}
         >
-          <div className="text-lg">
+          <div className="text-lg" style={{ opacity: disabled ? 0.55 : 1 }}>
             {!isStreaming ? <div className="i-ph:arrow-right"></div> : <div className="i-ph:stop-circle-bold"></div>}
           </div>
         </motion.button>

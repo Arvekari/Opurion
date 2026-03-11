@@ -25,7 +25,9 @@ describe('stores/profile module', () => {
     module.setActiveProfileUser('u1');
     module.updateProfile({ username: 'alice', bio: 'dev' });
 
-    expect(backingStore.get('bolt_profile:u1')).toBe(JSON.stringify({ username: 'alice', bio: 'dev', avatar: '' }));
+    expect(backingStore.get('bolt_profile:u1')).toBe(
+      JSON.stringify({ username: 'alice', name: '', bio: 'dev', avatar: '' }),
+    );
     expect(backingStore.get('bolt_profile:u2')).toBeUndefined();
   });
 

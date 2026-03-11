@@ -42,6 +42,7 @@ export interface SupabaseProject {
 }
 
 export interface SupabaseConnectionState {
+  enabled: boolean;
   user: SupabaseUser | null;
   token: string;
   stats?: SupabaseStats;
@@ -49,6 +50,7 @@ export interface SupabaseConnectionState {
   isConnected?: boolean;
   project?: SupabaseProject;
   credentials?: SupabaseCredentials;
+  customEndpoint?: string;
 }
 
 const storage =
@@ -61,16 +63,19 @@ const storage =
 const savedConnection = storage ? storage.getItem('supabase_connection') : null;
 const savedCredentials = storage ? storage.getItem('supabaseCredentials') : null;
 
-const initialState: SupabaseConnectionState = savedConnection
-  ? JSON.parse(savedConnection)
-  : {
-      user: null,
-      token: '',
-      stats: undefined,
-      selectedProjectId: undefined,
-      isConnected: false,
-      project: undefined,
-    };
+const parsedSavedConnection = savedConnection ? (JSON.parse(savedConnection) as Partial<SupabaseConnectionState>) : null;
+
+const initialState: SupabaseConnectionState = {
+  enabled: parsedSavedConnection?.enabled === true,
+  user: parsedSavedConnection?.user ?? null,
+  token: parsedSavedConnection?.token ?? '',
+  stats: parsedSavedConnection?.stats,
+  selectedProjectId: parsedSavedConnection?.selectedProjectId,
+  isConnected: parsedSavedConnection?.isConnected ?? false,
+  project: parsedSavedConnection?.project,
+  credentials: parsedSavedConnection?.credentials,
+  customEndpoint: parsedSavedConnection?.customEndpoint,
+};
 
 if (savedCredentials && !initialState.credentials) {
   try {
@@ -86,7 +91,7 @@ export const isConnecting = atom(false);
 export const isFetchingStats = atom(false);
 export const isFetchingApiKeys = atom(false);
 
-if (initialState.token && !initialState.stats) {
+if (initialState.enabled && initialState.token && !initialState.stats) {
   fetchSupabaseStats(initialState.token).catch(console.error);
 }
 
@@ -129,7 +134,7 @@ export function updateSupabaseConnection(connection: Partial<SupabaseConnectionS
   /*
    * Always save the connection state to localStorage to persist across chats
    */
-  if (connection.user || connection.token || connection.selectedProjectId !== undefined || connection.credentials) {
+  if (newState.enabled || connection.user || connection.token || connection.selectedProjectId !== undefined || connection.credentials) {
     storage?.setItem('supabase_connection', JSON.stringify(newState));
 
     if (newState.credentials) {
@@ -143,7 +148,33 @@ export function updateSupabaseConnection(connection: Partial<SupabaseConnectionS
   }
 }
 
+export function setSupabaseEnabled(enabled: boolean) {
+  if (enabled) {
+    updateSupabaseConnection({ enabled: true });
+    return;
+  }
+
+  supabaseConnection.set({
+    enabled: false,
+    user: null,
+    token: '',
+    stats: undefined,
+    selectedProjectId: undefined,
+    isConnected: false,
+    project: undefined,
+    credentials: undefined,
+    customEndpoint: undefined,
+  });
+
+  storage?.removeItem('supabase_connection');
+  storage?.removeItem('supabaseCredentials');
+}
+
 export function initializeSupabaseConnection() {
+  if (!supabaseConnection.get().enabled) {
+    return;
+  }
+
   // Auto-connect using environment variable if available
   const envToken = import.meta.env?.VITE_SUPABASE_ACCESS_TOKEN;
 

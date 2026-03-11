@@ -11,7 +11,8 @@ import { forwardRef } from 'react';
 import type { ForwardedRef } from 'react';
 import type { ProviderInfo } from '~/types/model';
 import { useStore } from '@nanostores/react';
-import { logStore } from '~/lib/stores/logs';
+import { isDebugMode } from '~/lib/stores/settings';
+import { DebugLogPanel } from './DebugLogPanel';
 
 interface MessagesProps {
   id?: string;
@@ -30,15 +31,8 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(
   (props: MessagesProps, ref: ForwardedRef<HTMLDivElement> | undefined) => {
     const { id, isStreaming = false, messages = [] } = props;
     const location = useLocation();
-    const logs = useStore(logStore.logs);
+    const debugEnabled = useStore(isDebugMode);
     const [isDebugPanelOpen, setIsDebugPanelOpen] = useState(false);
-
-    const latestExecutionLogs = useMemo(() => {
-      return Object.values(logs)
-        .filter((entry) => ['provider', 'api', 'error', 'system'].includes(entry.category))
-        .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
-        .slice(0, 15);
-    }, [logs]);
 
     const handleRewind = (messageId: string) => {
       const searchParams = new URLSearchParams(location.search);
@@ -111,42 +105,20 @@ export const Messages = forwardRef<HTMLDivElement, MessagesProps>(
                 <div className="text-bolt-elements-item-contentAccent i-svg-spinners:3-dots-fade text-3xl" />
                 <span className="text-xs text-bolt-elements-textSecondary">LLM is processing request</span>
               </div>
-              <button
-                type="button"
-                onClick={() => setIsDebugPanelOpen((value) => !value)}
-                className="text-xs px-2 py-1 rounded border border-bolt-elements-borderColor text-bolt-elements-textPrimary hover:border-bolt-elements-borderColorActive"
-                aria-expanded={isDebugPanelOpen}
-                aria-controls="stream-debug-panel"
-              >
-                {isDebugPanelOpen ? 'Hide debug panel' : 'Show debug panel'}
-              </button>
+              {debugEnabled && (
+                <button
+                  type="button"
+                  onClick={() => setIsDebugPanelOpen((value) => !value)}
+                  className="text-xs px-2 py-1 rounded border border-bolt-elements-borderColor text-bolt-elements-textPrimary hover:border-bolt-elements-borderColorActive"
+                  aria-expanded={isDebugPanelOpen}
+                  aria-controls="stream-debug-panel"
+                >
+                  {isDebugPanelOpen ? 'Hide debug panel' : 'Show debug panel'}
+                </button>
+              )}
             </div>
 
-            {isDebugPanelOpen && (
-              <div
-                id="stream-debug-panel"
-                className="mt-3 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background p-2 max-h-56 overflow-y-auto"
-              >
-                {latestExecutionLogs.length > 0 ? (
-                  <div className="space-y-2">
-                    {latestExecutionLogs.map((entry) => (
-                      <div
-                        key={entry.id}
-                        className="text-xs leading-5 border-b border-bolt-elements-borderColor/40 pb-2 last:border-b-0"
-                      >
-                        <div className="flex items-center justify-between gap-2 text-bolt-elements-textSecondary">
-                          <span className="uppercase tracking-wide">{entry.category}</span>
-                          <span>{new Date(entry.timestamp).toLocaleTimeString()}</span>
-                        </div>
-                        <div className="text-bolt-elements-textPrimary">{entry.message}</div>
-                      </div>
-                    ))}
-                  </div>
-                ) : (
-                  <div className="text-xs text-bolt-elements-textSecondary">No execution logs available yet.</div>
-                )}
-              </div>
-            )}
+            {debugEnabled && isDebugPanelOpen && <DebugLogPanel panelId="stream-debug-panel" />}
           </div>
         )}
       </div>

@@ -67,7 +67,11 @@ class LogStore {
   }
 
   private _loadLogs() {
-    const savedLogs = Cookies.get('eventLogs');
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    const savedLogs = localStorage.getItem('bolt_event_logs');
 
     if (savedLogs) {
       try {
@@ -97,8 +101,16 @@ class LogStore {
   }
 
   private _saveLogs() {
-    const currentLogs = this._logs.get();
-    Cookies.set('eventLogs', JSON.stringify(currentLogs));
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    try {
+      const currentLogs = this._logs.get();
+      localStorage.setItem('bolt_event_logs', JSON.stringify(currentLogs));
+    } catch {
+      // localStorage full or unavailable — silently skip persistence
+    }
   }
 
   private _saveReadLogs() {

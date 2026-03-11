@@ -5,7 +5,7 @@ import { issueJwtToken, verifyJwtToken } from '~/platform/security/jwt';
 describe('jwt', () => {
   it('issues and verifies signed token payload', async () => {
     const token = await issueJwtToken(
-      { sub: 'u1', role: 'admin' },
+      { sub: 'u1', role: 'global_admin' },
       {
         jwtSecret: 'test-secret',
         ttlSeconds: 300,
@@ -15,7 +15,7 @@ describe('jwt', () => {
     const payload = await verifyJwtToken(token, { jwtSecret: 'test-secret' });
 
     expect(payload?.sub).toBe('u1');
-    expect(payload?.role).toBe('admin');
+    expect(payload?.role).toBe('global_admin');
   });
 
   it('rejects token with wrong secret', async () => {

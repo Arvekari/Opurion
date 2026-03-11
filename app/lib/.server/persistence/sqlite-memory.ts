@@ -1,3 +1,5 @@
+import type { PlatformRole } from '~/platform/security/authz';
+
 import { createScopedLogger } from '~/utils/logger';
 import { CURRENT_SCHEMA_VERSION } from '~/platform/persistence/schema-version';
 
@@ -44,6 +46,7 @@ const logger = createScopedLogger('sqlite-memory');
 
 let sqliteContextPromise: Promise<SqliteContext | null> | null = null;
 let writeQueue: Promise<void> = Promise.resolve();
+const PROCESS_STARTED_AT = Date.now();
 
 function getEnvValue(env: Record<string, any> | undefined, key: string): string | undefined {
   const processEnv = (globalThis as any)?.process?.env;
@@ -51,7 +54,14 @@ function getEnvValue(env: Record<string, any> | undefined, key: string): string 
 }
 
 function isEnabled(env?: Record<string, any>): boolean {
-  return getEnvValue(env, 'BOLT_SQLITE_PERSISTENCE_ENABLED') === 'true';
+  const flag = getEnvValue(env, 'BOLT_SQLITE_PERSISTENCE_ENABLED');
+
+  if (typeof flag === 'string') {
+    return flag.toLowerCase() !== 'false';
+  }
+
+  // Local/dev default: keep persistence on so auth bootstrap (signup/login) works out of the box.
+  return true;
 }
 
 function getSqlitePath(env?: Record<string, any>): string {
@@ -146,6 +156,7 @@ async function ensureContext(env?: Record<string, any>): Promise<SqliteContext |
             password_hash TEXT NOT NULL,
             password_salt TEXT NOT NULL,
             is_admin INTEGER NOT NULL DEFAULT 0,
+            role TEXT NOT NULL DEFAULT 'user',
             created_at TEXT NOT NULL
           );
         `);
@@ -155,6 +166,18 @@ async function ensureContext(env?: Record<string, any>): Promise<SqliteContext |
           db.run('ALTER TABLE users ADD COLUMN email TEXT UNIQUE;');
         } catch {
           // Column already exists or table doesn't exist yet, ignore
+        }
+
+        try {
+          db.run("ALTER TABLE users ADD COLUMN role TEXT NOT NULL DEFAULT 'user';");
+        } catch {
+          // Column already exists or table doesn't exist yet, ignore
+        }
+
+        try {
+          db.run("UPDATE users SET role = CASE WHEN is_admin = 1 THEN 'global_admin' ELSE 'user' END WHERE role IS NULL OR role = '' OR role = 'admin' OR (is_admin = 1 AND role = 'user');");
+        } catch {
+          // Ignore migration update failures on older or partial schemas
         }
 
         db.run(`
@@ -529,9 +552,9 @@ export async function getUserCount(env?: Record<string, any>): Promise<number> {
 }
 
 export async function createUser(
-  input: { username: string; email?: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean },
+  input: { username: string; email?: string; passwordHash: string; passwordSalt: string; isAdmin?: boolean; role?: PlatformRole },
   env?: Record<string, any>,
-): Promise<{ id: string; username: string; email?: string; isAdmin: boolean } | null> {
+): Promise<{ id: string; username: string; email?: string; isAdmin: boolean; role: PlatformRole } | null> {
   const ctx = await ensureContext(env);
 
   if (!ctx) {
@@ -541,22 +564,25 @@ export async function createUser(
   const id = (globalThis as any)?.crypto?.randomUUID?.() || `user_${Date.now()}`;
   const createdAt = new Date().toISOString();
 
+  const role = input.role || (input.isAdmin ? 'global_admin' : 'user');
+
   try {
     ctx.db.run(
-      'INSERT INTO users (id, username, email, password_hash, password_salt, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?, ?);',
+      'INSERT INTO users (id, username, email, password_hash, password_salt, is_admin, role, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?);',
       [
         id,
         input.username,
         input.email || null,
         input.passwordHash,
         input.passwordSalt,
-        input.isAdmin ? 1 : 0,
+        role !== 'user' ? 1 : 0,
+        role,
         createdAt,
       ],
     );
     await save(ctx);
 
-    return { id, username: input.username, email: input.email, isAdmin: !!input.isAdmin };
+    return { id, username: input.username, email: input.email, isAdmin: role !== 'user', role };
   } catch {
     return null;
   }
@@ -572,6 +598,7 @@ export async function findUserByUsername(
   passwordHash: string;
   passwordSalt: string;
   isAdmin: boolean;
+  role: PlatformRole;
 } | null> {
   const ctx = await ensureContext(env);
 
@@ -580,7 +607,7 @@ export async function findUserByUsername(
   }
 
   const result = ctx.db.exec(
-    'SELECT id, username, email, password_hash, password_salt, is_admin FROM users WHERE username = ?;',
+    'SELECT id, username, email, password_hash, password_salt, is_admin, role FROM users WHERE username = ?;',
     [username],
   );
 
@@ -597,6 +624,7 @@ export async function findUserByUsername(
     passwordHash: String(row[3]),
     passwordSalt: String(row[4]),
     isAdmin: Number(row[5]) === 1,
+    role: ((row[6] ? String(row[6]) : Number(row[5]) === 1 ? 'global_admin' : 'user') as PlatformRole),
   };
 }
 
@@ -610,6 +638,7 @@ export async function findUserByEmail(
   passwordHash: string;
   passwordSalt: string;
   isAdmin: boolean;
+  role: PlatformRole;
 } | null> {
   const ctx = await ensureContext(env);
 
@@ -618,7 +647,7 @@ export async function findUserByEmail(
   }
 
   const result = ctx.db.exec(
-    'SELECT id, username, email, password_hash, password_salt, is_admin FROM users WHERE email = ?;',
+    'SELECT id, username, email, password_hash, password_salt, is_admin, role FROM users WHERE email = ?;',
     [email.toLowerCase()],
   );
 
@@ -635,13 +664,14 @@ export async function findUserByEmail(
     passwordHash: String(row[3]),
     passwordSalt: String(row[4]),
     isAdmin: Number(row[5]) === 1,
+    role: ((row[6] ? String(row[6]) : Number(row[5]) === 1 ? 'global_admin' : 'user') as PlatformRole),
   };
 }
 
 export async function createSession(
   userId: string,
   env?: Record<string, any>,
-  ttlHours: number = 24 * 14,
+  ttlHours: number = 48,
 ): Promise<{ token: string; expiresAt: string } | null> {
   const ctx = await ensureContext(env);
 
@@ -668,7 +698,7 @@ export async function createSession(
 export async function getSessionUser(
   token: string,
   env?: Record<string, any>,
-): Promise<{ userId: string; username: string; isAdmin: boolean; expiresAt: string } | null> {
+): Promise<{ userId: string; username: string; isAdmin: boolean; role: PlatformRole; expiresAt: string } | null> {
   const ctx = await ensureContext(env);
 
   if (!ctx) {
@@ -677,7 +707,7 @@ export async function getSessionUser(
 
   const result = ctx.db.exec(
     `
-      SELECT s.user_id, u.username, u.is_admin, s.expires_at
+      SELECT s.user_id, u.username, u.is_admin, u.role, s.expires_at, s.created_at
       FROM sessions s
       JOIN users u ON u.id = s.user_id
       WHERE s.token = ?;
@@ -691,9 +721,15 @@ export async function getSessionUser(
     return null;
   }
 
-  const expiresAt = String(row[3]);
+  const expiresAt = String(row[4]);
+  const createdAt = String(row[5] || '');
 
   if (new Date(expiresAt).getTime() < Date.now()) {
+    await deleteSession(token, env);
+    return null;
+  }
+
+  if (!createdAt || new Date(createdAt).getTime() < PROCESS_STARTED_AT) {
     await deleteSession(token, env);
     return null;
   }
@@ -702,8 +738,108 @@ export async function getSessionUser(
     userId: String(row[0]),
     username: String(row[1]),
     isAdmin: Number(row[2]) === 1,
+    role: ((row[3] ? String(row[3]) : Number(row[2]) === 1 ? 'global_admin' : 'user') as PlatformRole),
     expiresAt,
   };
+}
+
+export async function listUsers(
+  env?: Record<string, any>,
+): Promise<Array<{ id: string; username: string; email?: string; isAdmin: boolean; role: PlatformRole; createdAt: string }>> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return [];
+  }
+
+  const result = ctx.db.exec('SELECT id, username, email, is_admin, role, created_at FROM users ORDER BY created_at ASC;');
+  const rows = result?.[0]?.values || [];
+
+  return rows.map((row: any[]) => ({
+    id: String(row[0]),
+    username: String(row[1]),
+    email: row[2] ? String(row[2]) : undefined,
+    isAdmin: Number(row[3]) === 1,
+    role: ((row[4] ? String(row[4]) : Number(row[3]) === 1 ? 'global_admin' : 'user') as PlatformRole),
+    createdAt: String(row[5]),
+  }));
+}
+
+export async function updateUserRecord(
+  input: { id: string; username?: string; email?: string | null; role?: PlatformRole },
+  env?: Record<string, any>,
+): Promise<boolean> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return false;
+  }
+
+  const existing = ctx.db.exec('SELECT id FROM users WHERE id = ?;', [input.id]);
+
+  if (!existing?.[0]?.values?.[0]) {
+    return false;
+  }
+
+  const updates: string[] = [];
+  const params: any[] = [];
+
+  if (input.username !== undefined) {
+    updates.push('username = ?');
+    params.push(input.username);
+  }
+
+  if (input.email !== undefined) {
+    updates.push('email = ?');
+    params.push(input.email || null);
+  }
+
+  if (input.role !== undefined) {
+    updates.push('role = ?');
+    params.push(input.role);
+    updates.push('is_admin = ?');
+    params.push(input.role !== 'user' ? 1 : 0);
+  }
+
+  if (updates.length === 0) {
+    return true;
+  }
+
+  ctx.db.run(`UPDATE users SET ${updates.join(', ')} WHERE id = ?;`, [...params, input.id]);
+  await save(ctx);
+
+  return true;
+}
+
+export async function updateUserPassword(
+  input: { id: string; passwordHash: string; passwordSalt: string },
+  env?: Record<string, any>,
+): Promise<boolean> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return false;
+  }
+
+  ctx.db.run('UPDATE users SET password_hash = ?, password_salt = ? WHERE id = ?;', [input.passwordHash, input.passwordSalt, input.id]);
+  await save(ctx);
+
+  return true;
+}
+
+export async function deleteUserRecord(id: string, env?: Record<string, any>): Promise<boolean> {
+  const ctx = await ensureContext(env);
+
+  if (!ctx) {
+    return false;
+  }
+
+  ctx.db.run('DELETE FROM sessions WHERE user_id = ?;', [id]);
+  ctx.db.run('DELETE FROM user_memory WHERE user_id = ?;', [id]);
+  ctx.db.run('DELETE FROM users WHERE id = ?;', [id]);
+  await save(ctx);
+
+  return true;
 }
 
 export async function deleteSession(token: string, env?: Record<string, any>): Promise<void> {

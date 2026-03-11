@@ -3,6 +3,8 @@ import { createSession, deleteSession, getSessionUser } from './persistence';
 
 const SESSION_COOKIE = 'bolt_session';
 const USER_ID_COOKIE = 'bolt_uid';
+const JWT_COOKIE = 'bolt_jwt';
+const AUTH_SESSION_TTL_HOURS = 48;
 
 function shouldUseSecureCookies(env?: Record<string, any>): boolean {
   const nodeEnv = String(env?.NODE_ENV || '').toLowerCase();
@@ -77,7 +79,7 @@ export async function getCurrentUserFromRequest(request: Request, env?: Record<s
 }
 
 export async function createAuthCookies(userId: string, env?: Record<string, any>) {
-  const session = await createSession(userId, env);
+  const session = await createSession(userId, env, AUTH_SESSION_TTL_HOURS);
 
   if (!session) {
     return [] as string[];
@@ -86,8 +88,8 @@ export async function createAuthCookies(userId: string, env?: Record<string, any
   const secureDirective = getSecureCookieDirective(env);
 
   return [
-    `${SESSION_COOKIE}=${encodeURIComponent(session.token)}; Path=/; HttpOnly; SameSite=Lax; Max-Age=1209600${secureDirective}`,
-    `${USER_ID_COOKIE}=${encodeURIComponent(userId)}; Path=/; SameSite=Lax; Max-Age=1209600${secureDirective}`,
+    `${SESSION_COOKIE}=${encodeURIComponent(session.token)}; Path=/; HttpOnly; SameSite=Lax${secureDirective}`,
+    `${USER_ID_COOKIE}=${encodeURIComponent(userId)}; Path=/; SameSite=Lax${secureDirective}`,
   ];
 }
 
@@ -103,5 +105,6 @@ export async function clearAuthCookies(request: Request, env?: Record<string, an
   return [
     `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureDirective}`,
     `${USER_ID_COOKIE}=; Path=/; SameSite=Lax; Max-Age=0${secureDirective}`,
+    `${JWT_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${secureDirective}`,
   ];
 }

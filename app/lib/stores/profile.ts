@@ -2,6 +2,7 @@ import { atom } from 'nanostores';
 
 interface Profile {
   username: string;
+  name?: string;
   bio: string;
   avatar: string;
 }
@@ -12,6 +13,7 @@ const GUEST_PROFILE_KEY = 'bolt_profile:guest';
 
 const DEFAULT_PROFILE: Profile = {
   username: '',
+  name: '',
   bio: '',
   avatar: '',
 };
@@ -34,6 +36,7 @@ function readProfile(storageKey: string): Profile {
 
     return {
       username: parsed.username || '',
+      name: parsed.name || '',
       bio: parsed.bio || '',
       avatar: parsed.avatar || '',
     };
