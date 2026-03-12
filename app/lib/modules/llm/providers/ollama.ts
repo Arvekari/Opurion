@@ -2,7 +2,7 @@ import { BaseProvider } from '~/lib/modules/llm/base-provider';
 import type { ModelInfo } from '~/lib/modules/llm/types';
 import type { IProviderSetting } from '~/types/model';
 import type { LanguageModelV1 } from 'ai';
-import { createOllama } from 'ollama-ai-provider';
+import { createOpenAI } from '@ai-sdk/openai';
 import { logger } from '~/utils/logger';
 
 interface OllamaModelDetails {
@@ -123,12 +123,12 @@ export default class OllamaProvider extends BaseProvider {
 
     logger.debug('Ollama Base Url used: ', baseUrl);
 
-    const ollamaProvider = createOllama({
-      baseURL: `${baseUrl}/api`,
+    const ollamaProvider = createOpenAI({
+      baseURL: `${baseUrl}/v1`,
+      apiKey: 'ollama',
+      name: 'ollama',
     });
 
-    return ollamaProvider(model, {
-      numCtx: this.getDefaultNumCtx(serverEnv),
-    });
+    return ollamaProvider(model);
   };
 }
