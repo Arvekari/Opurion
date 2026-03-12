@@ -11,6 +11,7 @@ import { createFilesContext, extractPropertiesFromMessage } from './utils';
 import { discussPrompt } from '~/lib/common/prompts/discuss-prompt';
 import type { DesignScheme } from '~/types/design-scheme';
 import { applyPromptPolicy } from '~/lib/.server/llm/prompt-policy';
+import { ensureWebStreamCompatibility } from '~/lib/.server/llm/web-stream-compat';
 
 export type Messages = Message[];
 
@@ -104,6 +105,8 @@ export async function streamText(props: {
     mode?: 'append' | 'replace';
   };
 }) {
+  ensureWebStreamCompatibility();
+
   const {
     messages,
     env: serverEnv,
