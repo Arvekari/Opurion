@@ -20,7 +20,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 
 - Docker production build now resolves `platform/security/authz.ts`, `platform/security/jwt.ts`, and `platform/users/service.ts` correctly: missing platform source files were committed and platform app-wrapper re-exports were changed from wildcard `export *` to explicit named exports to fix Rollup production bundling.
 - `unit-tests/components/chat/ChatBox.test.ts` and `Chat.client.test.ts` JSX syntax removed (JSX tests remain in `.test.tsx` counterparts); `.ts` files are now non-JSX placeholders to satisfy test-mapper without breaking esbuild.
-- Ollama chat execution now uses OpenAI-compatible `/v1` inference path (AI SDK v2-compatible model interface) while preserving existing Ollama provider configuration/UI and Ollama-native model discovery via `/api/tags`.
+- Ollama chat execution now uses OpenAI-compatible `/v1` inference path with explicit `chat` endpoint selection (avoids Responses API parsing mismatch / `Failed to process successful response`) while preserving existing Ollama provider configuration/UI and Ollama-native model discovery via `/api/tags`.
 
 ---
 

@@ -129,6 +129,6 @@ export default class OllamaProvider extends BaseProvider {
       name: 'ollama',
     });
 
-    return ollamaProvider(model);
+    return ollamaProvider.chat(model);
   };
 }
