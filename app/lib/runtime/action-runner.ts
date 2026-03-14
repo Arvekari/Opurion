@@ -6,7 +6,8 @@ import type { ActionAlert, BoltAction, DeployAlert, FileHistory, SupabaseAction,
 import { createScopedLogger } from '~/utils/logger';
 import { unreachable } from '~/utils/unreachable';
 import type { ActionCallbackData } from './message-parser';
-import type { BoltShell } from '~/utils/shell';
+import { newBoltShellProcess, type BoltShell } from '~/utils/shell';
+import type { ITerminal } from '~/types/terminal';
 
 const logger = createScopedLogger('ActionRunner');
 
@@ -199,15 +200,19 @@ export class ActionRunner {
 
   async #executeAction(actionId: string, isStreaming: boolean = false) {
     const action = this.actions.get()[actionId];
+    const shouldLogActionStart = !isStreaming || action.status !== 'running';
 
     this.#updateAction(actionId, { status: 'running' });
-    logStore.logSystem('Action started', {
-      component: 'ActionRunner',
-      actionId,
-      actionType: action.type,
-      isStreaming,
-      status: 'running',
-    });
+
+    if (shouldLogActionStart) {
+      logStore.logSystem('Action started', {
+        component: 'ActionRunner',
+        actionId,
+        actionType: action.type,
+        isStreaming,
+        status: 'running',
+      });
+    }
 
     try {
       switch (action.type) {
@@ -365,28 +370,79 @@ export class ActionRunner {
       unreachable('Expected shell action');
     }
 
-    if (!this.#shellTerminal) {
-      unreachable('Shell terminal not found');
+    const validationResult = await this.#validateShellCommand(action.content);
+
+    if (validationResult.fatalError) {
+      throw new ActionCommandError(validationResult.fatalError.title, validationResult.fatalError.details);
     }
 
-    const shell = this.#shellTerminal();
-    await shell.ready();
-
-    if (!shell || !shell.terminal || !shell.process) {
-      unreachable('Shell terminal not found');
+    if (validationResult.shouldModify && validationResult.modifiedCommand) {
+      logger.debug(`Modified start command: ${action.content} -> ${validationResult.modifiedCommand}`);
+      action.content = validationResult.modifiedCommand;
     }
 
-    const resp = await shell.executeCommand(this.runnerId.get(), action.content, () => {
-      logger.debug(`[${action.type}]:Aborting Action\n\n`, action);
-      action.abort();
-    });
-    logger.debug(`${action.type} Shell Response: [exit code:${resp?.exitCode}]`);
+    const webcontainer = await this.#webcontainer;
+    const sharedShell = this.#shellTerminal?.();
 
-    if (resp?.exitCode != 0) {
-      throw new ActionCommandError('Failed To Start Application', resp?.output || 'No Output Available');
+    if (sharedShell) {
+      await sharedShell.ready();
     }
 
-    return resp;
+    const mirroredTerminal = this.#createDetachedShellTerminal(sharedShell?.terminal);
+    const detachedShell = newBoltShellProcess();
+    await detachedShell.init(webcontainer, mirroredTerminal);
+
+    const abortDetachedShell = () => {
+      detachedShell.terminal?.input('\x03');
+    };
+
+    action.abortSignal.addEventListener('abort', abortDetachedShell, { once: true });
+
+    try {
+      const resp = await detachedShell.executeCommand(`${this.runnerId.get()}-${action.type}`, action.content, () => {
+        logger.debug(`[${action.type}]:Aborting Action\n\n`, action);
+        action.abort();
+      });
+      logger.debug(`${action.type} Shell Response: [exit code:${resp?.exitCode}]`);
+
+      if (resp?.exitCode != 0) {
+        const enhancedError = this.#createEnhancedShellError(action.content, resp?.exitCode, resp?.output);
+        throw new ActionCommandError(enhancedError.title, enhancedError.details);
+      }
+
+      return resp;
+    } finally {
+      action.abortSignal.removeEventListener('abort', abortDetachedShell);
+
+      try {
+        detachedShell.process?.kill();
+      } catch (error) {
+        logger.debug('Failed to tear down detached start shell cleanly', error);
+      }
+    }
+  }
+
+  #createDetachedShellTerminal(mirrorTerminal?: ITerminal): ITerminal {
+    const listeners = new Set<(data: string) => void>();
+
+    return {
+      cols: mirrorTerminal?.cols ?? 80,
+      rows: mirrorTerminal?.rows ?? 24,
+      reset: () => {
+        mirrorTerminal?.reset();
+      },
+      write: (data: string) => {
+        mirrorTerminal?.write(data);
+      },
+      onData: (cb: (data: string) => void) => {
+        listeners.add(cb);
+      },
+      input: (data: string) => {
+        for (const listener of listeners) {
+          listener(data);
+        }
+      },
+    };
   }
 
   async #runFileAction(action: ActionState) {

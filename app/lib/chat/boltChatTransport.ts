@@ -19,6 +19,8 @@ import { createScopedLogger } from '~/utils/logger';
 const logger = createScopedLogger('BoltChatTransport');
 const DEFAULT_FIRST_BYTE_WARNING_MS = 15000;
 const LOCAL_PROVIDER_FIRST_BYTE_WARNING_MS = 45000;
+const DEFAULT_FIRST_BYTE_TIMEOUT_MS = 45000;
+const LOCAL_PROVIDER_FIRST_BYTE_TIMEOUT_MS = 120000;
 
 const LOCAL_PROVIDER_NAMES = new Set(['Ollama', 'LMStudio', 'OpenAILike']);
 
@@ -68,12 +70,42 @@ function serializeTransportError(params: {
   });
 }
 
+function serializeTransportTimeoutError(params: {
+  endpoint: string;
+  selectedProviderName?: string;
+  requestStartedAtMs: number;
+  timeoutMs: number;
+}) {
+  return JSON.stringify({
+    message: `Chat endpoint did not produce a response within ${params.timeoutMs}ms.`,
+    error: 'Chat transport response timeout',
+    statusCode: 504,
+    provider: params.selectedProviderName,
+    type: 'network',
+    isRetryable: true,
+    diagnostics: {
+      endpoint: params.endpoint,
+      elapsedMs: Date.now() - params.requestStartedAtMs,
+      timeoutMs: params.timeoutMs,
+      phase: 'first-byte-timeout',
+    },
+  });
+}
+
 function getFirstByteWarningMs(providerName?: string): number {
   if (providerName && LOCAL_PROVIDER_NAMES.has(providerName)) {
     return LOCAL_PROVIDER_FIRST_BYTE_WARNING_MS;
   }
 
   return DEFAULT_FIRST_BYTE_WARNING_MS;
+}
+
+function getFirstByteTimeoutMs(providerName?: string): number {
+  if (providerName && LOCAL_PROVIDER_NAMES.has(providerName)) {
+    return LOCAL_PROVIDER_FIRST_BYTE_TIMEOUT_MS;
+  }
+
+  return DEFAULT_FIRST_BYTE_TIMEOUT_MS;
 }
 
 function extractTextContent(message: { content?: string; parts?: Array<{ type: string; text?: string }> }): string {
@@ -172,6 +204,13 @@ function buildUIMessageChunkStream(
     flush(controller) {
       if (!hasReceivedChunk) {
         diagnostics?.onStreamEndedWithoutChunks?.();
+        controller.enqueue({
+          type: 'error',
+          errorText: 'Chat response ended before any content was received. Please retry the request.',
+        });
+        controller.enqueue({ type: 'finish-step' });
+        controller.enqueue({ type: 'finish', finishReason: 'error' });
+        return;
       }
 
       // Process any remaining buffered content
@@ -252,6 +291,7 @@ export class BoltChatTransport {
     const selectedProviderName =
       typeof requestBody.selectedProviderName === 'string' ? (requestBody.selectedProviderName as string) : undefined;
     const firstByteWarningMs = getFirstByteWarningMs(selectedProviderName);
+    const firstByteTimeoutMs = getFirstByteTimeoutMs(selectedProviderName);
 
     logger.info('Chat request started', {
       endpoint: this.apiEndpoint,
@@ -260,16 +300,31 @@ export class BoltChatTransport {
       hasAbortSignal: Boolean(options.abortSignal),
       selectedProviderName,
       firstByteWarningMs,
+      firstByteTimeoutMs,
     });
 
     let firstByteTimer: ReturnType<typeof setTimeout> | undefined;
+    let firstByteTimeoutTimer: ReturnType<typeof setTimeout> | undefined;
     let abortHandler: (() => void) | undefined;
     let hasReceivedFirstByte = false;
+    let firstByteTimedOut = false;
+    const requestAbortController = new AbortController();
+
+    const abortRequest = () => {
+      if (!requestAbortController.signal.aborted) {
+        requestAbortController.abort();
+      }
+    };
 
     const clearFirstByteTimer = () => {
       if (firstByteTimer) {
         clearTimeout(firstByteTimer);
         firstByteTimer = undefined;
+      }
+
+      if (firstByteTimeoutTimer) {
+        clearTimeout(firstByteTimeoutTimer);
+        firstByteTimeoutTimer = undefined;
       }
     };
 
@@ -304,9 +359,25 @@ export class BoltChatTransport {
       });
     }, firstByteWarningMs);
 
+    firstByteTimeoutTimer = setTimeout(() => {
+      if (hasReceivedFirstByte || options.abortSignal?.aborted) {
+        return;
+      }
+
+      firstByteTimedOut = true;
+      logger.error('No response bytes received before timeout; aborting chat request', {
+        endpoint: this.apiEndpoint,
+        selectedProviderName,
+        timeoutMs: firstByteTimeoutMs,
+        elapsedMs: Date.now() - requestStartedAtMs,
+      });
+      abortRequest();
+    }, firstByteTimeoutMs);
+
     if (options.abortSignal) {
       abortHandler = () => {
         clearFirstByteTimer();
+        abortRequest();
         logger.info('Chat request aborted before first-byte completion', {
           endpoint: this.apiEndpoint,
           clientRequestId,
@@ -328,17 +399,35 @@ export class BoltChatTransport {
           ...(options.headers ?? {}),
         },
         body: JSON.stringify(body),
-        signal: options.abortSignal,
+        signal: requestAbortController.signal,
       });
 
     try {
       response = await runFetch(requestBody);
     } catch (error) {
+      if (firstByteTimedOut && !options.abortSignal?.aborted) {
+        clearFirstByteTimer();
+
+        if (options.abortSignal && abortHandler) {
+          options.abortSignal.removeEventListener('abort', abortHandler);
+        }
+
+        throw new Error(
+          serializeTransportTimeoutError({
+            endpoint: this.apiEndpoint,
+            selectedProviderName,
+            requestStartedAtMs,
+            timeoutMs: firstByteTimeoutMs,
+          }),
+        );
+      }
+
       const shouldRetry =
         selectedProviderName !== undefined &&
         LOCAL_PROVIDER_NAMES.has(selectedProviderName) &&
         isFetchNetworkError(error) &&
-        !options.abortSignal?.aborted;
+        !options.abortSignal?.aborted &&
+        !requestAbortController.signal.aborted;
 
       if (shouldRetry) {
         const forceSingleMessageForRequest = requestBody.ollamaBridgedSystemPromptSplit === true;

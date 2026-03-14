@@ -4,6 +4,7 @@ import { ImportExportService } from '~/lib/services/importExportService';
 import { useIndexedDB } from '~/lib/hooks/useIndexedDB';
 import { generateId } from 'ai';
 import { syncServerPersistence } from '~/lib/persistence/serverPersistence.client';
+import { setMessages } from '~/lib/persistence/db';
 
 interface UseDataOperationsProps {
   /**
@@ -633,13 +634,18 @@ export function useDataOperations({
         // Step 5: Import chats
         showProgress(`Importing ${validatedChats.length} chats`, 80);
 
-        const transaction = db.transaction(['chats'], 'readwrite');
-        const store = transaction.objectStore('chats');
-
         let processed = 0;
 
         for (const chat of validatedChats) {
-          store.put(chat);
+          await setMessages(
+            db,
+            chat.id,
+            chat.messages,
+            chat.urlId || undefined,
+            chat.description,
+            chat.timestamp,
+            chat.metadata || undefined,
+          );
           processed++;
 
           if (processed % 5 === 0 || processed === validatedChats.length) {
@@ -649,11 +655,6 @@ export function useDataOperations({
             );
           }
         }
-
-        await new Promise((resolve, reject) => {
-          transaction.oncomplete = resolve;
-          transaction.onerror = reject;
-        });
 
         // Step 6: Complete
         showProgress('Completing import', 100);
@@ -1096,17 +1097,17 @@ export function useDataOperations({
           await ImportExportService.deleteAllChats(db);
 
           // Reimport previous chats
-          const transaction = db.transaction(['chats'], 'readwrite');
-          const store = transaction.objectStore('chats');
-
           for (const chat of lastOperation.data.previous.chats) {
-            store.put(chat);
+            await setMessages(
+              db,
+              chat.id,
+              chat.messages,
+              chat.urlId || undefined,
+              chat.description,
+              chat.timestamp,
+              chat.metadata || undefined,
+            );
           }
-
-          await new Promise((resolve, reject) => {
-            transaction.oncomplete = resolve;
-            transaction.onerror = reject;
-          });
 
           // Dismiss progress toast before showing success toast
           toast.dismiss('progress-toast');
@@ -1144,17 +1145,17 @@ export function useDataOperations({
 
         case 'reset-chats': {
           // Restore previous chats
-          const chatTransaction = db.transaction(['chats'], 'readwrite');
-          const chatStore = chatTransaction.objectStore('chats');
-
           for (const chat of lastOperation.data.previous.chats) {
-            chatStore.put(chat);
+            await setMessages(
+              db,
+              chat.id,
+              chat.messages,
+              chat.urlId || undefined,
+              chat.description,
+              chat.timestamp,
+              chat.metadata || undefined,
+            );
           }
-
-          await new Promise((resolve, reject) => {
-            chatTransaction.oncomplete = resolve;
-            chatTransaction.onerror = reject;
-          });
 
           // Dismiss progress toast before showing success toast
           toast.dismiss('progress-toast');

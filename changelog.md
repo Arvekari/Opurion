@@ -19,6 +19,7 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Ongoing execution discipline is now enforced in active reliability loops: `.ongoing-work.md` and `changelog.md` are updated before and after each substantive edit/validation phase so state and release notes remain continuously synchronized.
 - Outgoing chat payloads now include active project shared context and discussion index metadata from collaboration state, enabling references like “discussion 1” across project discussions to remain context-aware.
 - Outgoing chat payloads now also include project guides and attached shared reference files from the selected shared project, so collaborator-added project resources influence later discussions consistently.
+- Chat attachment handling now supports multi-file image selection plus a reusable recent-attachments strip so sent reference images remain available for later prompts instead of disappearing after submit.
 - Static auto-preview inference now uses a built-in Node HTTP server instead of relying on `npx serve`, improving startup reliability for non-Node sites and nested static roots such as `public/index.html`.
 - Build-mode cloud-provider behavior now streams prose progressively (instead of full buffering) while still appending missing executable project essentials when needed; regression expectations were updated in `unit-tests/routes/api.chat.streaming-e2e.test.ts`.
 - Build-mode retry orchestration now pins resolved provider/model (`forcedProvider`/`forcedModel`) across initial, continuation, and recovery-round `streamText` calls to keep Ollama recovery loops on the intended local provider.
@@ -27,12 +28,18 @@ The format is inspired by Keep a Changelog and follows semantic versioning where
 - Preview launch reliability was improved for existing projects: command inference now supports nested package roots, lockfile-aware package manager selection, and Python project entrypoint detection; opening Preview can auto-run safe inferred setup/start commands when no active preview port exists.
 - Build-mode response enforcement now appends a non-prunable executable-output contract after prompt compaction in `app/lib/.server/llm/stream-text.ts`, keeping implementation behavior strict in build mode for cloud and local providers.
 - Default fine-tuned system prompt design guidance now explicitly biases page-generation requests toward modern digital-transformation layouts and richer informational density (capabilities/KPI/process/architecture/security/CTA sections) in `app/lib/common/prompts/new-prompt.ts`.
+- Default prompt guidance now treats requests such as “modern”, “premium”, and “graphical” as explicit art-direction requirements instead of permitting sparse placeholder layouts.
 
 ### Fixed
 
 - Full-suite prompt-profile validation now matches the current local-model policy: `unit-tests/common/system-prompt-profiles.test.ts` was updated so custom prompt profile eligibility starts at `14B`, consistent with the removal of `13B` and smaller model support from settings and prompt-profile selection.
 - Chat debug panel controls and panel rendering were removed from the chat message surface (`app/components/chat/Messages.client.tsx`) per UX simplification request.
 - Chat send reliability for transient provider/network failures improved: `app/components/chat/Chat.client.tsx` now retries once automatically on network/fetch-class send errors before surfacing failure.
+- Chat persistence/import flows now preserve unique `urlId` routing during imports, restores, and saves by resolving collisions before writing chat records.
+- Follow-up discussion turns now carry an explicit existing-workspace continuation contract so the model stops recreating projects when the user is clearly iterating on the current app.
+- Requests that never receive a first response byte now fail with a retryable timeout instead of leaving the chat stuck on “LLM is processing request”.
+- Runtime `start` actions now run in detached shells, preventing long-running dev servers from contaminating later repair commands in the shared terminal session.
+- Preview diagnostics now surface blank, failed, and stalled iframe loads to the runtime alert pipeline so broken previews are easier for the model and user to diagnose.
 - Auto-preview now covers PHP/http-server style projects as well: `app/utils/projectCommands.ts` detects PHP entry files and starts a built-in preview server that serves a PHP-template fallback HTML shell when native PHP execution is unavailable, enabling preview verification instead of a dead `No preview available` state.
 - Build-mode recovery no longer treats non-runnable retry text as acceptable final output: raw pass-through is now gated to executable-safe content patterns (file actions, full HTML, or recognized fenced code), forcing synthesis paths for incomplete artifact-like responses.
 - Added pinning regression assertion coverage in `unit-tests/routes/api.chat.streaming-e2e.test.ts` to prevent future provider/model drift during Ollama multi-round recovery.

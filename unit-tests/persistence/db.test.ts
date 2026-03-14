@@ -11,6 +11,7 @@ import {
   getSnapshot,
   getUrlId,
   openDatabase,
+  resolveUniqueUrlId,
   setMessages,
   setSnapshot,
   updateChatDescription,
@@ -280,5 +281,133 @@ describe('persistence/db', () => {
 
     await deleteById(db, '10');
     await expect(getSnapshot(db, '10')).resolves.toBeUndefined();
+  });
+
+  describe('urlId uniqueness / collision handling', () => {
+    it('resolveUniqueUrlId returns requested urlId when it is not taken', async () => {
+      const { db } = createMockDb({ chats: [] });
+      const result = await resolveUniqueUrlId(db, 'chat-1', 'my-project');
+      expect(result).toBe('my-project');
+    });
+
+    it('resolveUniqueUrlId returns existing urlId when re-saving the same chat', async () => {
+      const { db } = createMockDb({
+        chats: [
+          {
+            id: 'chat-1',
+            urlId: 'my-project',
+            description: 'Chat 1',
+            messages: [],
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      });
+      // Same chat saving with same urlId — must NOT collide with itself
+      const result = await resolveUniqueUrlId(db, 'chat-1', 'my-project');
+      expect(result).toBe('my-project');
+    });
+
+    it('resolveUniqueUrlId generates a de-duped urlId when taken by a different chat', async () => {
+      const { db } = createMockDb({
+        chats: [
+          {
+            id: 'chat-existing',
+            urlId: 'my-project',
+            description: 'Existing owner',
+            messages: [],
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      });
+      // Different chat (chat-new) requesting same urlId — must get a suffix
+      const result = await resolveUniqueUrlId(db, 'chat-new', 'my-project');
+      expect(result).toBe('my-project-2');
+    });
+
+    it('resolveUniqueUrlId increments suffix past existing collisions', async () => {
+      const { db } = createMockDb({
+        chats: [
+          {
+            id: 'chat-a',
+            urlId: 'my-project',
+            description: 'Owner A',
+            messages: [],
+            timestamp: new Date().toISOString(),
+          },
+          {
+            id: 'chat-b',
+            urlId: 'my-project-2',
+            description: 'Owner B',
+            messages: [],
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      });
+      const result = await resolveUniqueUrlId(db, 'chat-new', 'my-project');
+      expect(result).toBe('my-project-3');
+    });
+
+    it('setMessages returns the resolved urlId and stores it in the chat record', async () => {
+      const { db, chats } = createMockDb({ chats: [] });
+      const returnedUrlId = await setMessages(
+        db,
+        'chat-1',
+        [{ id: 'm1', role: 'user', content: 'hello' }] as any,
+        'first-project',
+        'My Chat',
+      );
+      expect(returnedUrlId).toBe('first-project');
+      expect(chats.get('chat-1')?.urlId).toBe('first-project');
+    });
+
+    it('setMessages de-dupes urlId when another chat already owns it', async () => {
+      const { db, chats } = createMockDb({
+        chats: [
+          {
+            id: 'chat-existing',
+            urlId: 'first-project',
+            description: 'Existing',
+            messages: [],
+            timestamp: new Date().toISOString(),
+          },
+        ],
+      });
+      const returnedUrlId = await setMessages(
+        db,
+        'chat-new',
+        [{ id: 'm2', role: 'user', content: 'hi' }] as any,
+        'first-project',
+        'New Chat',
+      );
+      // Must NOT return the colliding urlId — must be suffixed
+      expect(returnedUrlId).toBe('first-project-2');
+      expect(chats.get('chat-new')?.urlId).toBe('first-project-2');
+      // Original owner must be untouched
+      expect(chats.get('chat-existing')?.urlId).toBe('first-project');
+    });
+
+    it('getUrlIds skips records with missing or empty urlId values', async () => {
+      const { db } = createMockDb({
+        chats: [
+          {
+            id: 'chat-valid',
+            urlId: 'real-url',
+            description: 'Valid',
+            messages: [],
+            timestamp: new Date().toISOString(),
+          },
+          // no urlId field (undefined) — must be skipped
+          {
+            id: 'chat-no-url',
+            description: 'No URL',
+            messages: [],
+            timestamp: new Date().toISOString(),
+          } as any,
+        ],
+      });
+      // 'real-url' is taken, 'other-url' is free
+      await expect(getUrlId(db, 'real-url')).resolves.toBe('real-url-2');
+      await expect(getUrlId(db, 'other-url')).resolves.toBe('other-url');
+    });
   });
 });

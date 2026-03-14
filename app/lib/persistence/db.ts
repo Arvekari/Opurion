@@ -70,28 +70,41 @@ export async function setMessages(
   description?: string,
   timestamp?: string,
   metadata?: IChatMetadata,
-): Promise<void> {
+): Promise<string> {
+  if (timestamp && isNaN(Date.parse(timestamp))) {
+    throw new Error('Invalid timestamp');
+  }
+
+  const resolvedUrlId = await resolveUniqueUrlId(db, id, urlId);
+
   return new Promise((resolve, reject) => {
     const transaction = db.transaction('chats', 'readwrite');
     const store = transaction.objectStore('chats');
 
-    if (timestamp && isNaN(Date.parse(timestamp))) {
-      reject(new Error('Invalid timestamp'));
-      return;
-    }
-
     const request = store.put({
       id,
       messages,
-      urlId,
+      urlId: resolvedUrlId,
       description,
       timestamp: timestamp ?? new Date().toISOString(),
       metadata,
     });
 
-    request.onsuccess = () => resolve();
+    request.onsuccess = () => resolve(resolvedUrlId);
     request.onerror = () => reject(request.error);
   });
+}
+
+export async function resolveUniqueUrlId(db: IDBDatabase, id: string, requestedUrlId?: string): Promise<string> {
+  const existingChat = await getMessagesById(db, id).catch(() => undefined);
+  const desiredUrlId = requestedUrlId ?? existingChat?.urlId ?? id;
+  const existingOwner = await getMessagesByUrlId(db, desiredUrlId).catch(() => undefined);
+
+  if (!existingOwner || existingOwner.id === id) {
+    return desiredUrlId;
+  }
+
+  return getUrlId(db, desiredUrlId);
 }
 
 export async function getMessages(db: IDBDatabase, id: string): Promise<ChatHistoryItem> {
@@ -209,7 +222,9 @@ async function getUrlIds(db: IDBDatabase): Promise<string[]> {
       const cursor = (event.target as IDBRequest<IDBCursorWithValue>).result;
 
       if (cursor) {
-        idList.push(cursor.value.urlId);
+        if (typeof cursor.value.urlId === 'string' && cursor.value.urlId.length > 0) {
+          idList.push(cursor.value.urlId);
+        }
         cursor.continue();
       } else {
         resolve(idList);

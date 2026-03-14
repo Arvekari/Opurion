@@ -40,6 +40,7 @@ import {
   isStreamingStalled,
   resolveEffectiveStreamingState,
 } from './streamingGuard';
+import { buildRuntimeDiagnosticsPrefix } from './runtime-diagnostics';
 
 const logger = createScopedLogger('Chat');
 
@@ -114,6 +115,26 @@ export const ChatImpl = memo(
     const [chatStarted, setChatStarted] = useState(initialMessages.length > 0);
     const [uploadedFiles, setUploadedFiles] = useState<File[]>([]);
     const [imageDataList, setImageDataList] = useState<string[]>([]);
+    const [attachmentLibrary, setAttachmentLibrary] = useState<Array<{ id: string; file: File; dataUrl: string }>>([]);
+
+    const addToAttachmentLibrary = (files: File[], dataUrls: string[]) => {
+      if (files.length === 0) {
+        return;
+      }
+
+      const entries = files.map((file, i) => ({
+        id: `${Date.now()}-${i}-${file.name}`,
+        file,
+        dataUrl: dataUrls[i] ?? '',
+      }));
+
+      setAttachmentLibrary((prev) => {
+        // De-dupe by file name + size so re-attaching the same file doesn't create duplicates
+        const existingKeys = new Set(prev.map((e) => `${e.file.name}:${e.file.size}`));
+        const fresh = entries.filter((e) => !existingKeys.has(`${e.file.name}:${e.file.size}`));
+        return fresh.length > 0 ? [...prev, ...fresh] : prev;
+      });
+    };
     const [draftInput, setDraftInput] = useState(initialPrompt);
     const [searchParams, setSearchParams] = useSearchParams();
     const [fakeLoading, setFakeLoading] = useState(false);
@@ -709,6 +730,12 @@ export const ChatImpl = memo(
         finalMessageContent = messageContent + elementInfo;
       }
 
+      const runtimeDiagnosticsPrefix = buildRuntimeDiagnosticsPrefix(finalMessageContent, actionAlert);
+
+      if (runtimeDiagnosticsPrefix) {
+        finalMessageContent = `${runtimeDiagnosticsPrefix}\n\n${finalMessageContent}`;
+      }
+
       runAnimation();
 
       if (!chatStarted) {
@@ -720,6 +747,8 @@ export const ChatImpl = memo(
         const userMessageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${contextualContent}`;
         const capturedImageDataList = [...imageDataList];
         const capturedUploadedFiles = [...uploadedFiles];
+
+        addToAttachmentLibrary(capturedUploadedFiles, capturedImageDataList);
 
         setDraftInput('');
         Cookies.remove(PROMPT_COOKIE_KEY);
@@ -920,6 +949,7 @@ export const ChatImpl = memo(
       setDraftInput('');
       Cookies.remove(PROMPT_COOKIE_KEY);
 
+      addToAttachmentLibrary([...uploadedFiles], [...imageDataList]);
       setUploadedFiles([]);
       setImageDataList([]);
 
@@ -1095,6 +1125,11 @@ export const ChatImpl = memo(
         setSelectedElement={setSelectedElement}
         addToolResult={addToolOutput}
         onWebSearchResult={handleWebSearchResult}
+        attachmentLibrary={attachmentLibrary}
+        onReuseAttachment={(entry) => {
+          setUploadedFiles((prev) => [...prev, entry.file]);
+          setImageDataList((prev) => [...prev, entry.dataUrl]);
+        }}
       />
     );
   },

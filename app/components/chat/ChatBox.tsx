@@ -60,6 +60,8 @@ interface ChatBoxProps {
   setSelectedElement?: ((element: ElementInfo | null) => void) | undefined;
   supabaseConnection?: SupabaseConnectionState;
   constrainToPane?: boolean;
+  attachmentLibrary?: Array<{ id: string; file: File; dataUrl: string }>;
+  onReuseAttachment?: (entry: { id: string; file: File; dataUrl: string }) => void;
 }
 
 export const ChatBox: React.FC<ChatBoxProps> = (props) => {
@@ -89,6 +91,53 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
           props.setImageDataList?.(props.imageDataList.filter((_, i) => i !== index));
         }}
       />
+      {props.attachmentLibrary && props.attachmentLibrary.length > 0 && (
+        <div className="mx-2 mb-1 p-2 bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor rounded-lg">
+          <div className="flex items-center gap-2 mb-1.5">
+            <div className="i-ph:paperclip text-bolt-elements-textTertiary text-xs" />
+            <span className="text-bolt-elements-textTertiary text-xs font-medium">Recent attachments</span>
+          </div>
+          <div className="flex flex-row gap-2 overflow-x-auto pb-0.5">
+            {props.attachmentLibrary.map((entry) => {
+              const isQueued = props.uploadedFiles.some(
+                (f) => f.name === entry.file.name && f.size === entry.file.size,
+              );
+
+              return (
+                <div key={entry.id} className="relative flex-shrink-0">
+                  <img
+                    src={entry.dataUrl}
+                    alt={entry.file.name}
+                    className="h-14 w-14 object-cover rounded-md border border-bolt-elements-borderColor"
+                    title={entry.file.name}
+                  />
+                  <button
+                    onClick={() => {
+                      if (!isQueued) {
+                        props.onReuseAttachment?.(entry);
+                      }
+                    }}
+                    disabled={isQueued}
+                    className={
+                      'absolute inset-0 rounded-md flex items-center justify-center transition-colors ' +
+                      (isQueued
+                        ? 'bg-black/40 cursor-default'
+                        : 'bg-black/0 hover:bg-black/40 cursor-pointer')
+                    }
+                    title={isQueued ? 'Already queued' : 'Re-attach'}
+                  >
+                    {isQueued ? (
+                      <div className="i-ph:check-bold text-white text-lg" />
+                    ) : (
+                      <div className="i-ph:plus-bold text-white text-lg opacity-0 hover:opacity-100 transition-opacity" />
+                    )}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
       <ClientOnly>
         {() => (
           <ScreenshotStateManager

@@ -88,6 +88,8 @@ interface BaseChatProps {
   setSelectedElement?: (element: ElementInfo | null) => void;
   addToolResult?: ({ toolCallId, result }: { toolCallId: string; result: any }) => void;
   onWebSearchResult?: (result: string) => void;
+  attachmentLibrary?: Array<{ id: string; file: File; dataUrl: string }>;
+  onReuseAttachment?: (entry: { id: string; file: File; dataUrl: string }) => void;
 }
 
 export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
@@ -138,6 +140,8 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
         throw new Error('addToolResult not implemented');
       },
       onWebSearchResult,
+      attachmentLibrary,
+      onReuseAttachment,
     },
     ref,
   ) => {
@@ -400,20 +404,36 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       const input = document.createElement('input');
       input.type = 'file';
       input.accept = 'image/*';
+      input.multiple = true;
 
       input.onchange = async (e) => {
-        const file = (e.target as HTMLInputElement).files?.[0];
+        const files = Array.from((e.target as HTMLInputElement).files ?? []);
 
-        if (file) {
-          const reader = new FileReader();
-
-          reader.onload = (e) => {
-            const base64Image = e.target?.result as string;
-            setUploadedFiles?.([...uploadedFiles, file]);
-            setImageDataList?.([...imageDataList, base64Image]);
-          };
-          reader.readAsDataURL(file);
+        if (files.length === 0) {
+          return;
         }
+
+        const newFiles: File[] = [];
+        const newDataUrls: string[] = [];
+
+        await Promise.all(
+          files.map(
+            (file) =>
+              new Promise<void>((resolve) => {
+                const reader = new FileReader();
+
+                reader.onload = (ev) => {
+                  newFiles.push(file);
+                  newDataUrls.push(ev.target?.result as string);
+                  resolve();
+                };
+                reader.readAsDataURL(file);
+              }),
+          ),
+        );
+
+        setUploadedFiles?.([...uploadedFiles, ...newFiles]);
+        setImageDataList?.([...imageDataList, ...newDataUrls]);
       };
 
       input.click();
@@ -496,6 +516,8 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       onWebSearchResult,
       supabaseConnection: supabaseConn,
       constrainToPane: showWorkbench,
+      attachmentLibrary,
+      onReuseAttachment,
     };
 
     const baseChat = (

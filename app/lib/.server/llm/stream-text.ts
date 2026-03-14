@@ -20,6 +20,7 @@ import {
   sanitizePromptProfiles,
   type SystemPromptProfiles,
 } from '~/lib/common/system-prompt-profiles';
+import { buildWorkspaceContinuationPromptAddon } from './workspace-continuity';
 
 export type Messages = Message[];
 
@@ -472,6 +473,20 @@ ${systemPrompt}
         }
       }
     }
+  }
+
+  const workspaceContinuationPrompt = buildWorkspaceContinuationPromptAddon({
+    chatMode,
+    messages: processedMessages,
+    files,
+    summary,
+  });
+
+  if (workspaceContinuationPrompt) {
+    systemPrompt = `${systemPrompt}
+
+    ${workspaceContinuationPrompt}
+    `;
   }
 
   const effectiveLockedFilePaths = new Set<string>();

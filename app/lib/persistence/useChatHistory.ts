@@ -267,7 +267,8 @@ ${value.content}
       }
 
       try {
-        await setMessages(db, id, initialMessages, urlId, description.get(), undefined, metadata);
+        const savedUrlId = await setMessages(db, id, initialMessages, urlId, description.get(), undefined, metadata);
+        setUrlId(savedUrlId);
         chatMetadata.set(metadata);
       } catch (error) {
         toast.error('Failed to update chat metadata');
@@ -340,7 +341,7 @@ ${value.content}
 
       const effectiveUrlId = _urlId || finalChatId;
 
-      await setMessages(
+      const savedUrlId = await setMessages(
         db,
         finalChatId, // Use the potentially updated chatId
         [...archivedMessages, ...messages],
@@ -349,6 +350,14 @@ ${value.content}
         undefined,
         chatMetadata.get(),
       );
+
+      if (savedUrlId !== urlId) {
+        setUrlId(savedUrlId);
+
+        if (!urlId) {
+          navigateChat(savedUrlId);
+        }
+      }
     },
     duplicateCurrentChat: async (listItemId: string) => {
       if (!db || (!mixedId && !listItemId)) {
