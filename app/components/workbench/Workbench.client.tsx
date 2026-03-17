@@ -584,6 +584,11 @@ export const Workbench = memo(
         return;
       }
 
+      if (isStreaming || streaming) {
+        autoPreviewLaunchStateRef.current.inFlight = false;
+        return;
+      }
+
       if (!showWorkbench) {
         return;
       }
@@ -615,7 +620,7 @@ export const Workbench = memo(
       const tryAutoStartPreview = async () => {
         const commands = await detectProjectCommands(candidateFiles);
 
-        if (cancelled || !commands.startCommand) {
+        if (cancelled || isStreaming || streaming || !commands.startCommand) {
           return;
         }
 
@@ -646,6 +651,11 @@ export const Workbench = memo(
         const preflight = await validateProjectPreflight(candidateFiles, commands);
 
         if (!preflight.ok) {
+          if (cancelled || isStreaming || streaming) {
+            state.inFlight = false;
+            return;
+          }
+
           const failureContent = preflight.issues.map((issue, index) => `${index + 1}. ${issue}`).join('\n');
           workbenchStore.actionAlert.set({
             type: 'preview',
@@ -715,6 +725,11 @@ export const Workbench = memo(
           }
 
           if (setupError) {
+            if (cancelled || isStreaming || streaming) {
+              state.inFlight = false;
+              return;
+            }
+
             workbenchStore.actionAlert.set({
               type: 'preview',
               title: 'Dependency setup command failed',
@@ -738,6 +753,11 @@ export const Workbench = memo(
         const postSetupDependencyCheck = await shouldRunDependencySetup(commands);
 
         if (postSetupDependencyCheck.shouldRunSetup) {
+          if (cancelled || isStreaming || streaming) {
+            state.inFlight = false;
+            return;
+          }
+
           const unresolved = postSetupDependencyCheck.missingPackages;
           const failureContent = unresolved.length
             ? unresolved.slice(0, 20).map((name, index) => `${index + 1}. Missing installed package: ${name}`).join('\n')
@@ -800,6 +820,11 @@ export const Workbench = memo(
         }
 
         if (startError) {
+          if (cancelled || isStreaming || streaming) {
+            state.inFlight = false;
+            return;
+          }
+
           workbenchStore.actionAlert.set({
             type: 'preview',
             title: 'Start command failed',
@@ -830,7 +855,7 @@ export const Workbench = memo(
       return () => {
         cancelled = true;
       };
-    }, [showWorkbench, selectedView, hasPreview, files]);
+    }, [showWorkbench, selectedView, hasPreview, files, isStreaming, streaming]);
 
     useEffect(() => {
       workbenchStore.setDocuments(files);
