@@ -33,6 +33,7 @@ import { uiButtonClassTokens } from '~/components/ui/tokens';
 import { detectProjectCommands, extractWorkingDirectoryFromCommand, validateProjectPreflight } from '~/utils/projectCommands';
 import { generateId } from '~/utils/fileUtils';
 import { webcontainer } from '~/lib/webcontainer';
+import { AUTO_PREVIEW_STREAM_SETTLE_MS, getAutoPreviewLaunchDelayMs } from './auto-preview-stream-gate';
 
 interface WorkspaceProps {
   chatStarted?: boolean;
@@ -174,6 +175,23 @@ function replaceFirstCommandToken(command: string, token: string, replacement: s
   return command.replace(matcher, `$1${replacement}`);
 }
 
+function normalizeFallbackCommand(command: string): string {
+  let normalized = command;
+
+  if (/\bnpm\s+(install|ci|run)\b/i.test(normalized)) {
+    normalized = normalized
+      .replace(/\s+--frozen-lockfile(?:=\S+)?/gi, '')
+      .replace(/\s+--prefer-frozen-lockfile(?:=\S+)?/gi, '')
+      .replace(/\s+--strict-peer-dependencies(?:=\S+)?/gi, '');
+  }
+
+  if (/\byarn\s+(add|install|run)\b/i.test(normalized)) {
+    normalized = normalized.replace(/\s+--yes\b/gi, '');
+  }
+
+  return normalized.replace(/\s{2,}/g, ' ').trim();
+}
+
 function buildCommandFallbackCandidates(command: string, error: unknown): string[] {
   const errorMessage = formatActionFailureContent(error);
   const normalizedError = errorMessage.toLowerCase();
@@ -191,7 +209,7 @@ function buildCommandFallbackCandidates(command: string, error: unknown): string
       return;
     }
 
-    const trimmed = value.trim();
+    const trimmed = normalizeFallbackCommand(value);
 
     if (!trimmed || trimmed === command.trim()) {
       return;
@@ -558,12 +576,14 @@ export const Workbench = memo(
     const autoPreviewLaunchStateRef = useRef<{
       inFlight: boolean;
       lastAttemptAt: number;
+      lastStreamingActivityAt: number;
       lastSignature?: string;
       setupAttemptedSignatures: Set<string>;
       failedSignatures: Set<string>;
     }>({
       inFlight: false,
       lastAttemptAt: 0,
+      lastStreamingActivityAt: 0,
       setupAttemptedSignatures: new Set<string>(),
       failedSignatures: new Set<string>(),
     });
@@ -579,8 +599,16 @@ export const Workbench = memo(
     }, [hasPreview]);
 
     useEffect(() => {
+      const state = autoPreviewLaunchStateRef.current;
+
       if (hasPreview) {
-        autoPreviewLaunchStateRef.current.inFlight = false;
+        state.inFlight = false;
+        return;
+      }
+
+      if (isStreaming || streaming) {
+        state.inFlight = false;
+        state.lastStreamingActivityAt = Date.now();
         return;
       }
 
@@ -594,11 +622,18 @@ export const Workbench = memo(
       }
 
       const now = Date.now();
-      const state = autoPreviewLaunchStateRef.current;
 
       if (state.inFlight || now - state.lastAttemptAt < 5000) {
         return;
       }
+
+      const launchDelayMs = getAutoPreviewLaunchDelayMs({
+        isStreaming,
+        streaming,
+        lastStreamingActivityAt: state.lastStreamingActivityAt,
+        now,
+        settleMs: AUTO_PREVIEW_STREAM_SETTLE_MS,
+      });
 
       let cancelled = false;
 
@@ -624,12 +659,14 @@ export const Workbench = memo(
           return;
         }
 
+        const launchNow = Date.now();
+
         const fileSignature = JSON.stringify(
           candidateFiles.map((file) => [file.path, file.content.length, file.content.slice(0, 120)]),
         );
         const signature = `${commands.setupCommand ?? ''}::${commands.startCommand}::${fileSignature}`;
 
-        if (state.lastSignature === signature && now - state.lastAttemptAt < 30000) {
+        if (state.lastSignature === signature && launchNow - state.lastAttemptAt < 30000) {
           return;
         }
 
@@ -644,7 +681,7 @@ export const Workbench = memo(
         }
 
         state.inFlight = true;
-        state.lastAttemptAt = now;
+        state.lastAttemptAt = launchNow;
         state.lastSignature = signature;
 
         const setupCommand = commands.setupCommand;
@@ -847,13 +884,34 @@ export const Workbench = memo(
         }, 2500);
       };
 
-      tryAutoStartPreview().catch((error) => {
-        console.error('Failed to auto-start preview:', error);
-        autoPreviewLaunchStateRef.current.inFlight = false;
-      });
+      const launch = () => {
+        tryAutoStartPreview().catch((error) => {
+          console.error('Failed to auto-start preview:', error);
+          autoPreviewLaunchStateRef.current.inFlight = false;
+        });
+      };
+
+      const launchTimeoutId =
+        launchDelayMs > 0
+          ? window.setTimeout(() => {
+              if (cancelled || isStreaming || streaming) {
+                return;
+              }
+
+              launch();
+            }, launchDelayMs)
+          : undefined;
+
+      if (launchDelayMs === 0) {
+        launch();
+      }
 
       return () => {
         cancelled = true;
+
+        if (launchTimeoutId !== undefined) {
+          window.clearTimeout(launchTimeoutId);
+        }
       };
     }, [showWorkbench, selectedView, hasPreview, files, isStreaming, streaming]);
 

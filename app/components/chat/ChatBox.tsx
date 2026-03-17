@@ -234,10 +234,10 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
               event.preventDefault();
 
               const currentValue = (event.currentTarget as HTMLTextAreaElement).value;
-              const hasQueuedContent = currentValue.trim().length > 0 || hasAttachments;
+              const hasMessageText = currentValue.trim().length > 0;
 
               if (props.isStreaming) {
-                if (!hasQueuedContent) {
+                if (!hasMessageText) {
                   props.handleStop?.();
                   return;
                 }
@@ -315,10 +315,10 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
                 )}
                 onClick={(event) => {
                   const currentValue = props.textareaRef?.current?.value ?? props.input;
-                  const hasQueuedContent = currentValue.trim().length > 0 || hasAttachments;
+                  const hasMessageText = currentValue.trim().length > 0;
 
                   if (props.isStreaming) {
-                    if (!hasQueuedContent) {
+                    if (!hasMessageText) {
                       props.handleStop?.();
                       return;
                     }

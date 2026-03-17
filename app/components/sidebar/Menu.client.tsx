@@ -49,6 +49,13 @@ function choosePreferredHistoryItem(current: ChatHistoryItem | undefined, candid
     return candidate;
   }
 
+  const currentMessageCount = current.messages?.length || 0;
+  const candidateMessageCount = candidate.messages?.length || 0;
+
+  if (candidateMessageCount !== currentMessageCount) {
+    return candidateMessageCount > currentMessageCount ? candidate : current;
+  }
+
   const currentTime = Date.parse(current.timestamp || '');
   const candidateTime = Date.parse(candidate.timestamp || '');
   const hasValidCandidateTime = Number.isFinite(candidateTime);
@@ -58,27 +65,47 @@ function choosePreferredHistoryItem(current: ChatHistoryItem | undefined, candid
     return candidate;
   }
 
-  if ((candidate.messages?.length || 0) > (current.messages?.length || 0)) {
-    return candidate;
-  }
-
   return current;
 }
 
-function buildHistorySignature(item: ChatHistoryItem): string {
-  const firstMessage = item.messages?.[0];
-  const lastMessage = item.messages?.[item.messages.length - 1];
-  const messageCount = item.messages?.length || 0;
-  const description = (item.description || '').trim().toLowerCase();
-  const firstFingerprint = getMessageFingerprint(firstMessage);
-  const lastFingerprint = getMessageFingerprint(lastMessage);
+function getHistoryFingerprints(item: ChatHistoryItem): string[] {
+  return (item.messages || []).map((message) => getMessageFingerprint(message)).filter(Boolean);
+}
 
-  return [description, messageCount, firstFingerprint, lastFingerprint].join('::');
+function isSuffixMatch(longer: string[], shorter: string[]): boolean {
+  if (shorter.length === 0 || shorter.length > longer.length) {
+    return false;
+  }
+
+  const offset = longer.length - shorter.length;
+
+  return shorter.every((fingerprint, index) => longer[offset + index] === fingerprint);
+}
+
+function shouldCollapseHistoryItems(left: ChatHistoryItem, right: ChatHistoryItem): boolean {
+  const leftDescription = (left.description || '').trim().toLowerCase();
+  const rightDescription = (right.description || '').trim().toLowerCase();
+
+  if (!leftDescription || leftDescription !== rightDescription) {
+    return false;
+  }
+
+  const leftFingerprints = getHistoryFingerprints(left);
+  const rightFingerprints = getHistoryFingerprints(right);
+
+  if (leftFingerprints.length === 0 || rightFingerprints.length === 0) {
+    return false;
+  }
+
+  if (leftFingerprints.length >= rightFingerprints.length) {
+    return isSuffixMatch(leftFingerprints, rightFingerprints);
+  }
+
+  return isSuffixMatch(rightFingerprints, leftFingerprints);
 }
 
 export function dedupeAccidentalHistoryCopies(items: ChatHistoryItem[]): ChatHistoryItem[] {
   const byIdentity = new Map<string, ChatHistoryItem>();
-  const bySignature = new Map<string, ChatHistoryItem>();
 
   for (const item of items) {
     const identityKey = (item.urlId || item.id || '').trim().toLowerCase();
@@ -91,12 +118,19 @@ export function dedupeAccidentalHistoryCopies(items: ChatHistoryItem[]): ChatHis
     byIdentity.set(`fallback:${byIdentity.size}`, item);
   }
 
+  const deduped: ChatHistoryItem[] = [];
+
   for (const item of byIdentity.values()) {
-    const signature = buildHistorySignature(item);
-    bySignature.set(signature, choosePreferredHistoryItem(bySignature.get(signature), item));
+    const duplicateIndex = deduped.findIndex((existing) => shouldCollapseHistoryItems(existing, item));
+
+    if (duplicateIndex >= 0) {
+      deduped[duplicateIndex] = choosePreferredHistoryItem(deduped[duplicateIndex], item);
+    } else {
+      deduped.push(item);
+    }
   }
 
-  return [...bySignature.values()].sort((left, right) => {
+  return deduped.sort((left, right) => {
     const rightTime = Date.parse(right.timestamp || '');
     const leftTime = Date.parse(left.timestamp || '');
 

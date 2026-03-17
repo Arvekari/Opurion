@@ -6,13 +6,17 @@ interface Props {
   alert: ActionAlert;
   clearAlert: () => void;
   postMessage: (message: string) => void;
+  autoSubmitCountdownSeconds?: number | null;
 }
 
-export default function ChatAlert({ alert, clearAlert, postMessage }: Props) {
+export default function ChatAlert({ alert, clearAlert, postMessage, autoSubmitCountdownSeconds }: Props) {
   const { description, content, source } = alert;
 
   const isPreview = source === 'preview';
   const title = isPreview ? 'Preview Error' : 'Terminal Error';
+  const isAutoSubmitting =
+    isPreview && typeof autoSubmitCountdownSeconds === 'number' && autoSubmitCountdownSeconds > 0;
+  const askButtonLabel = isAutoSubmitting ? `Ask Opurion (${autoSubmitCountdownSeconds}s)` : 'Ask Opurion';
   const message = isPreview
     ? 'We encountered an error while running the preview. Would you like Opurion to analyze and help resolve this issue?'
     : 'We encountered an error while running terminal commands. Would you like Opurion to analyze and help resolve this issue?';
@@ -84,7 +88,7 @@ export default function ChatAlert({ alert, clearAlert, postMessage }: Props) {
                   )}
                 >
                   <div className="i-ph:chat-circle-duotone"></div>
-                  Ask Opurion
+                  {askButtonLabel}
                 </button>
                 <button
                   onClick={clearAlert}

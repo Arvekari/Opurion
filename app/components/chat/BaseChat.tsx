@@ -72,6 +72,7 @@ interface BaseChatProps {
   imageDataList?: string[];
   setImageDataList?: (dataList: string[]) => void;
   actionAlert?: ActionAlert;
+  previewAutoRepairCountdownSeconds?: number | null;
   clearAlert?: () => void;
   supabaseAlert?: SupabaseAlert;
   clearSupabaseAlert?: () => void;
@@ -125,6 +126,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       setImageDataList,
       messages,
       actionAlert,
+      previewAutoRepairCountdownSeconds,
       clearAlert,
       deployAlert,
       clearDeployAlert,
@@ -674,6 +676,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                     {actionAlert && (
                       <ChatAlert
                         alert={actionAlert}
+                        autoSubmitCountdownSeconds={previewAutoRepairCountdownSeconds}
                         clearAlert={() => clearAlert?.()}
                         postMessage={(message) => {
                           sendMessage?.({} as any, message);

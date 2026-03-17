@@ -42,6 +42,7 @@ import {
   resolveEffectiveStreamingState,
 } from './streamingGuard';
 import { buildRuntimeDiagnosticsPrefix } from './runtime-diagnostics';
+import { restartWebContainer } from '~/lib/webcontainer';
 
 const logger = createScopedLogger('Chat');
 
@@ -101,6 +102,8 @@ function getWebContainerDependencyRepairHints(alertContent?: string): string[] {
 }
 
 const AUTO_REPAIR_MIN_INTERVAL_MS = 45_000;
+const AUTO_REPAIR_MAX_ATTEMPTS_PER_CATEGORY = 3;
+const AUTO_REPAIR_COUNTDOWN_SECONDS = 6;
 const QUEUE_WATCHDOG_INTERVAL_MS = 1500;
 const QUEUE_WATCHDOG_STUCK_MS = 8000;
 const QUEUE_WATCHDOG_LOG_THROTTLE_MS = 15000;
@@ -118,6 +121,66 @@ function normalizePreviewAlertContent(content?: string): string {
 function buildPreviewAutoRepairSignature(alert: { title: string; description: string; content?: string }): string {
   const normalizedContent = normalizePreviewAlertContent(alert.content);
   return `${alert.title}::${alert.description}::${normalizedContent.slice(0, 500)}`;
+}
+
+function buildAutoRepairProjectFileContext(files: unknown): string {
+  const entries = Object.entries((files as Record<string, any>) || {});
+
+  if (entries.length === 0) {
+    return '';
+  }
+
+  const normalizedEntries = entries
+    .map(([filePath, value]) => {
+      const content = typeof value?.content === 'string' ? value.content : typeof value === 'string' ? value : undefined;
+      const isBinary = value?.isBinary === true;
+      const type = value?.type;
+
+      if (!content || isBinary || (type && type !== 'file')) {
+        return undefined;
+      }
+
+      return {
+        path: filePath.replace(/\\/g, '/').replace(/^\/+/, ''),
+        content,
+      };
+    })
+    .filter((entry): entry is { path: string; content: string } => !!entry);
+
+  if (normalizedEntries.length === 0) {
+    return '';
+  }
+
+  const preferredMatchers: RegExp[] = [
+    /(?:^|\/)package\.json$/i,
+    /(?:^|\/)index\.html$/i,
+    /(?:^|\/)vite\.config\.(?:js|mjs|cjs|ts|mts|cts)$/i,
+    /(?:^|\/)src\/(?:main|index)\.(?:js|jsx|ts|tsx)$/i,
+    /(?:^|\/)src\/App\.(?:js|jsx|ts|tsx)$/i,
+  ];
+
+  const selectedFiles: Array<{ path: string; content: string }> = [];
+
+  for (const matcher of preferredMatchers) {
+    const match = normalizedEntries.find((entry) => matcher.test(entry.path));
+
+    if (match && !selectedFiles.some((selected) => selected.path === match.path)) {
+      selectedFiles.push(match);
+    }
+  }
+
+  if (selectedFiles.length === 0) {
+    return '';
+  }
+
+  const maxCharsPerFile = 4000;
+
+  const blocks = selectedFiles.map((entry) => {
+    const snippet = entry.content.slice(0, maxCharsPerFile);
+    return [`--- ${entry.path} ---`, snippet].join('\n');
+  });
+
+  return ['Project file context (authoritative current contents):', ...blocks].join('\n\n');
 }
 
 function buildStreamActivitySignature(messages: Message[]) {
@@ -257,16 +320,23 @@ export const ChatImpl = memo(
     const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([]);
     const [queuedMessageCount, setQueuedMessageCount] = useState(0);
     const [isDispatchingQueuedMessage, setIsDispatchingQueuedMessage] = useState(false);
+    const [previewAutoRepairCountdownSeconds, setPreviewAutoRepairCountdownSeconds] = useState<number | null>(null);
     const [queueDispatchTick, setQueueDispatchTick] = useState(0);
     const lastQueueWatchdogLogAtRef = useRef(0);
     const previewAutoRepairRef = useRef<{
       attemptsBySignature: Map<string, number>;
+      attemptsByCategory: Map<string, number>;
       lastAttemptBySignature: Map<string, number>;
       inFlightSignature?: string;
+      countdownIntervalId?: number;
+      countdownTimeoutId?: number;
     }>({
       attemptsBySignature: new Map<string, number>(),
+      attemptsByCategory: new Map<string, number>(),
       lastAttemptBySignature: new Map<string, number>(),
       inFlightSignature: undefined,
+      countdownIntervalId: undefined,
+      countdownTimeoutId: undefined,
     });
     const streamStartedAtRef = useRef<number | null>(null);
     const lastChunkReceivedAtRef = useRef<number | null>(null);
@@ -1408,12 +1478,30 @@ export const ChatImpl = memo(
     );
 
     useEffect(() => {
+      // Always cleanup previous timers when effect runs, regardless of alert state
+      const cleanupCountdown = () => {
+        if (previewAutoRepairRef.current.countdownIntervalId !== undefined) {
+          window.clearInterval(previewAutoRepairRef.current.countdownIntervalId);
+          previewAutoRepairRef.current.countdownIntervalId = undefined;
+        }
+
+        if (previewAutoRepairRef.current.countdownTimeoutId !== undefined) {
+          window.clearTimeout(previewAutoRepairRef.current.countdownTimeoutId);
+          previewAutoRepairRef.current.countdownTimeoutId = undefined;
+        }
+
+        setPreviewAutoRepairCountdownSeconds(null);
+      };
+
       if (!actionAlert || actionAlert.source !== 'preview') {
+        cleanupCountdown();
         return;
       }
 
       const signature = buildPreviewAutoRepairSignature(actionAlert);
       const attempts = previewAutoRepairRef.current.attemptsBySignature.get(signature) || 0;
+      const alertCategory = `${actionAlert.title}::${actionAlert.description}`;
+      const categoryAttempts = previewAutoRepairRef.current.attemptsByCategory.get(alertCategory) || 0;
       const lastAttemptAt = previewAutoRepairRef.current.lastAttemptBySignature.get(signature) || 0;
       const now = Date.now();
 
@@ -1429,19 +1517,37 @@ export const ChatImpl = memo(
         return;
       }
 
+      if (categoryAttempts >= AUTO_REPAIR_MAX_ATTEMPTS_PER_CATEGORY) {
+        return;
+      }
+
       if (isLoading || fakeLoading) {
         return;
       }
 
       previewAutoRepairRef.current.inFlightSignature = signature;
       previewAutoRepairRef.current.attemptsBySignature.set(signature, attempts + 1);
+      previewAutoRepairRef.current.attemptsByCategory.set(alertCategory, categoryAttempts + 1);
       previewAutoRepairRef.current.lastAttemptBySignature.set(signature, now);
 
-      workbenchStore.clearAlert();
-      showInfoToast(`Auto-repairing preview issue (attempt ${attempts + 1}/2)...`);
-
       const dispatchAutoRepair = async () => {
+        // Kill the old WebContainer instance and start a fresh one before attempting auto-repair
+        // This prevents multiple stale instances from accumulating and ensures the preview
+        // connects to the correct (fresh) instance
+        try {
+          console.log('[Auto-Repair] Restarting WebContainer before repair attempt');
+          await restartWebContainer();
+        } catch (restartError) {
+          logStore.logError('WebContainer restart during auto-repair failed', restartError, {
+            component: 'Chat',
+            action: 'preview-auto-repair:restart-webcontainer',
+            attempt: attempts + 1,
+          });
+          // Continue with repair attempt even if restart fails
+        }
+
         let diagnosticsBundle = '';
+        const projectFileContext = buildAutoRepairProjectFileContext(files);
 
         if (attempts >= 1) {
           try {
@@ -1481,6 +1587,8 @@ export const ChatImpl = memo(
           'Auto-repair request: preview validation failed. Diagnose and fix the project until preview renders correctly.',
           'Constraints:',
           '- Detect and fix root cause (build errors, invalid entrypoint content, parser errors, blank render states).',
+          '- Preserve existing non-broken project files; do not blank/truncate files or recreate them with empty content unless explicitly required by the fix.',
+          '- Do not ask for additional context; use the attached project file context and workspace files to diagnose and fix directly.',
           '- Apply concrete file changes and rerun required setup/start steps.',
           '- Do not ask user for confirmation; continue until preview is working.',
           '- WebContainer working directory is /home/project — NEVER use /workspace or any other root.',
@@ -1491,6 +1599,7 @@ export const ChatImpl = memo(
           `Alert title: ${actionAlert.title}`,
           `Alert description: ${actionAlert.description}`,
           `Alert details:\n${actionAlert.content || 'n/a'}`,
+          projectFileContext ? `\n${projectFileContext}` : '',
           diagnosticsBundle ? `\n${diagnosticsBundle}` : '',
         ]
           .filter(Boolean)
@@ -1499,18 +1608,71 @@ export const ChatImpl = memo(
         await Promise.resolve(sendMessage({} as any, repairPrompt));
       };
 
-      dispatchAutoRepair()
-        .catch((error) => {
-          logStore.logError('Automatic preview repair dispatch failed', error, {
-            component: 'Chat',
-            action: 'preview-auto-repair',
-            attempt: attempts + 1,
-          });
-        })
-        .finally(() => {
-          previewAutoRepairRef.current.inFlightSignature = undefined;
+      if (previewAutoRepairRef.current.countdownIntervalId !== undefined) {
+        window.clearInterval(previewAutoRepairRef.current.countdownIntervalId);
+        previewAutoRepairRef.current.countdownIntervalId = undefined;
+      }
+
+      if (previewAutoRepairRef.current.countdownTimeoutId !== undefined) {
+        window.clearTimeout(previewAutoRepairRef.current.countdownTimeoutId);
+        previewAutoRepairRef.current.countdownTimeoutId = undefined;
+      }
+
+      setPreviewAutoRepairCountdownSeconds(AUTO_REPAIR_COUNTDOWN_SECONDS);
+
+      previewAutoRepairRef.current.countdownIntervalId = window.setInterval(() => {
+        setPreviewAutoRepairCountdownSeconds((current) => {
+          if (current === null) {
+            return null;
+          }
+
+          if (current <= 1) {
+            return 0;
+          }
+
+          return current - 1;
         });
+      }, 1000);
+
+      previewAutoRepairRef.current.countdownTimeoutId = window.setTimeout(() => {
+        if (previewAutoRepairRef.current.countdownIntervalId !== undefined) {
+          window.clearInterval(previewAutoRepairRef.current.countdownIntervalId);
+          previewAutoRepairRef.current.countdownIntervalId = undefined;
+        }
+
+        previewAutoRepairRef.current.countdownTimeoutId = undefined;
+        setPreviewAutoRepairCountdownSeconds(null);
+
+        workbenchStore.clearAlert();
+        showInfoToast(`Auto-repairing preview issue (attempt ${attempts + 1}/2)...`);
+
+        dispatchAutoRepair()
+          .catch((error) => {
+            logStore.logError('Automatic preview repair dispatch failed', error, {
+              component: 'Chat',
+              action: 'preview-auto-repair',
+              attempt: attempts + 1,
+            });
+          })
+          .finally(() => {
+            previewAutoRepairRef.current.inFlightSignature = undefined;
+          });
+      }, AUTO_REPAIR_COUNTDOWN_SECONDS * 1000);
     }, [actionAlert, fakeLoading, isLoading, sendMessage]);
+
+    useEffect(() => {
+      return () => {
+        if (previewAutoRepairRef.current.countdownIntervalId !== undefined) {
+          window.clearInterval(previewAutoRepairRef.current.countdownIntervalId);
+          previewAutoRepairRef.current.countdownIntervalId = undefined;
+        }
+
+        if (previewAutoRepairRef.current.countdownTimeoutId !== undefined) {
+          window.clearTimeout(previewAutoRepairRef.current.countdownTimeoutId);
+          previewAutoRepairRef.current.countdownTimeoutId = undefined;
+        }
+      };
+    }, []);
 
     const effectiveStreaming = resolveEffectiveStreamingState({
       isLoading,
@@ -1573,6 +1735,9 @@ export const ChatImpl = memo(
         setImageDataList={setImageDataList}
         actionAlert={actionAlert}
         clearAlert={() => workbenchStore.clearAlert()}
+        previewAutoRepairCountdownSeconds={
+          actionAlert?.source === 'preview' ? previewAutoRepairCountdownSeconds : null
+        }
         supabaseAlert={supabaseAlert}
         clearSupabaseAlert={() => workbenchStore.clearSupabaseAlert()}
         deployAlert={deployAlert}

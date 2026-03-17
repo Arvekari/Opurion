@@ -251,4 +251,29 @@ describe('chat input regression guard', () => {
     expect(handleSendMessage).toHaveBeenCalledTimes(1);
     expect(handleStop).toHaveBeenCalledTimes(0);
   });
+
+  it('stops streaming when text is empty even if attachments exist', () => {
+    const handleSendMessage = vi.fn();
+    const handleStop = vi.fn();
+
+    const uploadedImage = new File(['content'], 'image.png', { type: 'image/png' });
+
+    render(
+      <ChatBox
+        {...buildBaseProps({
+          input: '',
+          isStreaming: true,
+          uploadedFiles: [uploadedImage],
+          imageDataList: ['data:image/png;base64,abc'],
+          handleSendMessage,
+          handleStop,
+        })}
+      />,
+    );
+
+    fireEvent.click(screen.getByLabelText('send'));
+
+    expect(handleStop).toHaveBeenCalledTimes(1);
+    expect(handleSendMessage).toHaveBeenCalledTimes(0);
+  });
 });

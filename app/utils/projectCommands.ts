@@ -384,6 +384,15 @@ function validateHtmlEntrypoints(files: FileContent[], workingDirectory: string)
   const workspacePaths = new Set(files.map((file) => toWorkspaceRelativePath(file.path)));
 
   for (const htmlFile of htmlFiles) {
+    const htmlWithoutComments = htmlFile.content.replace(/<!--[\s\S]*?-->/g, '').trim();
+
+    if (!htmlWithoutComments) {
+      issues.push(
+        `Empty HTML entrypoint: '${toWorkspaceRelativePath(htmlFile.path)}' has no renderable content, so preview will be blank.`,
+      );
+      continue;
+    }
+
     const projectRelativePath = toProjectRelativePath(htmlFile.path, workingDirectory);
     const htmlDirectory = getDirectoryPath(projectRelativePath);
     const scriptRegex = /<script[^>]*\ssrc=["']([^"']+)["'][^>]*>/gi;
@@ -448,6 +457,189 @@ function validatePostcssJsonConfigs(files: FileContent[], workingDirectory: stri
   return issues;
 }
 
+function validatePackageDependencySpecs(packageJson: any): string[] {
+  const issues: string[] = [];
+  const dependencySections = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'] as const;
+
+  for (const sectionName of dependencySections) {
+    const sectionValue = packageJson?.[sectionName];
+
+    if (sectionValue === undefined) {
+      continue;
+    }
+
+    if (sectionValue === null || typeof sectionValue !== 'object' || Array.isArray(sectionValue)) {
+      issues.push(`package.json field '${sectionName}' must be an object mapping package names to version strings.`);
+      continue;
+    }
+
+    for (const [packageName, versionSpec] of Object.entries(sectionValue as Record<string, unknown>)) {
+      if (typeof versionSpec !== 'string' || versionSpec.trim().length === 0) {
+        issues.push(`Invalid dependency spec in ${sectionName}.${packageName}: expected a non-empty string version.`);
+      }
+    }
+  }
+
+  return issues;
+}
+
+function stripJsComments(content: string): string {
+  return content
+    .replace(/\/\*[\s\S]*?\*\//g, '')
+    .replace(/(^|\n)\s*\/\/.*(?=\n|$)/g, '$1')
+    .trim();
+}
+
+function normalizeLocalImportPath(pathValue: string): string {
+  const withoutQuery = pathValue.split('?')[0].split('#')[0];
+  return withoutQuery.replace(/\\/g, '/');
+}
+
+function resolveLocalImportTarget(
+  importerWorkspacePath: string,
+  importPath: string,
+  sourceFileMap: Map<string, string>,
+): string | undefined {
+  const importerDirectory = getDirectoryPath(importerWorkspacePath);
+  const normalizedImportPath = normalizeLocalImportPath(importPath).replace(/^\.\//, '');
+  const rawTarget = normalizedImportPath.startsWith('/')
+    ? normalizedImportPath.replace(/^\/+/, '')
+    : [importerDirectory, normalizedImportPath].filter(Boolean).join('/');
+
+  const directCandidates = [
+    rawTarget,
+    ...NODE_SOURCE_EXTENSIONS.map((ext) => `${rawTarget}${ext}`),
+    ...NODE_SOURCE_EXTENSIONS.map((ext) => `${rawTarget}/index${ext}`),
+  ];
+
+  return directCandidates.find((candidate) => sourceFileMap.has(candidate));
+}
+
+function getDeclaredExports(moduleContent: string): { hasDefaultExport: boolean; namedExports: Set<string> } {
+  const content = stripJsComments(moduleContent);
+  const namedExports = new Set<string>();
+  const hasDefaultExport = /export\s+default\b/.test(content);
+
+  const declarationRegex = /export\s+(?:const|let|var|function|class)\s+([A-Za-z_$][\w$]*)/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = declarationRegex.exec(content)) !== null) {
+    namedExports.add(match[1]);
+  }
+
+  const listRegex = /export\s*\{([^}]+)\}/g;
+
+  while ((match = listRegex.exec(content)) !== null) {
+    const exportedMembers = match[1]
+      .split(',')
+      .map((member) => member.trim())
+      .filter(Boolean)
+      .map((member) => {
+        const aliasMatch = member.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/);
+        return aliasMatch ? aliasMatch[2] : member;
+      });
+
+    exportedMembers.forEach((member) => namedExports.add(member));
+  }
+
+  return { hasDefaultExport, namedExports };
+}
+
+function validateReactModuleExports(files: FileContent[], workingDirectory: string): string[] {
+  const issues: string[] = [];
+  const normalizedWorkingDirectory = workingDirectory.replace(/^\/+|\/+$/g, '');
+  const sourceFiles = files.filter((file) => {
+    const workspacePath = toWorkspaceRelativePath(file.path);
+    const extension = workspacePath.slice(workspacePath.lastIndexOf('.')).toLowerCase();
+
+    if (!NODE_SOURCE_EXTENSIONS.includes(extension)) {
+      return false;
+    }
+
+    if (!normalizedWorkingDirectory) {
+      return true;
+    }
+
+    return workspacePath.startsWith(`${normalizedWorkingDirectory}/`);
+  });
+
+  if (sourceFiles.length === 0) {
+    return issues;
+  }
+
+  const sourceFileMap = new Map<string, string>(sourceFiles.map((file) => [toWorkspaceRelativePath(file.path), file.content]));
+  const entryFileNames = new Set(['main.js', 'main.jsx', 'main.ts', 'main.tsx', 'index.js', 'index.jsx', 'index.ts', 'index.tsx']);
+
+  for (const file of sourceFiles) {
+    const importerWorkspacePath = toWorkspaceRelativePath(file.path);
+    const baseName = importerWorkspacePath.split('/').pop() ?? '';
+
+    if (!entryFileNames.has(baseName)) {
+      continue;
+    }
+
+    const content = file.content;
+    const importRegex = /import\s+([^'";]+)\s+from\s+['"]([^'"\n]+)['"]/g;
+    let match: RegExpExecArray | null;
+
+    while ((match = importRegex.exec(content)) !== null) {
+      const specifierClause = match[1].trim();
+      const importSource = match[2].trim();
+
+      if (!importSource.startsWith('.') && !importSource.startsWith('/')) {
+        continue;
+      }
+
+      const resolvedTarget = resolveLocalImportTarget(importerWorkspacePath, importSource, sourceFileMap);
+
+      if (!resolvedTarget) {
+        issues.push(`Broken local import: '${importSource}' referenced by '${importerWorkspacePath}' cannot be resolved.`);
+        continue;
+      }
+
+      const targetContent = sourceFileMap.get(resolvedTarget) ?? '';
+      const normalizedTargetContent = stripJsComments(targetContent);
+
+      if (!normalizedTargetContent) {
+        issues.push(`Empty source module: '${resolvedTarget}' is empty but imported by '${importerWorkspacePath}'.`);
+        continue;
+      }
+
+      const exports = getDeclaredExports(targetContent);
+      const namedImportMatch = specifierClause.match(/\{([^}]+)\}/);
+      const defaultImportClause = specifierClause.split(',')[0]?.trim();
+      const hasDefaultImport = !!defaultImportClause && !defaultImportClause.startsWith('{') && !defaultImportClause.startsWith('*');
+
+      if (hasDefaultImport && !exports.hasDefaultExport) {
+        issues.push(
+          `Import/export mismatch: '${importerWorkspacePath}' default-imports '${importSource}', but '${resolvedTarget}' has no default export.`,
+        );
+      }
+
+      if (namedImportMatch) {
+        const importedNames = namedImportMatch[1]
+          .split(',')
+          .map((part) => part.trim())
+          .filter(Boolean)
+          .map((part) => {
+            const aliasMatch = part.match(/^([A-Za-z_$][\w$]*)\s+as\s+([A-Za-z_$][\w$]*)$/);
+            return aliasMatch ? aliasMatch[1] : part;
+          });
+
+        for (const importedName of importedNames) {
+          if (!exports.namedExports.has(importedName)) {
+            issues.push(
+              `Import/export mismatch: '${importerWorkspacePath}' imports '{ ${importedName} }' from '${importSource}', but '${resolvedTarget}' does not export '${importedName}'.`,
+            );
+          }
+        }
+      }
+    }
+  }
+
+  return issues;
+}
+
 function isViteConfigPath(workspacePath: string): boolean {
   return /(?:^|\/)vite\.config\.(?:js|mjs|cjs|ts|mts|cts)$/i.test(workspacePath);
 }
@@ -500,6 +692,7 @@ export async function validateProjectPreflight(
   }
 
   const issues: string[] = [];
+  issues.push(...validatePackageDependencySpecs(packageJson));
   const startScript = parseStartScriptName(commands.startCommand);
   const scripts = (packageJson?.scripts || {}) as Record<string, unknown>;
   const fallbackStartScript = getPreferredScriptName(scripts, ['dev', 'start', 'preview']);
@@ -545,6 +738,19 @@ export async function validateProjectPreflight(
     (typeof startScriptValue === 'string' && /\bvite\b/i.test(startScriptValue));
 
   if (usesVite) {
+    const normalizedWorkingDirectoryPrefix = normalizedWorkingDirectory ? `${normalizedWorkingDirectory}/` : '';
+    const expectedEntrypointPath = `${normalizedWorkingDirectoryPrefix}index.html`;
+    const hasViteEntrypoint = files.some((file) => {
+      const workspacePath = toWorkspaceRelativePath(file.path);
+      return workspacePath === expectedEntrypointPath || workspacePath.endsWith(`/${expectedEntrypointPath}`);
+    });
+
+    if (!hasViteEntrypoint) {
+      issues.push(
+        `Missing HTML entrypoint: '${expectedEntrypointPath}' is required for Vite startup and preview rendering.`,
+      );
+    }
+
     const viteConfigFiles = files.filter((file) => {
       const workspacePath = toWorkspaceRelativePath(file.path);
 
@@ -570,6 +776,7 @@ export async function validateProjectPreflight(
 
   issues.push(...validatePostcssJsonConfigs(files, normalizedWorkingDirectory));
   issues.push(...validateHtmlEntrypoints(files, normalizedWorkingDirectory));
+  issues.push(...validateReactModuleExports(files, normalizedWorkingDirectory));
 
   return {
     ok: issues.length === 0,

@@ -219,6 +219,10 @@ describe('utils/projectCommands', () => {
           devDependencies: { vite: '^5.0.0' },
         }),
       },
+      {
+        path: '/workspace/index.html',
+        content: '<!doctype html><html><body><div id="root"></div></body></html>',
+      },
     ];
 
     const result = await validateProjectPreflight(files as any, {
@@ -238,6 +242,10 @@ describe('utils/projectCommands', () => {
           scripts: { start: 'vite --host 0.0.0.0 --port 4173' },
           devDependencies: { vite: '^5.0.0' },
         }),
+      },
+      {
+        path: '/workspace/index.html',
+        content: '<!doctype html><html><body><div id="root"></div></body></html>',
       },
     ];
 
@@ -284,6 +292,10 @@ describe('utils/projectCommands', () => {
           scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
           devDependencies: { vite: '^5.0.0' },
         }),
+      },
+      {
+        path: '/workspace/index.html',
+        content: '<!doctype html><html><body><div id="root"></div></body></html>',
       },
       {
         path: '/workspace/vite.config.js',
@@ -335,6 +347,10 @@ describe('utils/projectCommands', () => {
         }),
       },
       {
+        path: '/workspace/index.html',
+        content: '<!doctype html><html><body><div id="root"></div></body></html>',
+      },
+      {
         path: '/workspace/postcss.config.json',
         content: JSON.stringify({ plugins: { autoprefixer: {} } }),
       },
@@ -347,5 +363,175 @@ describe('utils/projectCommands', () => {
     });
 
     expect(result.ok).toBe(true);
+  });
+
+  it('fails preflight when index.html is empty', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+        }),
+      },
+      {
+        path: '/workspace/index.html',
+        content: '   \n\n  ',
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain('Empty HTML entrypoint');
+  });
+
+  it('fails preflight when vite entrypoint index.html is missing', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+        }),
+      },
+      {
+        path: '/workspace/src/main.tsx',
+        content: "import React from 'react';",
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain('Missing HTML entrypoint');
+  });
+
+  it('fails preflight when dependency version spec is null', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+          dependencies: { react: null },
+        }),
+      },
+      {
+        path: '/workspace/index.html',
+        content: '<!doctype html><html><body><div id="root"></div></body></html>',
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain('Invalid dependency spec in dependencies.react');
+  });
+
+  it('fails preflight when dependency section is not an object', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+          dependencies: null,
+        }),
+      },
+      {
+        path: '/workspace/index.html',
+        content: '<!doctype html><html><body><div id="root"></div></body></html>',
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain("package.json field 'dependencies' must be an object");
+  });
+
+  it('fails preflight when main imports named App but App module lacks named export', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+          dependencies: { react: '^18.2.0', 'react-dom': '^18.2.0' },
+        }),
+      },
+      {
+        path: '/workspace/index.html',
+        content: '<!doctype html><html><body><div id="root"></div></body></html>',
+      },
+      {
+        path: '/workspace/src/main.jsx',
+        content: "import { App } from './App.jsx';\nimport ReactDOM from 'react-dom/client';\nReactDOM.createRoot(document.getElementById('root')).render(<App />);",
+      },
+      {
+        path: '/workspace/src/App.jsx',
+        content: 'export default function App(){ return <div>Hello</div>; }',
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain("does not export 'App'");
+  });
+
+  it('fails preflight when imported local App module is empty', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+          dependencies: { react: '^18.2.0', 'react-dom': '^18.2.0' },
+        }),
+      },
+      {
+        path: '/workspace/index.html',
+        content: '<!doctype html><html><body><div id="root"></div></body></html>',
+      },
+      {
+        path: '/workspace/src/main.jsx',
+        content: "import App from './App.jsx';\nimport ReactDOM from 'react-dom/client';\nReactDOM.createRoot(document.getElementById('root')).render(<App />);",
+      },
+      {
+        path: '/workspace/src/App.jsx',
+        content: '   \n\n ',
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain("Empty source module: 'workspace/src/App.jsx'");
   });
 });

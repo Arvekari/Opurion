@@ -93,16 +93,18 @@ export function useChatHistory() {
               startingIdx = -1;
             }
 
-            let filteredMessages = storedMessages.messages.slice(startingIdx + 1, endingIdx);
-            let archivedMessages: Message[] = [];
+            const shouldRestoreFromSnapshot = Boolean(rewindId) && startingIdx > 0;
 
-            if (startingIdx >= 0) {
-              archivedMessages = storedMessages.messages.slice(0, startingIdx + 1);
-            }
+            let filteredMessages = shouldRestoreFromSnapshot
+              ? storedMessages.messages.slice(startingIdx + 1, endingIdx)
+              : storedMessages.messages.slice(0, endingIdx);
+            let archivedMessages: Message[] = shouldRestoreFromSnapshot
+              ? storedMessages.messages.slice(0, startingIdx + 1)
+              : [];
 
             setArchivedMessages(archivedMessages);
 
-            if (startingIdx > 0) {
+            if (shouldRestoreFromSnapshot) {
               const files = Object.entries(validSnapshot?.files || {})
                 .map(([key, value]) => {
                   if (value?.type !== 'file') {
