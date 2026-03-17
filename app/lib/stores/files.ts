@@ -771,7 +771,8 @@ export class FilesStore {
     const webcontainer = await this.#webcontainer;
 
     try {
-      const relativePath = path.relative(webcontainer.workdir, filePath);
+      const normalizedPath = filePath.replace(/\/+$/g, '');
+      const relativePath = path.relative(webcontainer.workdir, normalizedPath);
 
       if (!relativePath) {
         throw new Error(`EINVAL: invalid file path, create '${relativePath}'`);
@@ -786,32 +787,50 @@ export class FilesStore {
       const isBinary = content instanceof Uint8Array;
 
       if (isBinary) {
-        await webcontainer.fs.writeFile(relativePath, Buffer.from(content));
+        try {
+          await webcontainer.fs.writeFile(relativePath, Buffer.from(content));
+        } catch (error) {
+          if (error instanceof Error && /EISDIR|is a directory/i.test(error.message)) {
+            await webcontainer.fs.rm(relativePath, { recursive: true });
+            await webcontainer.fs.writeFile(relativePath, Buffer.from(content));
+          } else {
+            throw error;
+          }
+        }
 
         const base64Content = Buffer.from(content).toString('base64');
-        this.files.setKey(filePath, {
+        this.files.setKey(normalizedPath, {
           type: 'file',
           content: base64Content,
           isBinary: true,
           isLocked: false,
         });
 
-        this.#modifiedFiles.set(filePath, base64Content);
+        this.#modifiedFiles.set(normalizedPath, base64Content);
       } else {
         const contentToWrite = (content as string).length === 0 ? ' ' : content;
-        await webcontainer.fs.writeFile(relativePath, contentToWrite);
+        try {
+          await webcontainer.fs.writeFile(relativePath, contentToWrite);
+        } catch (error) {
+          if (error instanceof Error && /EISDIR|is a directory/i.test(error.message)) {
+            await webcontainer.fs.rm(relativePath, { recursive: true });
+            await webcontainer.fs.writeFile(relativePath, contentToWrite);
+          } else {
+            throw error;
+          }
+        }
 
-        this.files.setKey(filePath, {
+        this.files.setKey(normalizedPath, {
           type: 'file',
           content: content as string,
           isBinary: false,
           isLocked: false,
         });
 
-        this.#modifiedFiles.set(filePath, content as string);
+        this.#modifiedFiles.set(normalizedPath, content as string);
       }
 
-      logger.info(`File created: ${filePath}`);
+      logger.info(`File created: ${normalizedPath}`);
 
       return true;
     } catch (error) {
@@ -824,7 +843,8 @@ export class FilesStore {
     const webcontainer = await this.#webcontainer;
 
     try {
-      const relativePath = path.relative(webcontainer.workdir, folderPath);
+      const normalizedPath = folderPath.replace(/\/+$/g, '');
+      const relativePath = path.relative(webcontainer.workdir, normalizedPath);
 
       if (!relativePath) {
         throw new Error(`EINVAL: invalid folder path, create '${relativePath}'`);
@@ -832,9 +852,9 @@ export class FilesStore {
 
       await webcontainer.fs.mkdir(relativePath, { recursive: true });
 
-      this.files.setKey(folderPath, { type: 'folder' });
+      this.files.setKey(normalizedPath, { type: 'folder' });
 
-      logger.info(`Folder created: ${folderPath}`);
+      logger.info(`Folder created: ${normalizedPath}`);
 
       return true;
     } catch (error) {
@@ -847,26 +867,37 @@ export class FilesStore {
     const webcontainer = await this.#webcontainer;
 
     try {
-      const relativePath = path.relative(webcontainer.workdir, filePath);
+      const normalizedPath = filePath.replace(/\/+$/g, '');
+      const relativePath = path.relative(webcontainer.workdir, normalizedPath);
 
       if (!relativePath) {
         throw new Error(`EINVAL: invalid file path, delete '${relativePath}'`);
       }
 
-      await webcontainer.fs.rm(relativePath);
+      try {
+        await webcontainer.fs.rm(relativePath);
+      } catch (error) {
+        if (error instanceof Error && /ENOENT|no such file/i.test(error.message)) {
+          logger.info(`File already deleted: ${normalizedPath}`);
+        } else if (error instanceof Error && /EISDIR|is a directory/i.test(error.message)) {
+          await webcontainer.fs.rm(relativePath, { recursive: true });
+        } else {
+          throw error;
+        }
+      }
 
-      this.#deletedPaths.add(filePath);
+      this.#deletedPaths.add(normalizedPath);
 
-      this.files.setKey(filePath, undefined);
+      this.files.setKey(normalizedPath, undefined);
       this.#size--;
 
-      if (this.#modifiedFiles.has(filePath)) {
-        this.#modifiedFiles.delete(filePath);
+      if (this.#modifiedFiles.has(normalizedPath)) {
+        this.#modifiedFiles.delete(normalizedPath);
       }
 
       this.#persistDeletedPaths();
 
-      logger.info(`File deleted: ${filePath}`);
+      logger.info(`File deleted: ${normalizedPath}`);
 
       return true;
     } catch (error) {
@@ -879,22 +910,31 @@ export class FilesStore {
     const webcontainer = await this.#webcontainer;
 
     try {
-      const relativePath = path.relative(webcontainer.workdir, folderPath);
+      const normalizedPath = folderPath.replace(/\/+$/g, '');
+      const relativePath = path.relative(webcontainer.workdir, normalizedPath);
 
       if (!relativePath) {
         throw new Error(`EINVAL: invalid folder path, delete '${relativePath}'`);
       }
 
-      await webcontainer.fs.rm(relativePath, { recursive: true });
+      try {
+        await webcontainer.fs.rm(relativePath, { recursive: true });
+      } catch (error) {
+        if (error instanceof Error && /ENOENT|no such file/i.test(error.message)) {
+          logger.info(`Folder already deleted: ${normalizedPath}`);
+        } else {
+          throw error;
+        }
+      }
 
-      this.#deletedPaths.add(folderPath);
+      this.#deletedPaths.add(normalizedPath);
 
-      this.files.setKey(folderPath, undefined);
+      this.files.setKey(normalizedPath, undefined);
 
       const allFiles = this.files.get();
 
       for (const [path, dirent] of Object.entries(allFiles)) {
-        if (path.startsWith(folderPath + '/')) {
+        if (path.startsWith(normalizedPath + '/')) {
           this.files.setKey(path, undefined);
 
           this.#deletedPaths.add(path);
@@ -911,7 +951,7 @@ export class FilesStore {
 
       this.#persistDeletedPaths();
 
-      logger.info(`Folder deleted: ${folderPath}`);
+      logger.info(`Folder deleted: ${normalizedPath}`);
 
       return true;
     } catch (error) {

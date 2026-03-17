@@ -353,6 +353,21 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           anonKey?: string;
           supabaseUrl?: string;
         };
+        developmentPostgres?: {
+          enabled: boolean;
+          host?: string;
+          port?: string;
+          database?: string;
+          username?: string;
+          ssl?: boolean;
+          hasPassword?: boolean;
+        };
+        postgrest?: {
+          enabled: boolean;
+          endpoint?: string;
+          schema?: string;
+          hasApiKey?: boolean;
+        };
       };
       maxLLMSteps: number;
     }>();

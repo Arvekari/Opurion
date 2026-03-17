@@ -11,6 +11,7 @@ import type { ITerminal } from '~/types/terminal';
 
 const logger = createScopedLogger('ActionRunner');
 const START_ACTION_SETTLE_WINDOW_MS = 2000;
+const START_COMMAND_DEDUPE_WINDOW_MS = 45000;
 
 export type ActionStatus = 'pending' | 'running' | 'complete' | 'aborted' | 'failed';
 
@@ -119,6 +120,17 @@ function rewriteLegacyWorkspaceCd(command: string, workdir: string): string {
   );
 }
 
+function stripRedundantWorkdirCd(command: string, workdir: string): string {
+  const normalizedWorkdir = nodePath.normalize(workdir || '/workspace').replace(/\\/g, '/');
+
+  const escapedWorkdir = normalizedWorkdir.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  return command.replace(
+    new RegExp(`(^|[\\n;&]\\s*)cd\\s+(["']?)${escapedWorkdir}(?:\\2|(?=[\\s;&\\n]|$))\\s*&&\\s*`, 'gi'),
+    '$1',
+  );
+}
+
 function ensureNpxNonInteractive(command: string): string {
   return command.replace(/(^|[\n;&]\s*)npx(?!\s+--yes\b)/g, '$1npx --yes');
 }
@@ -163,6 +175,9 @@ export class ActionRunner {
   onSupabaseAlert?: (alert: SupabaseAlert) => void;
   onDeployAlert?: (alert: DeployAlert) => void;
   buildOutput?: { path: string; exitCode: number; output: string };
+  #activeStartCommands = new Set<string>();
+  #recentStartCommands = new Map<string, number>();
+  #activeStartSessions = new Map<string, { stop: () => void; startedAt: number }>();
 
   constructor(
     webcontainerPromise: Promise<WebContainer>,
@@ -296,7 +311,7 @@ export class ActionRunner {
           break;
         }
         case 'start': {
-          const monitoredStart = this.#runStartAction(action)
+          const monitoredStart = this.#runStartAction(action, actionId)
             .then(() => ({ ok: true as const }))
             .catch((error) => ({ ok: false as const, error }));
 
@@ -433,7 +448,7 @@ export class ActionRunner {
     }
   }
 
-  async #runStartAction(action: ActionState) {
+  async #runStartAction(action: ActionState, _actionId?: string) {
     if (action.type !== 'start') {
       unreachable('Expected shell action');
     }
@@ -447,6 +462,31 @@ export class ActionRunner {
     if (validationResult.shouldModify && validationResult.modifiedCommand) {
       logger.debug(`Modified start command: ${action.content} -> ${validationResult.modifiedCommand}`);
       action.content = validationResult.modifiedCommand;
+    }
+
+    const normalizedStartCommand = action.content.trim().replace(/\s+/g, ' ');
+
+    if (normalizedStartCommand) {
+      const now = Date.now();
+      const lastStartedAt = this.#recentStartCommands.get(normalizedStartCommand) || 0;
+      const isRecentlyStarted = now - lastStartedAt < START_COMMAND_DEDUPE_WINDOW_MS;
+
+      if (this.#activeStartCommands.has(normalizedStartCommand) || isRecentlyStarted) {
+        logger.warn('Skipping duplicate start command launch', {
+          command: normalizedStartCommand,
+          active: this.#activeStartCommands.has(normalizedStartCommand),
+          elapsedMs: now - lastStartedAt,
+        });
+
+        return {
+          output: `Skipped duplicate start command: ${normalizedStartCommand}`,
+          exitCode: 0,
+        };
+      }
+
+      this.#stopActiveStartSessions(normalizedStartCommand);
+      this.#activeStartCommands.add(normalizedStartCommand);
+      this.#recentStartCommands.set(normalizedStartCommand, now);
     }
 
     const webcontainer = await this.#webcontainer;
@@ -464,6 +504,31 @@ export class ActionRunner {
       detachedShell.terminal?.input('\x03');
     };
 
+    if (normalizedStartCommand) {
+      this.#activeStartSessions.set(normalizedStartCommand, {
+        stop: () => {
+          try {
+            action.abort();
+          } catch {
+            // no-op
+          }
+
+          try {
+            detachedShell.terminal?.input('\x03');
+          } catch {
+            // no-op
+          }
+
+          try {
+            detachedShell.process?.kill();
+          } catch {
+            // no-op
+          }
+        },
+        startedAt: Date.now(),
+      });
+    }
+
     action.abortSignal.addEventListener('abort', abortDetachedShell, { once: true });
 
     try {
@@ -480,6 +545,11 @@ export class ActionRunner {
 
       return resp;
     } finally {
+      if (normalizedStartCommand) {
+        this.#activeStartSessions.delete(normalizedStartCommand);
+        this.#activeStartCommands.delete(normalizedStartCommand);
+      }
+
       action.abortSignal.removeEventListener('abort', abortDetachedShell);
 
       try {
@@ -487,6 +557,25 @@ export class ActionRunner {
       } catch (error) {
         logger.debug('Failed to tear down detached start shell cleanly', error);
       }
+    }
+  }
+
+  #stopActiveStartSessions(nextCommand: string) {
+    for (const [activeCommand, session] of this.#activeStartSessions.entries()) {
+      logger.info('Stopping previous start session before launching new command', {
+        activeCommand,
+        nextCommand,
+        startedAt: session.startedAt,
+      });
+
+      try {
+        session.stop();
+      } catch (error) {
+        logger.warn('Failed to stop previous start session cleanly', { activeCommand, error });
+      }
+
+      this.#activeStartSessions.delete(activeCommand);
+      this.#activeStartCommands.delete(activeCommand);
     }
   }
 
@@ -519,7 +608,16 @@ export class ActionRunner {
     }
 
     const webcontainer = await this.#webcontainer;
-    const relativePath = nodePath.relative(webcontainer.workdir, action.filePath);
+    let relativePath = nodePath.relative(webcontainer.workdir, action.filePath).replace(/\\/g, '/');
+
+    // Guard against malformed paths like "index.html/" that can accidentally create
+    // a folder named like a file before write attempts.
+    relativePath = relativePath.replace(/\/+$/g, '');
+
+    if (!relativePath || relativePath === '.' || relativePath.startsWith('..')) {
+      logger.error('Skipping invalid file action path', { filePath: action.filePath, relativePath });
+      return;
+    }
 
     let folder = nodePath.dirname(relativePath);
 
@@ -539,6 +637,17 @@ export class ActionRunner {
       await webcontainer.fs.writeFile(relativePath, action.content);
       logger.debug(`File written ${relativePath}`);
     } catch (error) {
+      if (error instanceof Error && /EISDIR|is a directory/i.test(error.message)) {
+        try {
+          await webcontainer.fs.rm(relativePath, { recursive: true });
+          await webcontainer.fs.writeFile(relativePath, action.content);
+          logger.warn(`Recovered from directory collision and rewrote file ${relativePath}`);
+          return;
+        } catch (recoveryError) {
+          logger.error('Failed to recover from directory collision while writing file\n\n', recoveryError);
+        }
+      }
+
       logger.error('Failed to write file\n\n', error);
     }
   }
@@ -802,19 +911,27 @@ export class ActionRunner {
     }
 
     const workspaceNormalizedCommand = rewriteLegacyWorkspaceCd(command, resolvedWebcontainer?.workdir || '/workspace');
-    const npxNormalizedCommand = ensureNpxNonInteractive(workspaceNormalizedCommand);
+    const rootCdStrippedCommand = stripRedundantWorkdirCd(
+      workspaceNormalizedCommand,
+      resolvedWebcontainer?.workdir || '/workspace',
+    );
+    const npxNormalizedCommand = ensureNpxNonInteractive(rootCdStrippedCommand);
     let normalizedCommand = npxNormalizedCommand;
 
     if (resolvedWebcontainer) {
       try {
-        const preferPnpm = await shouldPreferPnpmForCommandContexts(
-          npxNormalizedCommand,
-          resolvedWebcontainer,
-          resolvedWebcontainer.workdir,
-        );
-
-        if (preferPnpm) {
+        if (/\bnpm\s+/i.test(npxNormalizedCommand)) {
           normalizedCommand = rewriteNpmToPnpmForWebContainer(npxNormalizedCommand);
+        } else {
+          const preferPnpm = await shouldPreferPnpmForCommandContexts(
+            npxNormalizedCommand,
+            resolvedWebcontainer,
+            resolvedWebcontainer.workdir,
+          );
+
+          if (preferPnpm) {
+            normalizedCommand = rewriteNpmToPnpmForWebContainer(npxNormalizedCommand);
+          }
         }
       } catch (error) {
         logger.debug('Could not resolve package-manager preference for shell command:', error);

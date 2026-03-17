@@ -1,5 +1,6 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
+import { toast } from 'react-toastify';
 import { IconButton } from '~/components/ui/IconButton';
 import { logStore } from '~/lib/stores/logs';
 import { workbenchStore } from '~/lib/stores/workbench';
@@ -160,7 +161,31 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
     };
   }, [iframeUrl]);
 
-  const reloadPreview = useCallback(() => {
+  const reloadPreview = useCallback(async () => {
+    const previews = workbenchStore.previews.get();
+
+    if (!previews || previews.length === 0) {
+      const artifact = workbenchStore.firstArtifact;
+
+      if (artifact) {
+        try {
+          await workbenchStore.runAction({
+            artifactId: artifact.id,
+            messageId: 'preview-refresh-start',
+            actionId: `start-${Date.now()}`,
+            action: {
+              type: 'start',
+              content: 'npm run dev',
+            },
+          });
+        } catch (error) {
+          logStore.logError('Failed to auto-start dev server on preview refresh', error);
+          toast.error('Failed to start dev server');
+          return;
+        }
+      }
+    }
+
     if (iframeRef.current) {
       iframeRef.current.src = iframeRef.current.src;
     }

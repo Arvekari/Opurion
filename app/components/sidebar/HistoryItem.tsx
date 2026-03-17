@@ -32,7 +32,7 @@ export function HistoryItem({
     useEditChatDescription({
       initialDescription: item.description,
       customChatId: item.id,
-      syncWithGlobalStore: isActiveChat,
+      syncWithGlobalStore: true,
     });
 
   const handleItemClick = useCallback(

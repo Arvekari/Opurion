@@ -68,6 +68,7 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
   const liveTextareaValue = props.textareaRef?.current?.value ?? '';
   const hasMessageDraft = props.input.trim().length > 0 || liveTextareaValue.trim().length > 0;
   const hasAttachments = props.uploadedFiles.length > 0;
+  const showStopAction = props.isStreaming && !hasMessageDraft && !hasAttachments;
   const [isAttachmentGalleryVisible, setIsAttachmentGalleryVisible] = useState(true);
 
   const sortedAttachmentLibrary = useMemo(() => {
@@ -262,7 +263,7 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
             minHeight: props.TEXTAREA_MIN_HEIGHT,
             maxHeight: props.TEXTAREA_MAX_HEIGHT,
           }}
-          placeholder={props.chatMode === 'build' ? 'How can Bolt help you today?' : 'What would you like to discuss?'}
+          placeholder={props.chatMode === 'build' ? 'How can Opurion help you today?' : 'What would you like to discuss?'}
           translate="no"
         />
         <ClientOnly>
@@ -308,7 +309,7 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
               )}
               <SendButton
                 show={true}
-                isStreaming={props.isStreaming}
+                isStreaming={showStopAction}
                 disabled={Boolean(
                   !props.isStreaming &&
                     (!hasMessageDraft && !hasAttachments),

@@ -572,6 +572,13 @@ export class WorkbenchStore {
   async _runAction(data: ActionCallbackData, isStreaming: boolean = false) {
     const { artifactId } = data;
 
+    // Skip shell/start actions from historical (reloaded) messages — the workbench
+    // is restored via snapshot and re-executing commands is disruptive. File actions
+    // are still replayed so that any files missing from the snapshot are rebuilt.
+    if (data.action.type !== 'file' && this.#reloadedMessages.has(data.messageId)) {
+      return;
+    }
+
     const artifact = this.#getArtifact(artifactId);
 
     if (!artifact) {
@@ -617,7 +624,6 @@ export class WorkbenchStore {
       }
 
       if (!isStreaming) {
-        await artifact.runner.runAction(data);
         this.resetAllFileModifications();
       }
     } else {

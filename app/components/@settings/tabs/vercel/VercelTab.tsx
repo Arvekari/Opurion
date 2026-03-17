@@ -1,815 +1,126 @@
-import React, { useEffect, useState, useMemo, useCallback } from 'react';
-import { motion, useReducedMotion } from 'framer-motion';
-import { toast } from 'react-toastify';
 import { useStore } from '@nanostores/react';
-import { logStore } from '~/lib/stores/logs';
-import type { VercelUserResponse } from '~/types/vercel';
-import { classNames } from '~/utils/classNames';
+import { useState } from 'react';
+import { toast } from 'react-toastify';
 import { Button } from '~/components/ui/Button';
-import { Input } from '~/components/ui/Input';
-import { ServiceHeader, ConnectionTestIndicator } from '~/components/@settings/shared/service-integration';
-import { useConnectionTest } from '~/lib/hooks';
-import { Collapsible, CollapsibleTrigger, CollapsibleContent } from '~/components/ui/Collapsible';
-import Cookies from 'js-cookie';
-import {
-  vercelConnection,
-  isConnecting,
-  isFetchingStats,
-  updateVercelConnection,
-  fetchVercelStats,
-  fetchVercelStatsViaAPI,
-  initializeVercelConnection,
-} from '~/lib/stores/vercel';
-
-interface ProjectAction {
-  name: string;
-  icon: string;
-  action: (projectId: string) => Promise<void>;
-  requiresConfirmation?: boolean;
-  variant?: 'default' | 'destructive' | 'outline';
-}
-
-// Vercel logo SVG component
-const VercelLogo = () => (
-  <svg viewBox="0 0 24 24" className="w-5 h-5">
-    <path fill="currentColor" d="m12 2 10 18H2z" />
-  </svg>
-);
+import { clearCpanelConnection, cpanelConnection, updateCpanelConnection } from '~/lib/stores/cpanel';
 
 export default function VercelTab() {
-  const connection = useStore(vercelConnection);
-  const connecting = useStore(isConnecting);
-  const fetchingStats = useStore(isFetchingStats);
-  const [isProjectsExpanded, setIsProjectsExpanded] = useState(false);
-  const [isProjectActionLoading, setIsProjectActionLoading] = useState(false);
-  const prefersReducedMotion = useReducedMotion();
+  const connection = useStore(cpanelConnection);
+  const [host, setHost] = useState(connection.host || '');
+  const [username, setUsername] = useState(connection.username || '');
+  const [token, setToken] = useState(connection.token || '');
+  const [rootPath, setRootPath] = useState(connection.rootPath || '/public_html');
+  const [loading, setLoading] = useState(false);
 
-  // Use shared connection test hook
-  const {
-    testResult: connectionTest,
-    testConnection,
-    isTestingConnection,
-  } = useConnectionTest({
-    testEndpoint: '/api/vercel-user',
-    serviceName: 'Vercel',
-    getUserIdentifier: (data: VercelUserResponse) =>
-      data.username || data.user?.username || data.email || data.user?.email || 'Vercel User',
-  });
-
-  // Memoize project actions to prevent unnecessary re-renders
-  const projectActions: ProjectAction[] = useMemo(
-    () => [
-      {
-        name: 'Redeploy',
-        icon: 'i-ph:arrows-clockwise',
-        action: async (projectId: string) => {
-          try {
-            const response = await fetch(`https://api.vercel.com/v1/deployments`, {
-              method: 'POST',
-              headers: {
-                Authorization: `Bearer ${connection.token}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({
-                name: projectId,
-                target: 'production',
-              }),
-            });
-
-            if (!response.ok) {
-              throw new Error('Failed to redeploy project');
-            }
-
-            toast.success('Project redeployment initiated');
-            await fetchVercelStats(connection.token);
-          } catch (err: unknown) {
-            const error = err instanceof Error ? err.message : 'Unknown error';
-            toast.error(`Failed to redeploy project: ${error}`);
-          }
-        },
-      },
-      {
-        name: 'View Dashboard',
-        icon: 'i-ph:layout',
-        action: async (projectId: string) => {
-          window.open(`https://vercel.com/dashboard/${projectId}`, '_blank');
-        },
-      },
-      {
-        name: 'View Deployments',
-        icon: 'i-ph:rocket',
-        action: async (projectId: string) => {
-          window.open(`https://vercel.com/dashboard/${projectId}/deployments`, '_blank');
-        },
-      },
-      {
-        name: 'View Functions',
-        icon: 'i-ph:code',
-        action: async (projectId: string) => {
-          window.open(`https://vercel.com/dashboard/${projectId}/functions`, '_blank');
-        },
-      },
-      {
-        name: 'View Analytics',
-        icon: 'i-ph:chart-bar',
-        action: async (projectId: string) => {
-          const project = connection.stats?.projects.find((p) => p.id === projectId);
-
-          if (project) {
-            window.open(`https://vercel.com/${connection.user?.username}/${project.name}/analytics`, '_blank');
-          }
-        },
-      },
-      {
-        name: 'View Domains',
-        icon: 'i-ph:globe',
-        action: async (projectId: string) => {
-          window.open(`https://vercel.com/dashboard/${projectId}/domains`, '_blank');
-        },
-      },
-      {
-        name: 'View Settings',
-        icon: 'i-ph:gear',
-        action: async (projectId: string) => {
-          window.open(`https://vercel.com/dashboard/${projectId}/settings`, '_blank');
-        },
-      },
-      {
-        name: 'View Logs',
-        icon: 'i-ph:scroll',
-        action: async (projectId: string) => {
-          window.open(`https://vercel.com/dashboard/${projectId}/logs`, '_blank');
-        },
-      },
-      {
-        name: 'Delete Project',
-        icon: 'i-ph:trash',
-        action: async (projectId: string) => {
-          try {
-            const response = await fetch(`https://api.vercel.com/v1/projects/${projectId}`, {
-              method: 'DELETE',
-              headers: {
-                Authorization: `Bearer ${connection.token}`,
-              },
-            });
-
-            if (!response.ok) {
-              throw new Error('Failed to delete project');
-            }
-
-            toast.success('Project deleted successfully');
-            await fetchVercelStats(connection.token);
-          } catch (err: unknown) {
-            const error = err instanceof Error ? err.message : 'Unknown error';
-            toast.error(`Failed to delete project: ${error}`);
-          }
-        },
-        requiresConfirmation: true,
-        variant: 'destructive',
-      },
-    ],
-    [connection.token],
-  ); // Only re-create when token changes
-
-  // Initialize connection on component mount - check server-side token first
-  useEffect(() => {
-    const initializeConnection = async () => {
-      try {
-        // First try to initialize using server-side token
-        await initializeVercelConnection();
-
-        // If no connection was established, the user will need to manually enter a token
-        const currentState = vercelConnection.get();
-
-        if (!currentState.user) {
-          console.log('No server-side Vercel token available, manual connection required');
-        }
-      } catch (error) {
-        console.error('Failed to initialize Vercel connection:', error);
-      }
-    };
-    initializeConnection();
-  }, []);
-
-  useEffect(() => {
-    const fetchProjects = async () => {
-      if (connection.user) {
-        // Use server-side API if we have a connected user
-        try {
-          await fetchVercelStatsViaAPI(connection.token);
-        } catch {
-          // Fallback to direct API if server-side fails and we have a token
-          if (connection.token) {
-            await fetchVercelStats(connection.token);
-          }
-        }
-      }
-    };
-    fetchProjects();
-  }, [connection.user, connection.token]);
-
-  const handleConnect = async (event: React.FormEvent) => {
-    event.preventDefault();
-    isConnecting.set(true);
+  const handleConnect = async () => {
+    if (!host.trim() || !username.trim() || !token.trim()) {
+      toast.error('Please provide cPanel host, username and API token');
+      return;
+    }
 
     try {
-      const token = connection.token;
+      setLoading(true);
 
-      if (!token.trim()) {
-        throw new Error('Token is required');
+      const response = await fetch('/api/cpanel-user', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ host: host.trim(), username: username.trim(), token: token.trim() }),
+      });
+      const data = (await response.json()) as any;
+
+      if (!response.ok) {
+        throw new Error(data?.error || 'Failed to connect to cPanel');
       }
 
-      // First test the token directly with Vercel API
-      const testResponse = await fetch('https://api.vercel.com/v2/user', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-          'User-Agent': 'Opurion-app',
-        },
+      updateCpanelConnection({
+        host: host.trim(),
+        username: username.trim(),
+        token: token.trim(),
+        rootPath: rootPath.trim() || '/public_html',
+        user: data.user || null,
+        stats: data.stats,
       });
 
-      if (!testResponse.ok) {
-        if (testResponse.status === 401) {
-          throw new Error('Invalid Vercel token');
-        }
-
-        throw new Error(`Vercel API error: ${testResponse.status}`);
-      }
-
-      const userData = (await testResponse.json()) as VercelUserResponse;
-
-      // Set cookies for server-side API access
-      Cookies.set('VITE_VERCEL_ACCESS_TOKEN', token, { expires: 365 });
-
-      // Normalize the user data structure
-      const normalizedUser = userData.user || {
-        id: userData.id || '',
-        username: userData.username || '',
-        email: userData.email || '',
-        name: userData.name || '',
-        avatar: userData.avatar,
-      };
-
-      updateVercelConnection({
-        user: normalizedUser,
-        token,
-      });
-
-      await fetchVercelStats(token);
-      toast.success('Successfully connected to Vercel');
+      toast.success('Connected to cPanel');
     } catch (error) {
-      console.error('Auth error:', error);
-      logStore.logError('Failed to authenticate with Vercel', { error });
-
-      const errorMessage = error instanceof Error ? error.message : 'Failed to connect to Vercel';
-      toast.error(errorMessage);
-      updateVercelConnection({ user: null, token: '' });
+      toast.error(error instanceof Error ? error.message : 'Failed to connect to cPanel');
     } finally {
-      isConnecting.set(false);
+      setLoading(false);
     }
   };
-
-  const handleDisconnect = () => {
-    // Clear Vercel-related cookies
-    Cookies.remove('VITE_VERCEL_ACCESS_TOKEN');
-
-    updateVercelConnection({ user: null, token: '' });
-    toast.success('Disconnected from Vercel');
-  };
-
-  const handleProjectAction = useCallback(async (projectId: string, action: ProjectAction) => {
-    if (action.requiresConfirmation) {
-      if (!confirm(`Are you sure you want to ${action.name.toLowerCase()}?`)) {
-        return;
-      }
-    }
-
-    setIsProjectActionLoading(true);
-    await action.action(projectId);
-    setIsProjectActionLoading(false);
-  }, []);
-
-  const renderProjects = useCallback(() => {
-    if (fetchingStats) {
-      return (
-        <div className="flex items-center gap-2 text-sm text-bolt-elements-textSecondary">
-          <div className="i-ph:spinner-gap w-4 h-4 animate-spin" />
-          Fetching Vercel projects...
-        </div>
-      );
-    }
-
-    return (
-      <Collapsible open={isProjectsExpanded} onOpenChange={setIsProjectsExpanded}>
-        <CollapsibleTrigger asChild>
-          <button
-            type="button"
-            aria-expanded={isProjectsExpanded}
-            aria-controls="vercel-projects-content"
-            className="w-full flex items-center justify-between p-4 rounded-lg bg-bolt-elements-background dark:bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor dark:border-bolt-elements-borderColor hover:border-bolt-elements-borderColorActive/70 dark:hover:border-bolt-elements-borderColorActive/70 transition-all duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-borderColorActive"
-          >
-            <div className="flex items-center gap-2">
-              <div className="i-ph:buildings w-4 h-4 text-bolt-elements-item-contentAccent" />
-              <span className="text-sm font-medium text-bolt-elements-textPrimary">
-                Your Projects ({connection.stats?.totalProjects || 0})
-              </span>
-            </div>
-            <div
-              className={classNames(
-                'i-ph:caret-down w-4 h-4 transform transition-transform duration-200 text-bolt-elements-textSecondary',
-                isProjectsExpanded ? 'rotate-180' : '',
-              )}
-            />
-          </button>
-        </CollapsibleTrigger>
-        <CollapsibleContent id="vercel-projects-content" className="overflow-hidden">
-          <div className="space-y-4 mt-4">
-            {connection.stats?.projects?.length ? (
-              <div className="space-y-6">
-                <section className="space-y-3">
-                  <h4 className="text-sm font-medium text-bolt-elements-textPrimary">Metrics Row</h4>
-                  <div className="p-4 bg-bolt-elements-background-depth-1 rounded-lg border border-bolt-elements-borderColor">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-bolt-elements-textPrimary">
-                          {connection.stats.totalProjects}
-                        </div>
-                        <div className="text-xs text-bolt-elements-textSecondary">Total Projects</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-bolt-elements-textPrimary">
-                          {
-                            connection.stats.projects.filter(
-                              (p) => p.targets?.production?.alias && p.targets.production.alias.length > 0,
-                            ).length
-                          }
-                        </div>
-                        <div className="text-xs text-bolt-elements-textSecondary">Deployed Projects</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-bolt-elements-textPrimary">
-                          {new Set(connection.stats.projects.map((p) => p.framework).filter(Boolean)).size}
-                        </div>
-                        <div className="text-xs text-bolt-elements-textSecondary">Frameworks Used</div>
-                      </div>
-                      <div className="text-center">
-                        <div className="text-2xl font-bold text-bolt-elements-textPrimary">
-                          {connection.stats.projects.filter((p) => p.latestDeployments?.[0]?.state === 'READY').length}
-                        </div>
-                        <div className="text-xs text-bolt-elements-textSecondary">Active Deployments</div>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {(() => {
-                      const healthyProjects = connection.stats.projects.filter(
-                        (p) =>
-                          p.latestDeployments?.[0]?.state === 'READY' &&
-                          (p.targets?.production?.alias?.length ?? 0) > 0,
-                      ).length;
-                      const needsAttention = connection.stats.projects.filter(
-                        (p) =>
-                          p.latestDeployments?.[0]?.state === 'ERROR' || p.latestDeployments?.[0]?.state === 'CANCELED',
-                      ).length;
-                      const withCustomDomain = connection.stats.projects.filter((p) =>
-                        p.targets?.production?.alias?.some((alias: string) => !alias.includes('.vercel.app')),
-                      ).length;
-                      const buildingProjects = connection.stats.projects.filter(
-                        (p) => p.latestDeployments?.[0]?.state === 'BUILDING',
-                      ).length;
-
-                      return [
-                        { label: 'Healthy', value: healthyProjects, icon: 'i-ph:check-circle' },
-                        { label: 'Custom Domain', value: withCustomDomain, icon: 'i-ph:globe' },
-                        { label: 'Building', value: buildingProjects, icon: 'i-ph:gear' },
-                        { label: 'Issues', value: needsAttention, icon: 'i-ph:warning' },
-                      ];
-                    })().map((metric, index) => (
-                      <div
-                        key={index}
-                        className="flex flex-col p-3 rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1"
-                      >
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className={`${metric.icon} w-4 h-4 text-bolt-elements-item-contentAccent`} />
-                          <span className="text-xs text-bolt-elements-textSecondary">{metric.label}</span>
-                        </div>
-                        <span className="text-lg font-medium text-bolt-elements-textPrimary">{metric.value}</span>
-                      </div>
-                    ))}
-                  </div>
-                </section>
-
-                <section className="space-y-3">
-                  <h4 className="text-sm font-medium text-bolt-elements-textPrimary">Charts Section</h4>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div className="bg-bolt-elements-background-depth-2 p-3 rounded-lg border border-bolt-elements-borderColor">
-                      <h6 className="text-xs font-medium text-bolt-elements-textPrimary flex items-center gap-2 mb-2">
-                        <div className="i-ph:rocket w-4 h-4 text-bolt-elements-item-contentAccent" />
-                        Deployment Health
-                      </h6>
-                      <div className="space-y-1">
-                        {(() => {
-                          const totalDeployments = connection.stats.projects.reduce(
-                            (sum, p) => sum + (p.latestDeployments?.length || 0),
-                            0,
-                          );
-                          const readyDeployments = connection.stats.projects.filter(
-                            (p) => p.latestDeployments?.[0]?.state === 'READY',
-                          ).length;
-                          const errorDeployments = connection.stats.projects.filter(
-                            (p) => p.latestDeployments?.[0]?.state === 'ERROR',
-                          ).length;
-                          const successRate =
-                            totalDeployments > 0
-                              ? Math.round((readyDeployments / connection.stats.projects.length) * 100)
-                              : 0;
-
-                          return [
-                            { label: 'Success Rate', value: `${successRate}%` },
-                            { label: 'Active', value: readyDeployments },
-                            { label: 'Failed', value: errorDeployments },
-                          ];
-                        })().map((item, idx) => (
-                          <div key={idx} className="flex justify-between text-xs">
-                            <span className="text-bolt-elements-textSecondary">{item.label}:</span>
-                            <span className="text-bolt-elements-textPrimary font-medium">{item.value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="bg-bolt-elements-background-depth-2 p-3 rounded-lg border border-bolt-elements-borderColor">
-                      <h6 className="text-xs font-medium text-bolt-elements-textPrimary flex items-center gap-2 mb-2">
-                        <div className="i-ph:chart-bar w-4 h-4 text-bolt-elements-item-contentAccent" />
-                        Framework Distribution
-                      </h6>
-                      <div className="space-y-1">
-                        {(() => {
-                          const frameworks = connection.stats.projects.reduce(
-                            (acc, p) => {
-                              if (p.framework) {
-                                acc[p.framework] = (acc[p.framework] || 0) + 1;
-                              }
-
-                              return acc;
-                            },
-                            {} as Record<string, number>,
-                          );
-
-                          return Object.entries(frameworks)
-                            .sort(([, a], [, b]) => b - a)
-                            .slice(0, 3)
-                            .map(([framework, count]) => ({ label: framework, value: count }));
-                        })().map((item, idx) => (
-                          <div key={idx} className="flex justify-between text-xs">
-                            <span className="text-bolt-elements-textSecondary">{item.label}:</span>
-                            <span className="text-bolt-elements-textPrimary font-medium">{item.value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-
-                    <div className="bg-bolt-elements-background-depth-2 p-3 rounded-lg border border-bolt-elements-borderColor">
-                      <h6 className="text-xs font-medium text-bolt-elements-textPrimary flex items-center gap-2 mb-2">
-                        <div className="i-ph:activity w-4 h-4 text-bolt-elements-item-contentAccent" />
-                        Activity Summary
-                      </h6>
-                      <div className="space-y-1">
-                        {(() => {
-                          const now = Date.now();
-                          const recentDeployments = connection.stats.projects.filter((p) => {
-                            const lastDeploy = p.latestDeployments?.[0]?.created;
-                            return lastDeploy && now - new Date(lastDeploy).getTime() < 7 * 24 * 60 * 60 * 1000;
-                          }).length;
-                          const totalDomains = connection.stats.projects.reduce(
-                            (sum, p) => sum + (p.targets?.production?.alias ? p.targets.production.alias.length : 0),
-                            0,
-                          );
-                          const avgDomainsPerProject =
-                            connection.stats.projects.length > 0
-                              ? Math.round((totalDomains / connection.stats.projects.length) * 10) / 10
-                              : 0;
-
-                          return [
-                            { label: 'Recent deploys', value: recentDeployments },
-                            { label: 'Total domains', value: totalDomains },
-                            { label: 'Avg domains/project', value: avgDomainsPerProject },
-                          ];
-                        })().map((item, idx) => (
-                          <div key={idx} className="flex justify-between text-xs">
-                            <span className="text-bolt-elements-textSecondary">{item.label}:</span>
-                            <span className="text-bolt-elements-textPrimary font-medium">{item.value}</span>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                </section>
-
-                <section className="space-y-3">
-                  <h4 className="text-sm font-medium text-bolt-elements-textPrimary">Detailed Table Section</h4>
-                  <div className="rounded-lg border border-bolt-elements-borderColor overflow-x-auto bg-bolt-elements-background-depth-1">
-                    <table className="min-w-full text-sm">
-                      <caption className="sr-only">
-                        Vercel projects with framework, domain, deployment status, created date and actions.
-                      </caption>
-                      <thead className="bg-bolt-elements-background-depth-2">
-                        <tr>
-                          <th scope="col" className="text-left px-4 py-3 font-medium text-bolt-elements-textSecondary">
-                            Project
-                          </th>
-                          <th scope="col" className="text-left px-4 py-3 font-medium text-bolt-elements-textSecondary">
-                            Framework
-                          </th>
-                          <th scope="col" className="text-left px-4 py-3 font-medium text-bolt-elements-textSecondary">
-                            Domain
-                          </th>
-                          <th scope="col" className="text-left px-4 py-3 font-medium text-bolt-elements-textSecondary">
-                            Deployment
-                          </th>
-                          <th scope="col" className="text-left px-4 py-3 font-medium text-bolt-elements-textSecondary">
-                            Created
-                          </th>
-                          <th scope="col" className="text-left px-4 py-3 font-medium text-bolt-elements-textSecondary">
-                            Actions
-                          </th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {connection.stats.projects.map((project) => {
-                          const primaryDomain =
-                            project.targets?.production?.alias?.find(
-                              (a: string) => a.endsWith('.vercel.app') && !a.includes('-projects.vercel.app'),
-                            ) ||
-                            project.targets?.production?.alias?.[0] ||
-                            project.latestDeployments?.[0]?.url ||
-                            '--';
-                          const deploymentState = project.latestDeployments?.[0]?.state || 'UNKNOWN';
-
-                          return (
-                            <tr key={project.id} className="border-t border-bolt-elements-borderColor">
-                              <td className="px-4 py-3 text-bolt-elements-textPrimary font-medium">{project.name}</td>
-                              <td className="px-4 py-3 text-bolt-elements-textSecondary">
-                                {project.framework || '--'}
-                              </td>
-                              <td className="px-4 py-3">
-                                {primaryDomain !== '--' ? (
-                                  <a
-                                    href={`https://${primaryDomain}`}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="text-bolt-elements-borderColorActive hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-bolt-elements-borderColorActive rounded-sm"
-                                  >
-                                    {primaryDomain}
-                                  </a>
-                                ) : (
-                                  <span className="text-bolt-elements-textSecondary">--</span>
-                                )}
-                              </td>
-                              <td className="px-4 py-3">
-                                <span className="px-2 py-1 rounded-full text-xs bg-bolt-elements-background-depth-2 text-bolt-elements-textPrimary">
-                                  {deploymentState}
-                                </span>
-                              </td>
-                              <td className="px-4 py-3 text-bolt-elements-textSecondary">
-                                {new Date(project.createdAt).toLocaleDateString()}
-                              </td>
-                              <td className="px-4 py-3">
-                                <div className="flex items-center flex-wrap gap-1">
-                                  <Button
-                                    variant="secondary"
-                                    size="sm"
-                                    onClick={() => window.open(`https://vercel.com/dashboard/${project.id}`, '_blank')}
-                                    className="text-bolt-elements-textPrimary"
-                                    aria-label={`View ${project.name} dashboard`}
-                                  >
-                                    View
-                                  </Button>
-                                  {projectActions.slice(0, 2).map((action) => (
-                                    <Button
-                                      key={`${project.id}-${action.name}`}
-                                      variant={action.variant || 'secondary'}
-                                      size="sm"
-                                      onClick={() => handleProjectAction(project.id, action)}
-                                      disabled={isProjectActionLoading}
-                                      className="text-bolt-elements-textPrimary"
-                                      aria-label={`${action.name} for ${project.name}`}
-                                    >
-                                      {action.name}
-                                    </Button>
-                                  ))}
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </section>
-              </div>
-            ) : (
-              <div className="text-sm text-bolt-elements-textSecondary flex items-center gap-2 p-4">
-                <div className="i-ph:info w-4 h-4" />
-                No projects found in your Vercel account
-              </div>
-            )}
-          </div>
-        </CollapsibleContent>
-      </Collapsible>
-    );
-  }, [
-    connection.stats,
-    fetchingStats,
-    isProjectsExpanded,
-    isProjectActionLoading,
-    handleProjectAction,
-    projectActions,
-  ]);
-
-  console.log('connection', connection);
 
   return (
-    <div className="space-y-6">
-      <ServiceHeader
-        icon={VercelLogo}
-        title="Vercel Integration"
-        description="Connect and manage your Vercel projects with advanced deployment controls and analytics"
-        onTestConnection={connection.user ? () => testConnection() : undefined}
-        isTestingConnection={isTestingConnection}
-      />
+    <div className="space-y-4">
+      <div className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-4 space-y-3">
+        <h3 className="text-sm font-semibold text-bolt-elements-textPrimary">cPanel API Connectivity</h3>
+        <p className="text-xs text-bolt-elements-textSecondary">
+          Connect with a cPanel API token. Deployment works when your hosting provider allows UAPI Fileman endpoints.
+        </p>
 
-      <ConnectionTestIndicator testResult={connectionTest} />
-
-      {/* Main Connection Component */}
-      <motion.div
-        className="bg-bolt-elements-background dark:bg-bolt-elements-background border border-bolt-elements-borderColor dark:border-bolt-elements-borderColor rounded-lg"
-        initial={prefersReducedMotion ? false : { opacity: 0, y: 20 }}
-        animate={prefersReducedMotion ? { opacity: 1 } : { opacity: 1, y: 0 }}
-        transition={prefersReducedMotion ? { duration: 0 } : { delay: 0.2 }}
-      >
-        <div className="p-6 space-y-6">
-          {!connection.user ? (
-            <div className="space-y-4">
-              <div className="text-xs text-bolt-elements-textSecondary bg-bolt-elements-background-depth-1 dark:bg-bolt-elements-background-depth-1 p-3 rounded-lg mb-4">
-                <p className="flex items-center gap-1 mb-1">
-                  <span className="i-ph:lightbulb w-3.5 h-3.5 text-bolt-elements-icon-success dark:text-bolt-elements-icon-success" />
-                  <span className="font-medium">Tip:</span> You can also set the{' '}
-                  <code className="px-1 py-0.5 bg-bolt-elements-background-depth-2 dark:bg-bolt-elements-background-depth-2 rounded">
-                    VITE_VERCEL_ACCESS_TOKEN
-                  </code>{' '}
-                  environment variable to connect automatically.
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-sm text-bolt-elements-textSecondary mb-2">Personal Access Token</label>
-                <Input
-                  type="password"
-                  value={connection.token}
-                  onChange={(e) => updateVercelConnection({ ...connection, token: e.target.value })}
-                  disabled={connecting}
-                  placeholder="Enter your Vercel personal access token"
-                  aria-label="Vercel personal access token"
-                  className="w-full"
-                />
-                <div className="mt-2 text-sm text-bolt-elements-textSecondary">
-                  <a
-                    href="https://vercel.com/account/tokens"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-bolt-elements-borderColorActive hover:underline inline-flex items-center gap-1"
-                  >
-                    Get your token
-                    <div className="i-ph:arrow-square-out w-4 h-4" />
-                  </a>
-                </div>
-              </div>
-
-              <Button
-                onClick={handleConnect}
-                disabled={connecting || !connection.token}
-                aria-label="Connect to Vercel"
-                className={classNames(
-                  'gap-2',
-                  prefersReducedMotion ? '' : 'transform active:scale-95 motion-reduce:transform-none',
-                )}
-              >
-                {connecting ? (
-                  <>
-                    <div className="i-ph:spinner-gap animate-spin motion-reduce:animate-none" />
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <div className="i-ph:plug-charging w-4 h-4" />
-                    Connect
-                  </>
-                )}
-              </Button>
-            </div>
-          ) : (
-            <div className="space-y-6">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <Button
-                    onClick={handleDisconnect}
-                    aria-label="Disconnect from Vercel"
-                    variant="danger"
-                    className="gap-2"
-                  >
-                    <div className="i-ph:plug w-4 h-4" />
-                    Disconnect
-                  </Button>
-                  <span className="text-sm text-bolt-elements-textSecondary flex items-center gap-1">
-                    <div className="i-ph:check-circle w-4 h-4 text-bolt-elements-icon-success" />
-                    Connected to Vercel
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-4">
-                <div className="flex items-center gap-4 p-4 bg-bolt-elements-background-depth-1 dark:bg-bolt-elements-background-depth-1 rounded-lg">
-                  <img
-                    src={`https://vercel.com/api/www/avatar?u=${connection.user?.username}`}
-                    referrerPolicy="no-referrer"
-                    crossOrigin="anonymous"
-                    alt="User Avatar"
-                    className="w-12 h-12 rounded-full border-2 border-bolt-elements-borderColorActive"
-                  />
-                  <div className="flex-1">
-                    <h4 className="text-sm font-medium text-bolt-elements-textPrimary">
-                      {connection.user?.username || 'Vercel User'}
-                    </h4>
-                    <p className="text-sm text-bolt-elements-textSecondary">
-                      {connection.user?.email || 'No email available'}
-                    </p>
-                    <div className="flex items-center gap-4 mt-2 text-xs text-bolt-elements-textSecondary">
-                      <span className="flex items-center gap-1">
-                        <div className="i-ph:buildings w-3 h-3" />
-                        {connection.stats?.totalProjects || 0} Projects
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <div className="i-ph:check-circle w-3 h-3" />
-                        {connection.stats?.projects.filter((p) => p.latestDeployments?.[0]?.state === 'READY').length ||
-                          0}{' '}
-                        Live
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <div className="i-ph:users w-3 h-3" />
-                        {/* Team size would be fetched from API */}
-                        --
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Usage Metrics */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="p-3 bg-bolt-elements-background-depth-1 rounded-lg border border-bolt-elements-borderColor">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="i-ph:buildings w-4 h-4 text-bolt-elements-item-contentAccent" />
-                      <span className="text-xs font-medium text-bolt-elements-textPrimary">Projects</span>
-                    </div>
-                    <div className="text-sm text-bolt-elements-textSecondary">
-                      <div>
-                        Active:{' '}
-                        {connection.stats?.projects.filter((p) => p.latestDeployments?.[0]?.state === 'READY').length ||
-                          0}
-                      </div>
-                      <div>Total: {connection.stats?.totalProjects || 0}</div>
-                    </div>
-                  </div>
-                  <div className="p-3 bg-bolt-elements-background-depth-1 rounded-lg border border-bolt-elements-borderColor">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="i-ph:globe w-4 h-4 text-bolt-elements-item-contentAccent" />
-                      <span className="text-xs font-medium text-bolt-elements-textPrimary">Domains</span>
-                    </div>
-                    <div className="text-sm text-bolt-elements-textSecondary">
-                      {/* Domain usage would be fetched from API */}
-                      <div>Custom: --</div>
-                      <div>Vercel: --</div>
-                    </div>
-                  </div>
-                  <div className="p-3 bg-bolt-elements-background-depth-1 rounded-lg border border-bolt-elements-borderColor">
-                    <div className="flex items-center gap-2 mb-2">
-                      <div className="i-ph:activity w-4 h-4 text-bolt-elements-item-contentAccent" />
-                      <span className="text-xs font-medium text-bolt-elements-textPrimary">Usage</span>
-                    </div>
-                    <div className="text-sm text-bolt-elements-textSecondary">
-                      {/* Usage metrics would be fetched from API */}
-                      <div>Bandwidth: --</div>
-                      <div>Requests: --</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {renderProjects()}
-            </div>
-          )}
+        <div>
+          <label className="mb-1 block text-xs text-bolt-elements-textSecondary">cPanel Host</label>
+          <input
+            value={host}
+            onChange={(event) => setHost(event.target.value)}
+            placeholder="https://cpanel.example.com:2083"
+            className="w-full rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-3 px-3 py-2 text-sm"
+          />
         </div>
-      </motion.div>
+
+        <div>
+          <label className="mb-1 block text-xs text-bolt-elements-textSecondary">Username</label>
+          <input
+            value={username}
+            onChange={(event) => setUsername(event.target.value)}
+            placeholder="cpanel username"
+            className="w-full rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-3 px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs text-bolt-elements-textSecondary">API Token</label>
+          <input
+            type="password"
+            value={token}
+            onChange={(event) => setToken(event.target.value)}
+            placeholder="cPanel API token"
+            className="w-full rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-3 px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div>
+          <label className="mb-1 block text-xs text-bolt-elements-textSecondary">Deploy Root Path</label>
+          <input
+            value={rootPath}
+            onChange={(event) => setRootPath(event.target.value)}
+            placeholder="/public_html"
+            className="w-full rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-3 px-3 py-2 text-sm"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <Button onClick={handleConnect} disabled={loading}>{loading ? 'Connecting...' : 'Connect cPanel'}</Button>
+          <Button
+            variant="secondary"
+            onClick={() => {
+              clearCpanelConnection();
+              setHost('');
+              setUsername('');
+              setToken('');
+              setRootPath('/public_html');
+              toast.success('cPanel disconnected');
+            }}
+          >
+            Disconnect
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 p-4">
+        <div className="text-xs text-bolt-elements-textSecondary">Connected User</div>
+        <div className="mt-1 text-sm text-bolt-elements-textPrimary">{connection.user?.user || 'Not connected'}</div>
+        <div className="mt-3 text-xs text-bolt-elements-textSecondary">Detected Domains: {connection.stats?.totalDomains || 0}</div>
+      </div>
     </div>
   );
 }

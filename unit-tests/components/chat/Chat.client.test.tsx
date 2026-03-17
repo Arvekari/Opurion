@@ -2,7 +2,7 @@
 
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { ChatImpl } from '../../../app/components/chat/Chat.client';
 
 const appendMock = vi.fn();
@@ -12,7 +12,11 @@ const removeCookieMock = vi.fn();
 const abortAllActionsMock = vi.fn();
 const setChatStoreKeyMock = vi.fn();
 const toastErrorMock = vi.fn();
+const restartWebContainerMock = vi.fn(async () => undefined);
+const fetchMock = vi.fn(async () => ({ ok: true, json: async () => ({ ok: true, artifact: { id: 'plan-1' } }) }));
 let chatStatusMock: 'ready' | 'streaming' | 'submitted' = 'ready';
+let actionAlertMock: any = undefined;
+let workbenchFilesMock: any = [];
 
 const selectedProvider = { name: 'OpenAI' };
 
@@ -118,6 +122,8 @@ vi.mock('../../../app/lib/stores/chat', () => ({
 }));
 
 vi.mock('~/lib/persistence', () => ({
+  chatId: { get: () => undefined, subscribe: () => () => {} },
+  chatMetadata: { get: () => undefined, subscribe: () => () => {} },
   description: { get: () => 'test', subscribe: () => () => {} },
   useChatHistory: () => ({
     ready: true,
@@ -130,18 +136,24 @@ vi.mock('~/lib/persistence', () => ({
 
 vi.mock('../../../app/lib/stores/workbench', () => ({
   workbenchStore: {
-    files: { get: () => [], subscribe: () => () => {} },
-    alert: { get: () => undefined, subscribe: () => () => {} },
+    files: { get: () => workbenchFilesMock, subscribe: () => () => {} },
+    alert: { get: () => actionAlertMock, subscribe: () => () => {} },
     deployAlert: { get: () => undefined, subscribe: () => () => {} },
     supabaseAlert: { get: () => undefined, subscribe: () => () => {} },
     abortAllActions: () => abortAllActionsMock(),
     getModifiedFiles: () => undefined,
     resetAllFileModifications: vi.fn(),
-    clearAlert: vi.fn(),
+    clearAlert: vi.fn(() => {
+      actionAlertMock = undefined;
+    }),
     clearSupabaseAlert: vi.fn(),
     clearDeployAlert: vi.fn(),
     setReloadedMessages: vi.fn(),
   },
+}));
+
+vi.mock('~/lib/webcontainer', () => ({
+  restartWebContainer: (...args: any[]) => restartWebContainerMock(...args),
 }));
 
 vi.mock('../../../app/lib/stores/model', () => ({
@@ -200,6 +212,7 @@ vi.mock('react-toastify', () => ({
 
 describe('app/components/chat/Chat.client.tsx', () => {
   beforeEach(() => {
+    vi.stubGlobal('fetch', fetchMock);
     appendMock.mockReset();
     sendMessageMock.mockReset();
     stopMock.mockReset();
@@ -207,7 +220,11 @@ describe('app/components/chat/Chat.client.tsx', () => {
     abortAllActionsMock.mockReset();
     setChatStoreKeyMock.mockReset();
     toastErrorMock.mockReset();
+    restartWebContainerMock.mockClear();
+    fetchMock.mockClear();
     chatStatusMock = 'ready';
+    actionAlertMock = undefined;
+    workbenchFilesMock = [];
   });
 
   it('first send appends user message and clears draft input immediately', async () => {
@@ -286,6 +303,8 @@ describe('app/components/chat/Chat.client.tsx', () => {
       projectNarratives: 'Platform modernization goals',
       projectMaterials: 'Shared API contract v2',
       projectGuides: 'Always reuse checkout flow components',
+      projectPlan: '# Active Project Plan\n- Keep checkout flow intact',
+      projectPlanArtifactId: 'plan-1',
       projectFiles: [{ name: 'pricing-rules.md', mimeType: 'text/markdown', content: 'Tiered pricing rules', size: 20 }],
       discussionIndex: [
         { id: 'discussion-1', title: 'Discovery' },
@@ -312,6 +331,8 @@ describe('app/components/chat/Chat.client.tsx', () => {
     const text = sendMessageMock.mock.calls[0][0].text;
     expect(text).toContain('[Project Shared Context]');
     expect(text).toContain('Always reuse checkout flow components');
+    expect(text).toContain('Plan (.plan.md):');
+    expect(text).toContain('Keep checkout flow intact');
     expect(text).toContain('pricing-rules.md');
     expect(text).toContain('Discussion 1: Discovery');
   });
@@ -437,5 +458,61 @@ describe('app/components/chat/Chat.client.tsx', () => {
     expect(toastErrorMock).toHaveBeenCalledTimes(0);
 
     vi.useRealTimers();
+  });
+
+  it('sends an auto-repair prompt that requires a whole-request multi-file fix', async () => {
+    vi.useFakeTimers();
+
+    actionAlertMock = {
+      type: 'preview',
+      title: 'Project preflight failed',
+      description: 'Required package.json/dependency/entry checks failed before preview start.',
+      content: '1. Missing HTML entrypoint\n2. Source syntax issue in src/App.jsx',
+      source: 'preview',
+    };
+
+    workbenchFilesMock = {
+      'package.json': {
+        type: 'file',
+        content: '{"scripts":{"dev":"vite"},"dependencies":{"react":"^18.2.0"}}',
+      },
+      'src/main.jsx': {
+        type: 'file',
+        content: "import App from './App.jsx';",
+      },
+      'src/App.jsx': {
+        type: 'file',
+        content: 'export default function App(){ return <div>Broken</div>;',
+      },
+    };
+
+    try {
+      render(
+        <ChatImpl
+          description="test"
+          initialMessages={[] as any}
+          storeMessageHistory={vi.fn(async () => {})}
+          importChat={vi.fn(async () => {})}
+          exportChat={vi.fn()}
+        />,
+      );
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_100);
+        await Promise.resolve();
+      });
+
+      expect(sendMessageMock).toHaveBeenCalledTimes(1);
+      expect(restartWebContainerMock).toHaveBeenCalledTimes(1);
+
+      const sentPayload = sendMessageMock.mock.calls[0][0];
+      expect(sentPayload.text).toContain('Fix the whole request, not just the first failing file or the first stack-trace location.');
+      expect(sentPayload.text).toContain('If one fix changes imports, exports, config, setup, or entrypoints, update every dependent file in the same repair pass.');
+      expect(sentPayload.text).toContain('Project file inventory (inspect related files, not only the first failing file):');
+      expect(sentPayload.text).toContain('- src/App.jsx');
+    } finally {
+      vi.runOnlyPendingTimers();
+      vi.useRealTimers();
+    }
   });
 });

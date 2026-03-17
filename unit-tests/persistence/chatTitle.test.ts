@@ -12,10 +12,10 @@ function createMessage(overrides: Partial<Message>): Message {
 }
 
 describe('persistence/chatTitle', () => {
-  it('derives the title from the first stored user message', () => {
+  it('derives the title from the first stored user topic when available', () => {
     const title = deriveChatTitleFromMessages([
-      createMessage({ role: 'system', content: 'ignored' }),
       createMessage({ role: 'user', content: 'Build an Expo app for field inspections with offline sync and photo uploads' }),
+      createMessage({ role: 'assistant', content: 'Topic: Field Inspection App with Offline Sync' }),
     ]);
 
     expect(title).toBe('Build an Expo app for field inspections with offline sync and photo uploads');
@@ -48,7 +48,7 @@ describe('persistence/chatTitle', () => {
 
   it('falls back to the artifact title when no usable user prompt exists', () => {
     const title = deriveChatTitleFromMessages(
-      [createMessage({ role: 'assistant', content: 'artifact output' })],
+      [createMessage({ role: 'assistant', content: 'artifact output', annotations: ['no-store'] as any })],
       'Generated project scaffold',
     );
 

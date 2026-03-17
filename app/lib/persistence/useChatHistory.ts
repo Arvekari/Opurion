@@ -6,6 +6,7 @@ import { toast } from 'react-toastify';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { logStore } from '~/lib/stores/logs'; // Import logStore
 import {
+  getAll,
   getMessages,
   getNextId,
   getUrlId,
@@ -15,6 +16,7 @@ import {
   createChatFromMessages,
   getSnapshot,
   setSnapshot,
+  updateChatMetadata as updateChatMetadataInDb,
   type IChatMetadata,
 } from './db';
 import { deriveChatTitleFromMessages } from './chatTitle';
@@ -40,6 +42,45 @@ export const db = persistenceEnabled ? await openDatabase() : undefined;
 export const chatId = atom<string | undefined>(undefined);
 export const description = atom<string | undefined>(undefined);
 export const chatMetadata = atom<IChatMetadata | undefined>(undefined);
+
+function shouldDeriveTitleFromDescription(currentDescription?: string): boolean {
+  const normalized = (currentDescription || '').trim().toLowerCase();
+
+  if (!normalized) {
+    return true;
+  }
+
+  return normalized === 'new chat' || normalized.startsWith('discussion ') || normalized.startsWith('[model:');
+}
+
+function applyDuplicateTitleNumbering(baseTitle: string, ordinal: number): string {
+  return `${String(ordinal).padStart(3, '0')}- ${baseTitle}`;
+}
+
+async function resolveUniqueChatDescription(db: IDBDatabase, proposedTitle: string, currentChatId?: string): Promise<string> {
+  const normalizedTitle = proposedTitle.trim();
+
+  if (!normalizedTitle) {
+    return proposedTitle;
+  }
+
+  const chats = await getAll(db);
+  const normalizedKey = normalizedTitle.toLowerCase();
+  const matchingChats = chats.filter((chat) => {
+    if (currentChatId && chat.id === currentChatId) {
+      return false;
+    }
+
+    return (chat.description || '').trim().toLowerCase() === normalizedKey;
+  });
+
+  if (matchingChats.length === 0) {
+    return normalizedTitle;
+  }
+
+  return applyDuplicateTitleNumbering(normalizedTitle, matchingChats.length + 1);
+}
+
 export function useChatHistory() {
   const navigate = useNavigate();
   const { id: mixedId } = useLoaderData<{ id?: string }>();
@@ -50,6 +91,9 @@ export function useChatHistory() {
   const [ready, setReady] = useState<boolean>(false);
   const [urlId, setUrlId] = useState<string | undefined>();
   const chatIdReservationRef = useRef<Promise<string> | null>(null);
+  const latestSnapshotMessageIdRef = useRef<string>('');
+  const latestSnapshotSummaryRef = useRef<string | undefined>(undefined);
+  const snapshotDebounceTimerRef = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     if (!db) {
@@ -65,11 +109,12 @@ export function useChatHistory() {
     }
 
     if (mixedId) {
-      Promise.all([
-        getMessages(db, mixedId),
-        getSnapshot(db, mixedId), // Fetch snapshot from DB
-      ])
-        .then(async ([storedMessages, snapshot]) => {
+      getMessages(db, mixedId)
+        .then(async (storedMessages) => {
+          const snapshot =
+            (await getSnapshot(db, storedMessages.id).catch(() => undefined)) ||
+            (await getSnapshot(db, mixedId).catch(() => undefined));
+
           if (storedMessages && storedMessages.messages.length > 0) {
             /*
              * const snapshotStr = localStorage.getItem(`snapshot:${mixedId}`); // Remove localStorage usage
@@ -174,10 +219,20 @@ ${value.content}
                  */
                 ...filteredMessages,
               ];
-              restoreSnapshot(mixedId);
+            }
+
+            const snapshotFiles = validSnapshot?.files || {};
+
+            if (Object.keys(snapshotFiles).length > 0) {
+              await restoreSnapshot(mixedId, validSnapshot);
+              workbenchStore.files.set(snapshotFiles);
+              workbenchStore.setDocuments(snapshotFiles);
+              workbenchStore.resetAllFileModifications();
             }
 
             setInitialMessages(filteredMessages);
+            latestSnapshotMessageIdRef.current = filteredMessages[filteredMessages.length - 1]?.id || '';
+            latestSnapshotSummaryRef.current = summary;
 
             setUrlId(storedMessages.urlId);
             description.set(storedMessages.description);
@@ -194,16 +249,20 @@ ${value.content}
 
           logStore.logError('Failed to load chat messages or snapshot', error); // Updated error message
           toast.error('Failed to load chat: ' + error.message); // More specific error
+          setReady(true);
         });
     } else {
       // Handle case where there is no mixedId (e.g., new chat)
+      chatId.set(undefined);
+      description.set(undefined);
+      chatMetadata.set(undefined);
       setReady(true);
     }
   }, [mixedId, db, navigate, searchParams]); // Added db, navigate, searchParams dependencies
 
   const takeSnapshot = useCallback(
-    async (chatIdx: string, files: FileMap, _chatId?: string | undefined, chatSummary?: string) => {
-      const id = chatId.get();
+    async (chatIdx: string, files: FileMap, snapshotChatId?: string | undefined, chatSummary?: string) => {
+      const id = snapshotChatId || chatId.get();
 
       if (!id || !db) {
         return;
@@ -236,25 +295,39 @@ ${value.content}
       return;
     }
 
-    Object.entries(validSnapshot.files).forEach(async ([key, value]) => {
-      if (key.startsWith(container.workdir)) {
-        key = key.replace(container.workdir, '');
+    const normalizedEntries = Object.entries(validSnapshot.files).map(([path, entry]) => {
+      let normalizedPath = path;
+
+      if (normalizedPath.startsWith(container.workdir)) {
+        normalizedPath = normalizedPath.replace(container.workdir, '');
       }
 
-      if (value?.type === 'folder') {
-        await container.fs.mkdir(key, { recursive: true });
-      }
+      return [normalizedPath, entry] as const;
     });
-    Object.entries(validSnapshot.files).forEach(async ([key, value]) => {
-      if (value?.type === 'file') {
-        if (key.startsWith(container.workdir)) {
-          key = key.replace(container.workdir, '');
-        }
 
-        await container.fs.writeFile(key, value.content, { encoding: value.isBinary ? undefined : 'utf8' });
-      } else {
+    for (const [path, entry] of normalizedEntries) {
+      if (entry?.type !== 'folder') {
+        continue;
       }
-    });
+
+      try {
+        await container.fs.mkdir(path, { recursive: true });
+      } catch (error) {
+        logStore.logError(`Failed to restore snapshot folder: ${path}`, error);
+      }
+    }
+
+    for (const [path, entry] of normalizedEntries) {
+      if (entry?.type !== 'file') {
+        continue;
+      }
+
+      try {
+        await container.fs.writeFile(path, entry.content, { encoding: entry.isBinary ? undefined : 'utf8' });
+      } catch (error) {
+        logStore.logError(`Failed to restore snapshot file: ${path}`, error);
+      }
+    }
 
     // workbenchStore.files.setKey(snapshot?.files)
   }, []);
@@ -269,6 +342,30 @@ ${value.content}
 
       if (!db) {
         return undefined;
+      }
+
+      const pathMatch = window.location.pathname.match(/^\/chat\/([^/?#]+)/i);
+      const routeChatToken = pathMatch?.[1];
+
+      if (routeChatToken) {
+        try {
+          const routeChat = await getMessages(db, decodeURIComponent(routeChatToken));
+
+          if (routeChat?.id) {
+            chatId.set(routeChat.id);
+
+            if (!urlId && routeChat.urlId) {
+              setUrlId(routeChat.urlId);
+            }
+
+            description.set(routeChat.description);
+            chatMetadata.set(routeChat.metadata);
+
+            return routeChat.id;
+          }
+        } catch {
+          // route token does not map to a persisted chat yet; reserve a new id below
+        }
       }
 
       if (!chatIdReservationRef.current) {
@@ -293,9 +390,61 @@ ${value.content}
     [db, urlId],
   );
 
+  useEffect(() => {
+    const unsubscribe = workbenchStore.files.subscribe((files) => {
+      const activeChatId = chatId.get();
+      const latestMessageId = latestSnapshotMessageIdRef.current;
+
+      if (!activeChatId || !latestMessageId) {
+        return;
+      }
+
+      if (snapshotDebounceTimerRef.current) {
+        window.clearTimeout(snapshotDebounceTimerRef.current);
+      }
+
+      snapshotDebounceTimerRef.current = window.setTimeout(() => {
+        void takeSnapshot(latestMessageId, files, activeChatId, latestSnapshotSummaryRef.current);
+      }, 700);
+    });
+
+    return () => {
+      unsubscribe();
+
+      if (snapshotDebounceTimerRef.current) {
+        window.clearTimeout(snapshotDebounceTimerRef.current);
+      }
+    };
+  }, [takeSnapshot]);
+
   return {
     ready: !mixedId || ready,
     initialMessages,
+    updateChatMetadata: async (metadata: IChatMetadata) => {
+      const id = chatId.get();
+
+      if (!db || !id) {
+        return;
+      }
+
+      try {
+        await updateChatMetadataInDb(db, id, metadata);
+        const stored = await getMessages(db, id);
+        const savedUrlId = stored?.urlId || urlId || id;
+        setUrlId(savedUrlId);
+        chatMetadata.set(metadata);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (message.includes('Chat not found')) {
+          chatMetadata.set(metadata);
+          return;
+        }
+
+        toast.error('Failed to update chat metadata');
+        console.error(error);
+      }
+    },
     updateChatMestaData: async (metadata: IChatMetadata) => {
       const id = chatId.get();
 
@@ -304,10 +453,19 @@ ${value.content}
       }
 
       try {
-        const savedUrlId = await setMessages(db, id, initialMessages, urlId, description.get(), undefined, metadata);
+        await updateChatMetadataInDb(db, id, metadata);
+        const stored = await getMessages(db, id);
+        const savedUrlId = stored?.urlId || urlId || id;
         setUrlId(savedUrlId);
         chatMetadata.set(metadata);
       } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+
+        if (message.includes('Chat not found')) {
+          chatMetadata.set(metadata);
+          return;
+        }
+
         toast.error('Failed to update chat metadata');
         console.error(error);
       }
@@ -344,13 +502,12 @@ ${value.content}
         }
       }
 
-      takeSnapshot(messages[messages.length - 1].id, workbenchStore.files.get(), _urlId, chatSummary);
-
-      if (!description.get()) {
+      if (shouldDeriveTitleFromDescription(description.get())) {
         const derivedTitle = deriveChatTitleFromMessages(messages, firstArtifact?.title);
 
         if (derivedTitle) {
-          description.set(derivedTitle);
+          const uniqueDescription = await resolveUniqueChatDescription(db, derivedTitle, chatId.get());
+          description.set(uniqueDescription);
         }
       }
 
@@ -367,6 +524,15 @@ ${value.content}
       }
 
       const effectiveUrlId = _urlId || finalChatId;
+      const latestMessageId = messages[messages.length - 1]?.id;
+
+      if (latestMessageId) {
+        latestSnapshotMessageIdRef.current = latestMessageId;
+      }
+
+      latestSnapshotSummaryRef.current = chatSummary;
+
+      await takeSnapshot(latestMessageId || finalChatId, workbenchStore.files.get(), finalChatId, chatSummary);
 
       const savedUrlId = await setMessages(
         db,
@@ -441,6 +607,7 @@ ${value.content}
     },
   };
 }
+
 
 function navigateChat(nextId: string) {
   /**

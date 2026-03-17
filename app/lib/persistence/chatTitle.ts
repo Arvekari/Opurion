@@ -41,8 +41,14 @@ export function extractMessageText(message: Message): string {
 }
 
 export function deriveChatTitleFromMessages(messages: Message[], fallbackTitle?: string): string | undefined {
+  const firstAssistantMessage = messages.find(
+    (message) => message.role === 'assistant' && !message.annotations?.includes('no-store'),
+  );
   const firstUserMessage = messages.find((message) => message.role === 'user' && !message.annotations?.includes('no-store'));
-  const rawText = firstUserMessage ? extractMessageText(firstUserMessage) : fallbackTitle;
+
+  const assistantText = firstAssistantMessage ? extractMessageText(firstAssistantMessage) : '';
+  const userText = firstUserMessage ? extractMessageText(firstUserMessage) : '';
+  const rawText = userText || assistantText || fallbackTitle;
 
   if (!rawText) {
     return fallbackTitle;
@@ -59,5 +65,11 @@ export function deriveChatTitleFromMessages(messages: Message[], fallbackTitle?:
     return fallbackTitle;
   }
 
-  return truncateTitle(cleaned);
+  const withoutTopicPrefix = cleaned.replace(/^topic\s*:\s*/i, '').replace(/^#+\s*/, '').trim();
+
+  if (!withoutTopicPrefix) {
+    return fallbackTitle;
+  }
+
+  return truncateTitle(withoutTopicPrefix);
 }

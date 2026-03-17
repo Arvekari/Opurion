@@ -14,6 +14,24 @@ type Project = { id: string; name: string; role: 'owner' | 'editor' | 'viewer' }
 type Conversation = { id: string; title: string };
 type Branch = { id: string; name: string; isMain: boolean; status: 'active' | 'merged' };
 
+function dedupeConversations(conversations: Conversation[]): Conversation[] {
+  const byId = new Map<string, Conversation>();
+
+  for (const conversation of conversations) {
+    const id = String(conversation.id || '').trim();
+
+    if (!id) {
+      continue;
+    }
+
+    if (!byId.has(id)) {
+      byId.set(id, conversation);
+    }
+  }
+
+  return Array.from(byId.values());
+}
+
 export function CollabPanel() {
   const collab = useStore(collabStore);
   const [projects, setProjects] = useState<Project[]>([]);
@@ -45,7 +63,7 @@ export function CollabPanel() {
       throw new Error(data?.error || 'Failed to load conversations');
     }
 
-    setConversations(data.conversations || []);
+    setConversations(dedupeConversations((data.conversations || []) as Conversation[]));
   }, []);
 
   const loadBranches = useCallback(async (conversationId: string) => {

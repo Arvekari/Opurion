@@ -578,6 +578,8 @@ export const Workbench = memo(
       lastAttemptAt: number;
       lastStreamingActivityAt: number;
       lastSignature?: string;
+      lastSuccessToastAt?: number;
+      lastSuccessToastSignature?: string;
       setupAttemptedSignatures: Set<string>;
       failedSignatures: Set<string>;
     }>({
@@ -586,6 +588,8 @@ export const Workbench = memo(
       lastStreamingActivityAt: 0,
       setupAttemptedSignatures: new Set<string>(),
       failedSignatures: new Set<string>(),
+      lastSuccessToastAt: 0,
+      lastSuccessToastSignature: '',
     });
 
     const setSelectedView = (view: WorkbenchViewType) => {
@@ -877,7 +881,15 @@ export const Workbench = memo(
 
         state.failedSignatures.delete(signature);
 
-        toast.info(`Auto-starting preview: ${startCommandToRun}`);
+        const successToastNow = Date.now();
+        const shouldShowSuccessToast =
+          state.lastSuccessToastSignature !== signature || successToastNow - (state.lastSuccessToastAt || 0) > 30000;
+
+        if (shouldShowSuccessToast) {
+          toast.success(`Auto-started preview successfully: ${startCommandToRun}`);
+          state.lastSuccessToastSignature = signature;
+          state.lastSuccessToastAt = successToastNow;
+        }
 
         setTimeout(() => {
           autoPreviewLaunchStateRef.current.inFlight = false;

@@ -56,13 +56,25 @@ export async function newShellProcess(webcontainer: WebContainer, terminal: ITer
         }
       },
     }),
-  );
+  ).catch((error) => {
+    console.error('Output stream pipeTo failed:', error);
+    // Ensure the ready promise is resolved even if the stream fails
+    if (!isInteractive) {
+      jshReady.resolve();
+    }
+  });
 
   terminal.onData((data) => {
     // console.log('terminal onData', { data, isInteractive });
 
     if (isInteractive) {
-      input.write(data);
+      try {
+        input.write(data).catch((error) => {
+          console.error('Failed to write to shell input:', error);
+        });
+      } catch (error) {
+        console.error('Error writing to shell input:', error);
+      }
 
       // Capture terminal input for debugging
       try {
@@ -102,6 +114,8 @@ export class BoltShell {
   >();
   #outputStream: ReadableStreamDefaultReader<string> | undefined;
   #shellInputStream: WritableStreamDefaultWriter<string> | undefined;
+  #outputChunkBuffer: string[] = [];
+  #outputChunkWaiter: ((chunk: string | null) => void) | null = null;
 
   constructor() {
     this.#readyPromise = new Promise((resolve) => {
@@ -121,6 +135,10 @@ export class BoltShell {
     const { process, commandStream, expoUrlStream } = await this.newBoltShellProcess(webcontainer, terminal);
     this.#process = process;
     this.#outputStream = commandStream.getReader();
+
+    // Continuously drain the command stream so the tee never backs up and blocks
+    // the terminal display stream when no executeCommand is active.
+    this._startCommandStreamDrainer();
 
     // Start background Expo URL watcher immediately
     this._watchExpoUrlInBackground(expoUrlStream);
@@ -162,11 +180,23 @@ export class BoltShell {
           terminal.write(data);
         },
       }),
-    );
+    ).catch((error) => {
+      console.error('Terminal stream pipeTo failed:', error);
+      // Ensure the ready promise is resolved even if the stream fails
+      if (!isInteractive) {
+        jshReady.resolve();
+      }
+    });
 
     terminal.onData((data) => {
       if (isInteractive) {
-        input.write(data);
+        try {
+          input.write(data).catch((error) => {
+            console.error('Failed to write to shell input:', error);
+          });
+        } catch (error) {
+          console.error('Error writing to shell input:', error);
+        }
       }
     });
 
@@ -174,6 +204,51 @@ export class BoltShell {
 
     // Return all streams for use in init
     return { process, terminalStream: streamA, commandStream: streamC, expoUrlStream: streamD };
+  }
+
+  // Always-on drainer for the command stream branch of the tee.
+  // Without this, the tee blocks streamA (terminal display) whenever
+  // no executeCommand is active and streamC is not being read.
+  private _startCommandStreamDrainer(): void {
+    const drain = async () => {
+      if (!this.#outputStream) {
+        return;
+      }
+
+      try {
+        while (true) {
+          const { value, done } = await this.#outputStream.read();
+          const chunk = done ? null : (value ?? '');
+
+          if (this.#outputChunkWaiter !== null) {
+            const waiter = this.#outputChunkWaiter;
+            this.#outputChunkWaiter = null;
+            waiter(chunk);
+          } else if (chunk !== null) {
+            this.#outputChunkBuffer.push(chunk);
+          }
+
+          if (done) {
+            break;
+          }
+        }
+      } catch (err) {
+        console.error('BoltShell command stream drainer error:', err);
+      }
+    };
+
+    drain();
+  }
+
+  // Read the next chunk from the command stream via the drainer queue.
+  private _readNextCommandChunk(): Promise<string | null> {
+    if (this.#outputChunkBuffer.length > 0) {
+      return Promise.resolve(this.#outputChunkBuffer.shift()!);
+    }
+
+    return new Promise<string | null>((resolve) => {
+      this.#outputChunkWaiter = resolve;
+    });
   }
 
   // Dedicated background watcher for Expo URL
@@ -268,50 +343,62 @@ export class BoltShell {
   async waitTillOscCode(waitCode: string) {
     let fullOutput = '';
     let exitCode: number = 0;
-    let buffer = ''; // <-- Add a buffer to accumulate output
+    let buffer = '';
 
     if (!this.#outputStream) {
       return { output: fullOutput, exitCode };
     }
 
-    const tappedStream = this.#outputStream;
-
     // Regex for Expo URL
     const expoUrlRegex = /(exp:\/\/[^\s]+)/;
 
     while (true) {
-      const { value, done } = await tappedStream.read();
+      // Read from the drainer queue instead of the stream directly so that
+      // the command-stream tee branch is always consumed and never causes
+      // backpressure that freezes the terminal display stream.
+      const chunk = await this._readNextCommandChunk();
 
-      if (done) {
+      if (chunk === null) {
         break;
       }
 
-      const text = value || '';
+      const text = chunk;
       fullOutput += text;
-      buffer += text; // <-- Accumulate in buffer
+      buffer += text;
 
       // Extract Expo URL from buffer and set store
       const expoUrlMatch = buffer.match(expoUrlRegex);
 
       if (expoUrlMatch) {
-        // Remove any trailing ANSI escape codes or non-printable characters
         const cleanUrl = expoUrlMatch[1]
           .replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '')
           .replace(/[^\x20-\x7E]+$/g, '');
         expoUrlAtom.set(cleanUrl);
-
-        // Remove everything up to and including the URL from the buffer to avoid duplicate matches
         buffer = buffer.slice(buffer.indexOf(expoUrlMatch[1]) + expoUrlMatch[1].length);
       }
 
-      // Check if command completion signal with exit code
-      const [, osc, , , code] = text.match(/\x1b\]654;([^\x07=]+)=?((-?\d+):(\d+))?\x07/) || [];
+      // Scan ALL OSC codes in this chunk. jsh may emit exit+prompt in the same
+      // data event; using a single .match() would miss codes beyond the first,
+      // causing waitTillOscCode('prompt') to hang forever after an error.
+      const oscPattern = /\x1b\]654;([^\x07=]+)=?((-?\d+):(\d+))?\x07/g;
+      let oscMatch: RegExpExecArray | null;
+      let foundWaitCode = false;
 
-      if (osc === 'exit') {
-        exitCode = parseInt(code, 10);
+      while ((oscMatch = oscPattern.exec(text)) !== null) {
+        const oscCode = oscMatch[1];
+        const oscExitCode = oscMatch[4];
+
+        if (oscCode === 'exit') {
+          exitCode = parseInt(oscExitCode, 10);
+        }
+
+        if (oscCode === waitCode) {
+          foundWaitCode = true;
+          break;
+        }
       }
 
-      if (osc === waitCode) {
+      if (foundWaitCode) {
         break;
       }
     }

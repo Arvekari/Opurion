@@ -7,7 +7,7 @@ import { BoltChatTransport } from '~/lib/chat/boltChatTransport';
 import { toast } from 'react-toastify';
 import { getDebugLogger } from '~/utils/debugLogger';
 import { useMessageParser, usePromptEnhancer, useShortcuts } from '~/lib/hooks';
-import { description, useChatHistory } from '~/lib/persistence';
+import { chatId, chatMetadata, description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { DEFAULT_MODEL, DEFAULT_PROVIDER, PROMPT_COOKIE_KEY, PROVIDER_LIST } from '~/utils/constants';
@@ -35,7 +35,17 @@ import type { ElementInfo } from '~/components/workbench/Inspector';
 import type { TextUIPart, FileUIPart, Attachment } from '@ai-sdk/ui-utils';
 import { useMCPStore } from '~/lib/stores/mcp';
 import type { LlmErrorAlertType } from '~/types/actions';
-import { collabStore } from '~/lib/stores/collab';
+import { bumpCollabRefresh, collabStore, setCollabProjectContext } from '~/lib/stores/collab';
+import {
+  buildProjectPlanContent,
+  buildProjectPlanStatusContent,
+  formatProjectPlanRunStatus,
+  PROJECT_PLAN_FILE_NAME,
+  PROJECT_PLAN_KIND,
+  PROJECT_PLAN_STATUS_FILE_NAME,
+  PROJECT_PLAN_STATUS_KIND,
+  type ProjectPlanRunStatus,
+} from '~/lib/collab/project-plan';
 import {
   getStreamingStallTimeoutMs,
   isStreamingStalled,
@@ -174,13 +184,27 @@ function buildAutoRepairProjectFileContext(files: unknown): string {
   }
 
   const maxCharsPerFile = 4000;
+  const inventoryPaths = normalizedEntries
+    .map((entry) => entry.path)
+    .filter(
+      (filePath) =>
+        /(?:^|\/)(package\.json|index\.html)$/i.test(filePath) ||
+        /(?:^|\/)vite\.config\.(?:js|mjs|cjs|ts|mts|cts)$/i.test(filePath) ||
+        /(?:^|\/)(src|app)\/.+\.(?:js|jsx|ts|tsx|mjs|cjs)$/i.test(filePath),
+    )
+    .slice(0, 20);
 
   const blocks = selectedFiles.map((entry) => {
     const snippet = entry.content.slice(0, maxCharsPerFile);
     return [`--- ${entry.path} ---`, snippet].join('\n');
   });
 
-  return ['Project file context (authoritative current contents):', ...blocks].join('\n\n');
+  const inventoryBlock =
+    inventoryPaths.length > 0
+      ? ['Project file inventory (inspect related files, not only the first failing file):', ...inventoryPaths.map((filePath) => `- ${filePath}`)].join('\n')
+      : '';
+
+  return ['Project file context (authoritative current contents):', inventoryBlock, ...blocks].filter(Boolean).join('\n\n');
 }
 
 function buildStreamActivitySignature(messages: Message[]) {
@@ -203,7 +227,7 @@ function buildStreamActivitySignature(messages: Message[]) {
 export function Chat() {
   renderLogger.trace('Chat');
 
-  const { ready, initialMessages, storeMessageHistory, importChat, exportChat } = useChatHistory();
+  const { ready, initialMessages, storeMessageHistory, importChat, exportChat, updateChatMetadata } = useChatHistory();
   const title = useStore(description);
   useEffect(() => {
     workbenchStore.setReloadedMessages(initialMessages.map((m) => m.id));
@@ -218,6 +242,7 @@ export function Chat() {
           exportChat={exportChat}
           storeMessageHistory={storeMessageHistory}
           importChat={importChat}
+          updateChatMetadata={updateChatMetadata}
         />
       )}
     </>
@@ -248,6 +273,7 @@ interface ChatProps {
   storeMessageHistory: (messages: Message[]) => Promise<void>;
   importChat: (description: string, messages: Message[]) => Promise<void>;
   exportChat: () => void;
+  updateChatMetadata: (metadata: { providerName?: string; modelName?: string; [key: string]: any }) => Promise<void>;
   description?: string;
 }
 
@@ -263,7 +289,7 @@ interface QueuedChatMessage {
 }
 
 export const ChatImpl = memo(
-  ({ description, initialMessages, storeMessageHistory, importChat, exportChat }: ChatProps) => {
+  ({ description, initialMessages, storeMessageHistory, importChat, exportChat, updateChatMetadata }: ChatProps) => {
     useShortcuts();
 
     const initialPrompt = Cookies.get(PROMPT_COOKIE_KEY) || '';
@@ -314,6 +340,9 @@ export const ChatImpl = memo(
     const [animationScope, animate] = useAnimate();
     const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
     const [chatMode, setChatModeState] = useState<'discuss' | 'build'>('discuss');
+    const currentChatId = useStore(chatId);
+    const currentChatMetadata = useStore(chatMetadata);
+    const hydratedModelProviderSignatureRef = useRef<string>('');
     const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(null);
     const [isStalledStream, setIsStalledStream] = useState(false);
     const queuedMessagesRef = useRef<QueuedChatMessage[]>([]);
@@ -322,6 +351,7 @@ export const ChatImpl = memo(
     const [isDispatchingQueuedMessage, setIsDispatchingQueuedMessage] = useState(false);
     const [previewAutoRepairCountdownSeconds, setPreviewAutoRepairCountdownSeconds] = useState<number | null>(null);
     const [queueDispatchTick, setQueueDispatchTick] = useState(0);
+    const lastSubmittedUserMessageRef = useRef('');
     const lastQueueWatchdogLogAtRef = useRef(0);
     const previewAutoRepairRef = useRef<{
       attemptsBySignature: Map<string, number>;
@@ -345,6 +375,146 @@ export const ChatImpl = memo(
     const mcpSettings = useMCPStore((state) => state.settings);
     const collab = useStore(collabStore);
 
+    const upsertProjectArtifact = useCallback(
+      async (input: {
+        artifactId?: string;
+        name: string;
+        content: string;
+        description: string;
+        metadata: Record<string, any>;
+      }) => {
+        if (!collab.selectedProjectId) {
+          return null;
+        }
+
+        const body = input.artifactId
+          ? {
+              intent: 'update' as const,
+              artifactId: input.artifactId,
+              content: input.content,
+              metadata: input.metadata,
+            }
+          : {
+              intent: 'create' as const,
+              projectId: collab.selectedProjectId,
+              name: input.name,
+              description: input.description,
+              artifactType: 'snippet' as const,
+              visibility: 'project' as const,
+              content: input.content,
+              metadata: input.metadata,
+            };
+
+        const response = await fetch('/api/collab/artifacts', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+
+        const data = (await response.json()) as any;
+
+        if (!response.ok || !data?.ok) {
+          throw new Error(data?.error || `Failed to sync ${input.name}`);
+        }
+
+        return data?.artifact as { id?: string } | null;
+      },
+      [collab.selectedProjectId],
+    );
+
+    const syncProjectPlan = useCallback(
+      async (assistantResponse: string) => {
+        if (!collab.selectedProjectId) {
+          return;
+        }
+
+        const updatedAt = new Date().toISOString();
+
+        const planContent = buildProjectPlanContent({
+          userRequest: lastSubmittedUserMessageRef.current,
+          assistantResponse,
+          chatMode,
+        });
+
+        if (!planContent) {
+          return;
+        }
+
+        const metadata = {
+          systemKind: PROJECT_PLAN_KIND,
+          fileName: PROJECT_PLAN_FILE_NAME,
+          description: 'Shared active project plan synchronized from planning-oriented chat replies',
+          updatedAt,
+          sourceMode: chatMode,
+        };
+
+        const artifact = await upsertProjectArtifact({
+          artifactId: collab.projectPlanArtifactId,
+          name: PROJECT_PLAN_FILE_NAME,
+          content: planContent,
+          description: metadata.description,
+          metadata,
+        });
+
+        setCollabProjectContext({
+          plan: planContent,
+          planArtifactId: typeof artifact?.id === 'string' ? artifact.id : collab.projectPlanArtifactId,
+          planUpdatedAt: updatedAt,
+        });
+        bumpCollabRefresh();
+      },
+      [chatMode, collab.projectPlanArtifactId, collab.selectedProjectId, upsertProjectArtifact],
+    );
+
+    const syncProjectPlanStatus = useCallback(
+      async (input: { status: ProjectPlanRunStatus; assistantResponse?: string; errorMessage?: string }) => {
+        if (!collab.selectedProjectId || !lastSubmittedUserMessageRef.current.trim()) {
+          return;
+        }
+
+        const updatedAt = new Date().toISOString();
+        const latestResult = (input.errorMessage || input.assistantResponse || '').trim();
+        const summary = latestResult
+          ? `${formatProjectPlanRunStatus(input.status)}: ${latestResult.slice(0, 140)}`
+          : `${formatProjectPlanRunStatus(input.status)}: ${lastSubmittedUserMessageRef.current.trim().slice(0, 140)}`;
+        const content = buildProjectPlanStatusContent({
+          userRequest: lastSubmittedUserMessageRef.current,
+          chatMode,
+          status: input.status,
+          assistantResponse: input.assistantResponse,
+          errorMessage: input.errorMessage,
+          updatedAt,
+        });
+        const metadata = {
+          systemKind: PROJECT_PLAN_STATUS_KIND,
+          fileName: PROJECT_PLAN_STATUS_FILE_NAME,
+          description: 'Shared execution tracking for the active plan',
+          updatedAt,
+          runStatus: input.status,
+          summary,
+          sourceMode: chatMode,
+        };
+        const artifact = await upsertProjectArtifact({
+          artifactId: collab.projectPlanStatusArtifactId,
+          name: PROJECT_PLAN_STATUS_FILE_NAME,
+          content,
+          description: metadata.description,
+          metadata,
+        });
+
+        setCollabProjectContext({
+          planStatusContent: content,
+          planStatusArtifactId:
+            typeof artifact?.id === 'string' ? artifact.id : collab.projectPlanStatusArtifactId,
+          planRunStatus: input.status,
+          planStatusSummary: summary,
+          planStatusUpdatedAt: updatedAt,
+        });
+        bumpCollabRefresh();
+      },
+      [chatMode, collab.projectPlanStatusArtifactId, collab.selectedProjectId, upsertProjectArtifact],
+    );
+
     // Keep a ref with the current dynamic body values so the stable transport always
     // reads the most recent state without needing to be recreated.
     const chatBodyRef = useRef<Record<string, unknown>>({});
@@ -364,6 +534,21 @@ export const ChatImpl = memo(
           supabaseUrl: supabaseConn?.credentials?.supabaseUrl,
           anonKey: supabaseConn?.credentials?.anonKey,
         },
+        developmentPostgres: {
+          enabled: !!supabaseConn?.developmentPostgres?.enabled,
+          host: supabaseConn?.developmentPostgres?.host,
+          port: supabaseConn?.developmentPostgres?.port,
+          database: supabaseConn?.developmentPostgres?.database,
+          username: supabaseConn?.developmentPostgres?.username,
+          ssl: supabaseConn?.developmentPostgres?.ssl,
+          hasPassword: Boolean(supabaseConn?.developmentPostgres?.password),
+        },
+        postgrest: {
+          enabled: !!supabaseConn?.postgrest?.enabled,
+          endpoint: supabaseConn?.postgrest?.endpoint,
+          schema: supabaseConn?.postgrest?.schema,
+          hasApiKey: Boolean(supabaseConn?.postgrest?.apiKey),
+        },
       },
       maxLLMSteps: mcpSettings.maxLLMSteps,
     };
@@ -382,6 +567,63 @@ export const ChatImpl = memo(
       setChatModeState(mode);
       Cookies.set(CHAT_MODE_COOKIE_KEY, mode, { expires: 30 });
     }, []);
+
+    useEffect(() => {
+      hydratedModelProviderSignatureRef.current = '';
+    }, [currentChatId]);
+
+    useEffect(() => {
+      if (!currentChatId) {
+        return;
+      }
+
+      const persistedProviderName = currentChatMetadata?.providerName;
+      const persistedModelName = currentChatMetadata?.modelName;
+      const metadataSignature = `${currentChatId}:${persistedProviderName || ''}:${persistedModelName || ''}`;
+
+      if (hydratedModelProviderSignatureRef.current === metadataSignature) {
+        return;
+      }
+
+      if (persistedProviderName) {
+        const matchedProvider = PROVIDER_LIST.find((entry) => entry.name === persistedProviderName) as
+          | ProviderInfo
+          | undefined;
+
+        if (matchedProvider && matchedProvider.name !== provider.name) {
+          setProvider(matchedProvider);
+          Cookies.set('selectedProvider', matchedProvider.name, { expires: 30 });
+        }
+      }
+
+      if (persistedModelName && persistedModelName !== model) {
+        setModel(persistedModelName);
+        Cookies.set('selectedModel', persistedModelName, { expires: 30 });
+      }
+
+      hydratedModelProviderSignatureRef.current = metadataSignature;
+    }, [currentChatId, currentChatMetadata?.providerName, currentChatMetadata?.modelName, provider.name, model]);
+
+    useEffect(() => {
+      if (!currentChatId || !hydratedModelProviderSignatureRef.current.startsWith(`${currentChatId}:`)) {
+        return;
+      }
+
+      const nextProviderName = provider.name;
+      const nextModelName = model;
+      const metadataProviderName = currentChatMetadata?.providerName;
+      const metadataModelName = currentChatMetadata?.modelName;
+
+      if (metadataProviderName === nextProviderName && metadataModelName === nextModelName) {
+        return;
+      }
+
+      void updateChatMetadata({
+        ...(currentChatMetadata || {}),
+        providerName: nextProviderName,
+        modelName: nextModelName,
+      });
+    }, [currentChatId, currentChatMetadata, provider.name, model, updateChatMetadata]);
 
     // Create transport once; it reads chatBodyRef.current on every request.
     const chatTransportRef = useRef<BoltChatTransport | null>(null);
@@ -404,6 +646,10 @@ export const ChatImpl = memo(
       onError: (e: unknown) => {
         setFakeLoading(false);
         setQueueDispatchTick((current) => current + 1);
+        void syncProjectPlanStatus({
+          status: 'failed',
+          errorMessage: e instanceof Error ? e.message : String(e ?? 'Unknown error'),
+        }).catch(() => undefined);
         handleError(e, 'chat');
       },
       onFinish: (eventOrMessage: any) => {
@@ -447,6 +693,26 @@ export const ChatImpl = memo(
               content: msgContent,
               branchMode: collab.branchMode,
             }),
+          });
+        }
+
+        if (msgContent) {
+          void syncProjectPlanStatus({ status: 'completed', assistantResponse: msgContent }).catch((statusError) => {
+            logStore.logError('Failed to sync project plan status from assistant response', statusError, {
+              component: 'Chat',
+              action: 'project-plan-status-sync',
+              provider: provider.name,
+              model,
+            });
+          });
+
+          void syncProjectPlan(msgContent).catch((planError) => {
+            logStore.logError('Failed to sync project plan from assistant response', planError, {
+              component: 'Chat',
+              action: 'project-plan-sync',
+              provider: provider.name,
+              model,
+            });
           });
         }
       },
@@ -657,6 +923,7 @@ export const ChatImpl = memo(
       stop();
       chatStore.setKey('aborted', true);
       workbenchStore.abortAllActions();
+      void syncProjectPlanStatus({ status: 'aborted' }).catch(() => undefined);
 
       logStore.logProvider('Chat response aborted', {
         component: 'Chat',
@@ -899,10 +1166,11 @@ export const ChatImpl = memo(
       const narratives = collab.projectNarratives?.trim() || '';
       const materials = collab.projectMaterials?.trim() || '';
       const guides = collab.projectGuides?.trim() || '';
+      const plan = collab.projectPlan?.trim() || '';
       const files = collab.projectFiles || [];
       const discussionIndex = collab.discussionIndex || [];
 
-      if (!narratives && !materials && !guides && discussionIndex.length === 0 && files.length === 0) {
+      if (!narratives && !materials && !guides && !plan && discussionIndex.length === 0 && files.length === 0) {
         return '';
       }
 
@@ -923,6 +1191,7 @@ export const ChatImpl = memo(
         narratives ? `Narratives:\n${narratives}` : '',
         materials ? `Materials:\n${materials}` : '',
         guides ? `Guides:\n${guides}` : '',
+        plan ? `Plan (${PROJECT_PLAN_FILE_NAME}):\n${plan}` : '',
         fileLines ? `Attached Reference Files:\n${fileLines}` : '',
         discussionLines ? `Discussion Index:\n${discussionLines}` : '',
         'Use this shared context across discussions and resolve references like "discussion 1" or "discussion 2" by the index above.',
@@ -934,6 +1203,7 @@ export const ChatImpl = memo(
       collab.projectNarratives,
       collab.projectMaterials,
       collab.projectGuides,
+      collab.projectPlan,
       collab.projectFiles,
       collab.discussionIndex,
       collab.selectedConversationId,
@@ -956,6 +1226,8 @@ export const ChatImpl = memo(
       const messageContent = messageInput || draftInput;
       const originalComposerInput = messageContent;
       const hasAttachments = uploadedFiles.length > 0 || imageDataList.length > 0;
+      lastSubmittedUserMessageRef.current = messageContent;
+      void syncProjectPlanStatus({ status: 'in_progress' }).catch(() => undefined);
 
       logStore.logUserAction('Send requested', {
         component: 'Chat',
@@ -1587,8 +1859,12 @@ export const ChatImpl = memo(
           'Auto-repair request: preview validation failed. Diagnose and fix the project until preview renders correctly.',
           'Constraints:',
           '- Detect and fix root cause (build errors, invalid entrypoint content, parser errors, blank render states).',
+          '- Fix the whole request, not just the first failing file or the first stack-trace location.',
+          '- If one fix changes imports, exports, config, setup, or entrypoints, update every dependent file in the same repair pass.',
           '- Preserve existing non-broken project files; do not blank/truncate files or recreate them with empty content unless explicitly required by the fix.',
           '- Do not ask for additional context; use the attached project file context and workspace files to diagnose and fix directly.',
+          '- Before finishing, ensure package.json, entry files, imported modules, configs, and start command are mutually consistent for the entire app.',
+          '- Prefer a complete multi-file repair sequence over a partial one-file patch that leaves the request broken.',
           '- Apply concrete file changes and rerun required setup/start steps.',
           '- Do not ask user for confirmation; continue until preview is working.',
           '- WebContainer working directory is /home/project — NEVER use /workspace or any other root.',

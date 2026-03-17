@@ -7,7 +7,8 @@ import { json, type LoaderFunction, type LoaderFunctionArgs } from '@remix-run/c
 interface AppContext {
   env?: {
     GITHUB_ACCESS_TOKEN?: string;
-    NETLIFY_TOKEN?: string;
+    PLESK_TOKEN?: string;
+    CPANEL_TOKEN?: string;
   };
 }
 
@@ -15,7 +16,8 @@ export const loader: LoaderFunction = async ({ request, context }: LoaderFunctio
   // Get environment variables
   const envVars = {
     hasGithubToken: Boolean(process.env.GITHUB_ACCESS_TOKEN || context.env?.GITHUB_ACCESS_TOKEN),
-    hasNetlifyToken: Boolean(process.env.NETLIFY_TOKEN || context.env?.NETLIFY_TOKEN),
+    hasPleskToken: Boolean(process.env.PLESK_TOKEN || context.env?.PLESK_TOKEN),
+    hasCpanelToken: Boolean(process.env.CPANEL_TOKEN || context.env?.CPANEL_TOKEN),
     nodeEnv: process.env.NODE_ENV,
   };
 
@@ -36,13 +38,14 @@ export const loader: LoaderFunction = async ({ request, context }: LoaderFunctio
 
   const hasGithubTokenCookie = Boolean(cookies.githubToken);
   const hasGithubUsernameCookie = Boolean(cookies.githubUsername);
-  const hasNetlifyCookie = Boolean(cookies.netlifyToken);
+  const hasPleskCookie = Boolean(cookies.pleskToken);
+  const hasCpanelCookie = Boolean(cookies.cpanelToken);
 
   // Get local storage status (this can only be checked client-side)
   const localStorageStatus = {
     explanation: 'Local storage can only be checked on the client side. Use browser devtools to check.',
     githubKeysToCheck: ['github_connection'],
-    netlifyKeysToCheck: ['netlify_connection'],
+    hostingKeysToCheck: ['plesk_connection', 'cpanel_connection'],
   };
 
   // Check if CORS might be an issue
@@ -86,21 +89,39 @@ export const loader: LoaderFunction = async ({ request, context }: LoaderFunctio
     };
   }
 
-  // Test Netlify API connectivity
-  let netlifyApiStatus;
+  // Test generic panel API reachability
+  let pleskApiStatus;
+  let cpanelApiStatus;
 
   try {
-    const netlifyResponse = await fetch('https://api.netlify.com/api/v1/', {
+    const pleskResponse = await fetch('https://www.plesk.com/', {
       method: 'GET',
     });
 
-    netlifyApiStatus = {
-      isReachable: netlifyResponse.ok,
-      status: netlifyResponse.status,
-      statusText: netlifyResponse.statusText,
+    pleskApiStatus = {
+      isReachable: pleskResponse.ok,
+      status: pleskResponse.status,
+      statusText: pleskResponse.statusText,
     };
   } catch (error) {
-    netlifyApiStatus = {
+    pleskApiStatus = {
+      isReachable: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+
+  try {
+    const cpanelResponse = await fetch('https://cpanel.net/', {
+      method: 'GET',
+    });
+
+    cpanelApiStatus = {
+      isReachable: cpanelResponse.ok,
+      status: cpanelResponse.status,
+      statusText: cpanelResponse.statusText,
+    };
+  } catch (error) {
+    cpanelApiStatus = {
       isReachable: false,
       error: error instanceof Error ? error.message : String(error),
     };
@@ -124,13 +145,15 @@ export const loader: LoaderFunction = async ({ request, context }: LoaderFunctio
       cookies: {
         hasGithubTokenCookie,
         hasGithubUsernameCookie,
-        hasNetlifyCookie,
+        hasPleskCookie,
+        hasCpanelCookie,
       },
       localStorage: localStorageStatus,
       apiEndpoints,
       externalApis: {
         github: githubApiStatus,
-        netlify: netlifyApiStatus,
+        plesk: pleskApiStatus,
+        cpanel: cpanelApiStatus,
       },
       corsStatus,
       technicalDetails,

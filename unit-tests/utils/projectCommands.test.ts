@@ -29,7 +29,8 @@ describe('utils/projectCommands', () => {
 
     expect(result.type).toBe('Node.js');
     expect(result.startCommand).toBe('pnpm run dev');
-    expect(result.setupCommand).toContain('pnpm install --frozen-lockfile=false');
+    expect(result.setupCommand).toContain('pnpm install');
+    expect(result.setupCommand).toContain('pnpm fund');
   });
 
   it('ignores empty script values and chooses next valid preferred script', async () => {
@@ -65,7 +66,7 @@ describe('utils/projectCommands', () => {
     ];
 
     const result = await detectProjectCommands(files as any);
-    expect(result.setupCommand).toContain('npx --yes shadcn@latest init');
+    expect(result.setupCommand).toContain('npx shadcn@latest init');
     expect(result.startCommand).toBe('pnpm run preview');
   });
 
@@ -123,7 +124,8 @@ describe('utils/projectCommands', () => {
     expect(result.type).toBe('Node.js');
     expect(result.startCommand).toBe('cd frontend && pnpm run dev');
     expect(result.setupCommand).toContain('cd frontend');
-    expect(result.setupCommand).toContain('pnpm install --frozen-lockfile=false');
+    expect(result.setupCommand).toContain('pnpm install');
+    expect(result.setupCommand).toContain('pnpm fund');
   });
 
   it('detects FastAPI project from main.py', async () => {
@@ -533,5 +535,77 @@ describe('utils/projectCommands', () => {
 
     expect(result.ok).toBe(false);
     expect(result.issues.join('\n')).toContain("Empty source module: 'workspace/src/App.jsx'");
+  });
+
+  it('fails preflight when a source module has unclosed syntax before preview launch', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+          dependencies: { react: '^18.2.0', 'react-dom': '^18.2.0' },
+        }),
+      },
+      {
+        path: '/workspace/index.html',
+        content: '<!doctype html><html><body><div id="root"></div></body></html>',
+      },
+      {
+        path: '/workspace/src/main.jsx',
+        content:
+          "import App from './App.jsx';\nimport ReactDOM from 'react-dom/client';\nReactDOM.createRoot(document.getElementById('root')).render(<App />);",
+      },
+      {
+        path: '/workspace/src/App.jsx',
+        content: 'export default function App() { return <div>Hello</div>;',
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain("Source syntax issue in 'workspace/src/App.jsx'");
+    expect(result.issues.join('\n')).toContain('Unclosed brace');
+  });
+
+  it('fails preflight when a source module has an unterminated string', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+          dependencies: { react: '^18.2.0', 'react-dom': '^18.2.0' },
+        }),
+      },
+      {
+        path: '/workspace/index.html',
+        content: '<!doctype html><html><body><div id="root"></div></body></html>',
+      },
+      {
+        path: '/workspace/src/main.jsx',
+        content:
+          "import App from './App.jsx';\nimport ReactDOM from 'react-dom/client';\nReactDOM.createRoot(document.getElementById('root')).render(<App />);",
+      },
+      {
+        path: '/workspace/src/App.jsx',
+        content: "export default function App() { const title = 'broken; return <div>{title}</div>; }",
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain("Source syntax issue in 'workspace/src/App.jsx'");
+    expect(result.issues.join('\n')).toContain('Unterminated string');
   });
 });

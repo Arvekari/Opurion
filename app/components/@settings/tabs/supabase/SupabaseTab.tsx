@@ -65,6 +65,27 @@ export default function SupabaseTab() {
   const [isProjectActionLoading, setIsProjectActionLoading] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string>('');
 
+  const developmentPostgres = connection.developmentPostgres;
+  const postgrest = connection.postgrest;
+
+  const updateDevelopmentPostgres = (updates: Partial<typeof developmentPostgres>) => {
+    updateSupabaseConnection({
+      developmentPostgres: {
+        ...developmentPostgres,
+        ...updates,
+      },
+    });
+  };
+
+  const updatePostgrest = (updates: Partial<typeof postgrest>) => {
+    updateSupabaseConnection({
+      postgrest: {
+        ...postgrest,
+        ...updates,
+      },
+    });
+  };
+
   // Connection testing function - uses server-side API to test environment token
   const testConnection = async () => {
     setConnectionTest({
@@ -739,7 +760,141 @@ export default function SupabaseTab() {
             <div className="rounded-lg border border-dashed border-bolt-elements-borderColor p-4 text-sm text-bolt-elements-textSecondary">
               Supabase is off. Turn it on to configure a token, endpoint, and project credentials.
             </div>
-          ) : !connection.user ? (
+          ) : (
+            <div className="rounded-lg border border-bolt-elements-borderColor bg-bolt-elements-background-depth-1 p-4 space-y-4">
+              <div className="flex items-center justify-between gap-4">
+                <div>
+                  <h3 className="text-sm font-medium text-bolt-elements-textPrimary">Development PostgreSQL Server</h3>
+                  <p className="mt-1 text-xs text-bolt-elements-textSecondary">
+                    Provide server address, username and password so Opurion can build and manage backend database work against your PostgreSQL instance.
+                  </p>
+                </div>
+                <Switch
+                  checked={developmentPostgres.enabled}
+                  onCheckedChange={(enabled) => updateDevelopmentPostgres({ enabled })}
+                />
+              </div>
+
+              {developmentPostgres.enabled && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs text-bolt-elements-textSecondary mb-1">PostgreSQL Server Address</label>
+                    <input
+                      type="text"
+                      value={developmentPostgres.host}
+                      onChange={(event) => updateDevelopmentPostgres({ host: event.target.value })}
+                      placeholder="e.g., db.example.internal"
+                      className="w-full px-3 py-2 rounded-lg text-sm bg-[#F8F8F8] dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#333333] text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-bolt-elements-textSecondary mb-1">Port</label>
+                    <input
+                      type="text"
+                      value={developmentPostgres.port}
+                      onChange={(event) => updateDevelopmentPostgres({ port: event.target.value })}
+                      placeholder="5432"
+                      className="w-full px-3 py-2 rounded-lg text-sm bg-[#F8F8F8] dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#333333] text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-bolt-elements-textSecondary mb-1">Database Name</label>
+                    <input
+                      type="text"
+                      value={developmentPostgres.database}
+                      onChange={(event) => updateDevelopmentPostgres({ database: event.target.value })}
+                      placeholder="app_db"
+                      className="w-full px-3 py-2 rounded-lg text-sm bg-[#F8F8F8] dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#333333] text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-bolt-elements-textSecondary mb-1">Username</label>
+                    <input
+                      type="text"
+                      value={developmentPostgres.username}
+                      onChange={(event) => updateDevelopmentPostgres({ username: event.target.value })}
+                      placeholder="postgres user"
+                      className="w-full px-3 py-2 rounded-lg text-sm bg-[#F8F8F8] dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#333333] text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-bolt-elements-textSecondary mb-1">Password</label>
+                    <input
+                      type="password"
+                      value={developmentPostgres.password}
+                      onChange={(event) => updateDevelopmentPostgres({ password: event.target.value })}
+                      placeholder="postgres password"
+                      className="w-full px-3 py-2 rounded-lg text-sm bg-[#F8F8F8] dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#333333] text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border border-bolt-elements-borderColor px-3 py-2">
+                    <div>
+                      <div className="text-xs font-medium text-bolt-elements-textPrimary">Use SSL</div>
+                      <div className="text-[11px] text-bolt-elements-textSecondary">Recommended for remote instances</div>
+                    </div>
+                    <Switch
+                      checked={developmentPostgres.ssl}
+                      onCheckedChange={(checked) => updateDevelopmentPostgres({ ssl: checked })}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between gap-4 pt-2 border-t border-bolt-elements-borderColor">
+                <div>
+                  <h4 className="text-sm font-medium text-bolt-elements-textPrimary">PostgREST (Optional)</h4>
+                  <p className="mt-1 text-xs text-bolt-elements-textSecondary">
+                    Enable if you expose your PostgreSQL through PostgREST.
+                  </p>
+                </div>
+                <Switch checked={postgrest.enabled} onCheckedChange={(enabled) => updatePostgrest({ enabled })} />
+              </div>
+
+              {postgrest.enabled && (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <div className="md:col-span-2">
+                    <label className="block text-xs text-bolt-elements-textSecondary mb-1">PostgREST Endpoint</label>
+                    <input
+                      type="text"
+                      value={postgrest.endpoint}
+                      onChange={(event) => updatePostgrest({ endpoint: event.target.value })}
+                      placeholder="https://api.example.com"
+                      className="w-full px-3 py-2 rounded-lg text-sm bg-[#F8F8F8] dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#333333] text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-bolt-elements-textSecondary mb-1">Schema</label>
+                    <input
+                      type="text"
+                      value={postgrest.schema}
+                      onChange={(event) => updatePostgrest({ schema: event.target.value })}
+                      placeholder="public"
+                      className="w-full px-3 py-2 rounded-lg text-sm bg-[#F8F8F8] dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#333333] text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-bolt-elements-textSecondary mb-1">PostgREST API Key (Optional)</label>
+                    <input
+                      type="password"
+                      value={postgrest.apiKey}
+                      onChange={(event) => updatePostgrest({ apiKey: event.target.value })}
+                      placeholder="Bearer token / API key"
+                      className="w-full px-3 py-2 rounded-lg text-sm bg-[#F8F8F8] dark:bg-[#1A1A1A] border border-[#E5E5E5] dark:border-[#333333] text-bolt-elements-textPrimary placeholder-bolt-elements-textTertiary focus:outline-none focus:ring-1 focus:ring-bolt-elements-borderColorActive"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {connection.enabled && !connection.user ? (
             <div className="space-y-4">
               <div className="text-xs text-bolt-elements-textSecondary bg-bolt-elements-background-depth-1 dark:bg-bolt-elements-background-depth-1 p-3 rounded-lg mb-4">
                 <p className="flex items-center gap-1 mb-1">
@@ -833,7 +988,7 @@ export default function SupabaseTab() {
                 )}
               </button>
             </div>
-          ) : (
+          ) : connection.enabled ? (
             <div className="space-y-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -1149,7 +1304,7 @@ export default function SupabaseTab() {
 
               {renderProjects()}
             </div>
-          )}
+          ) : null}
         </div>
       </motion.div>
     </div>

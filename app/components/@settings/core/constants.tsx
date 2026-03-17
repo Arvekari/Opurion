@@ -1,5 +1,5 @@
 import type { TabType } from './types';
-import { User, Users, Settings, Bell, Star, Database, Cloud, Laptop, Github, Wrench, List } from 'lucide-react';
+import { User, Users, Settings, Bell, Star, Database, Cloud, Laptop, Github, Wrench, List, Globe } from 'lucide-react';
 
 // GitLab icon component
 const GitLabIcon = () => (
@@ -11,19 +11,12 @@ const GitLabIcon = () => (
   </svg>
 );
 
-// Vercel icon component
-const VercelIcon = () => (
-  <svg viewBox="0 0 24 24" className="w-4 h-4">
-    <path fill="currentColor" d="M12 2L2 19.777h20L12 2z" />
-  </svg>
-);
-
-// Netlify icon component
-const NetlifyIcon = () => (
+// cPanel icon component
+const CPanelIcon = () => (
   <svg viewBox="0 0 24 24" className="w-4 h-4">
     <path
       fill="currentColor"
-      d="M16.934 8.519a1.044 1.044 0 0 1 .303-.23l2.349-1.045a.983.983 0 0 1 .905 0c.264.12.49.328.651.599l.518 1.065c.17.35.17.761 0 1.11l-.518 1.065a1.119 1.119 0 0 1-.651.599l-2.35 1.045a1.013 1.013 0 0 1-.904 0l-2.35-1.045a1.119 1.119 0 0 1-.651-.599L13.718 9.02a1.2 1.2 0 0 1 0-1.11l.518-1.065a1.119 1.119 0 0 1 .651-.599l2.35-1.045a.983.983 0 0 1 .697-.061zm-6.051 5.751a1.044 1.044 0 0 1 .303-.23l2.349-1.045a.983.983 0 0 1 .905 0c.264.12.49.328.651.599l.518 1.065c.17.35.17.761 0 1.11l-.518 1.065a1.119 1.119 0 0 1-.651.599l-2.35 1.045a1.013 1.013 0 0 1-.904 0l-2.35-1.045a1.119 1.119 0 0 1-.651-.599l-.518-1.065a1.2 1.2 0 0 1 0-1.11l.518-1.065a1.119 1.119 0 0 1 .651-.599l2.35-1.045a.983.983 0 0 1 .697-.061z"
+      d="M4 4h16v4H4zm0 6h10v4H4zm0 6h16v4H4z"
     />
   </svg>
 );
@@ -49,8 +42,8 @@ export const TAB_ICONS: Record<TabType, React.ComponentType<{ className?: string
   'local-providers': Laptop,
   github: Github,
   gitlab: () => <GitLabIcon />,
-  netlify: () => <NetlifyIcon />,
-  vercel: () => <VercelIcon />,
+  netlify: Globe,
+  vercel: () => <CPanelIcon />,
   supabase: () => <SupabaseIcon />,
   'event-logs': List,
   debug: Wrench,
@@ -72,9 +65,9 @@ export const TAB_LABELS: Record<TabType, string> = {
   'local-providers': 'Local Providers',
   github: 'GitHub',
   gitlab: 'GitLab',
-  netlify: 'Netlify',
-  vercel: 'Vercel',
-  supabase: 'Supabase',
+  netlify: 'Plesk',
+  vercel: 'cPanel',
+  supabase: 'Supabase / PostgreSQL',
   'event-logs': 'Event Logs',
   debug: 'Debug',
   mcp: 'MCP Servers',
@@ -95,9 +88,9 @@ export const TAB_DESCRIPTIONS: Record<TabType, string> = {
   'local-providers': 'Configure local AI providers and models',
   github: 'Connect and manage GitHub integration',
   gitlab: 'Connect and manage GitLab integration',
-  netlify: 'Configure Netlify deployment settings',
-  vercel: 'Manage Vercel projects and deployments',
-  supabase: 'Setup Supabase database connection',
+  netlify: 'Connect to Plesk and manage hosting deployments',
+  vercel: 'Connect to cPanel and manage hosting deployments',
+  supabase: 'Setup Supabase and optional development PostgreSQL/PostgREST capabilities',
   'event-logs': 'View system events and logs',
   debug: 'Development-time debug functions and A/B testing controls',
   mcp: 'Configure MCP (Model Context Protocol) servers',

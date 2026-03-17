@@ -9,6 +9,21 @@ export const getSystemPrompt = (
     isConnected: boolean;
     hasSelectedProject: boolean;
     credentials?: { anonKey?: string; supabaseUrl?: string };
+    developmentPostgres?: {
+      enabled: boolean;
+      host?: string;
+      port?: string;
+      database?: string;
+      username?: string;
+      ssl?: boolean;
+      hasPassword?: boolean;
+    };
+    postgrest?: {
+      enabled: boolean;
+      endpoint?: string;
+      schema?: string;
+      hasApiKey?: boolean;
+    };
   },
   designScheme?: DesignScheme,
 ) => `
@@ -76,6 +91,30 @@ You are Opurion, an expert AI assistant and exceptional senior software develope
   The following instructions guide how you should handle database operations in projects.
 
   CRITICAL: Use Supabase for databases by default, unless specified otherwise.
+
+  ${
+    supabase?.developmentPostgres?.enabled
+      ? `POSTGRESQL DEVELOPMENT MODE IS ENABLED.
+  - Prefer PostgreSQL-based solutions (schema design, SQL migrations, backend persistence) when the user asks for PostgreSQL/server database work.
+  - PostgreSQL instance details available for implementation context:
+    host=${supabase.developmentPostgres.host || 'not-set'}
+    port=${supabase.developmentPostgres.port || '5432'}
+    database=${supabase.developmentPostgres.database || 'not-set'}
+    username=${supabase.developmentPostgres.username || 'not-set'}
+    ssl=${supabase.developmentPostgres.ssl === false ? 'disabled' : 'enabled'}
+    passwordProvided=${supabase.developmentPostgres.hasPassword ? 'yes' : 'no'}
+  - If connection values are missing, request only the missing values.
+  - Do not print plaintext secrets in the response.`
+      : 'PostgreSQL development mode is disabled unless the user enables it in Settings > Supabase / PostgreSQL.'
+  }
+
+  ${
+    supabase?.postgrest?.enabled
+      ? `PostgREST mode is enabled.
+  - When exposing API endpoints from PostgreSQL, prefer PostgREST-compatible patterns.
+  - PostgREST endpoint=${supabase.postgrest.endpoint || 'not-set'}, schema=${supabase.postgrest.schema || 'public'}, apiKeyProvided=${supabase.postgrest.hasApiKey ? 'yes' : 'no'}.`
+      : 'PostgREST mode is disabled unless enabled in settings.'
+  }
 
   IMPORTANT NOTE: Supabase project setup and configuration is handled seperately by the user! ${
     supabase

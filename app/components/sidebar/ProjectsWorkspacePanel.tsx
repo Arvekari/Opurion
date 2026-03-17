@@ -3,6 +3,14 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { toast } from 'react-toastify';
 import { Button } from '~/components/ui/Button';
 import {
+  formatProjectPlanRunStatus,
+  PROJECT_PLAN_FILE_NAME,
+  PROJECT_PLAN_KIND,
+  PROJECT_PLAN_STATUS_FILE_NAME,
+  PROJECT_PLAN_STATUS_KIND,
+  type ProjectPlanRunStatus,
+} from '~/lib/collab/project-plan';
+import {
   bumpCollabRefresh,
   collabStore,
   type CollabProjectFileItem,
@@ -28,6 +36,7 @@ type ProjectContextDraft = {
   narratives: string;
   materials: string;
   guides: string;
+  plan: string;
 };
 
 const PROJECT_NARRATIVES_KIND = 'project-narratives';
@@ -37,6 +46,28 @@ const PROJECT_ATTACHMENT_KIND = 'project-attachment';
 
 function getSystemArtifactKind(artifact: ArtifactRecord) {
   return typeof artifact.metadata?.systemKind === 'string' ? artifact.metadata.systemKind : '';
+}
+
+function getStringMetadata(artifact: ArtifactRecord | undefined, key: string) {
+  return typeof artifact?.metadata?.[key] === 'string' ? String(artifact.metadata?.[key]) : undefined;
+}
+
+function dedupeConversations(conversations: Conversation[]): Conversation[] {
+  const byId = new Map<string, Conversation>();
+
+  for (const conversation of conversations) {
+    const id = String(conversation.id || '').trim();
+
+    if (!id) {
+      continue;
+    }
+
+    if (!byId.has(id)) {
+      byId.set(id, conversation);
+    }
+  }
+
+  return Array.from(byId.values());
 }
 
 function isTextReferenceFile(file: File) {
@@ -84,6 +115,9 @@ function deriveDraftFromArtifacts(artifacts: ArtifactRecord[]) {
   const materials =
     artifacts.find((artifact) => getSystemArtifactKind(artifact) === PROJECT_MATERIALS_KIND)?.content || '';
   const guides = artifacts.find((artifact) => getSystemArtifactKind(artifact) === PROJECT_GUIDES_KIND)?.content || '';
+  const planArtifact = artifacts.find((artifact) => getSystemArtifactKind(artifact) === PROJECT_PLAN_KIND);
+  const planStatusArtifact = artifacts.find((artifact) => getSystemArtifactKind(artifact) === PROJECT_PLAN_STATUS_KIND);
+  const plan = planArtifact?.content || '';
   const files = artifacts
     .filter((artifact) => getSystemArtifactKind(artifact) === PROJECT_ATTACHMENT_KIND)
     .map(
@@ -98,7 +132,14 @@ function deriveDraftFromArtifacts(artifacts: ArtifactRecord[]) {
     );
 
   return {
-    draft: { narratives, materials, guides } satisfies ProjectContextDraft,
+    draft: { narratives, materials, guides, plan } satisfies ProjectContextDraft,
+    planArtifactId: planArtifact?.id,
+    planUpdatedAt: getStringMetadata(planArtifact, 'updatedAt'),
+    planStatusContent: planStatusArtifact?.content || '',
+    planStatusArtifactId: planStatusArtifact?.id,
+    planRunStatus: (getStringMetadata(planStatusArtifact, 'runStatus') as ProjectPlanRunStatus | undefined) || 'idle',
+    planStatusSummary: getStringMetadata(planStatusArtifact, 'summary') || '',
+    planStatusUpdatedAt: getStringMetadata(planStatusArtifact, 'updatedAt'),
     files,
   };
 }
@@ -115,7 +156,7 @@ export function ProjectsWorkspacePanel() {
   const [shareEmail, setShareEmail] = useState('');
   const [shareRole, setShareRole] = useState<'editor' | 'viewer'>('editor');
   const [newConversationTitle, setNewConversationTitle] = useState('');
-  const [draft, setDraft] = useState<ProjectContextDraft>({ narratives: '', materials: '', guides: '' });
+  const [draft, setDraft] = useState<ProjectContextDraft>({ narratives: '', materials: '', guides: '', plan: '' });
   const [attachedFiles, setAttachedFiles] = useState<CollabProjectFileItem[]>([]);
 
   const activeProject = useMemo(
@@ -124,6 +165,21 @@ export function ProjectsWorkspacePanel() {
   );
 
   const canEditProject = activeProject?.role === 'owner' || activeProject?.role === 'editor';
+  const planUpdatedLabel = useMemo(() => {
+    if (!collab.projectPlanUpdatedAt) {
+      return 'Not synced yet';
+    }
+
+    return new Date(collab.projectPlanUpdatedAt).toLocaleString();
+  }, [collab.projectPlanUpdatedAt]);
+
+  const planStatusUpdatedLabel = useMemo(() => {
+    if (!collab.projectPlanStatusUpdatedAt) {
+      return 'No run tracked yet';
+    }
+
+    return new Date(collab.projectPlanStatusUpdatedAt).toLocaleString();
+  }, [collab.projectPlanStatusUpdatedAt]);
 
   const loadProjects = useCallback(async () => {
     const response = await fetch('/api/collab/projects');
@@ -144,7 +200,7 @@ export function ProjectsWorkspacePanel() {
       throw new Error(data?.error || 'Failed to load discussions');
     }
 
-    const nextConversations = (data.conversations || []) as Conversation[];
+    const nextConversations = dedupeConversations((data.conversations || []) as Conversation[]);
     setConversations(nextConversations);
     setCollabDiscussionIndex(
       nextConversations.map((conversation) => ({ id: conversation.id, title: conversation.title })),
@@ -169,6 +225,14 @@ export function ProjectsWorkspacePanel() {
       narratives: derived.draft.narratives,
       materials: derived.draft.materials,
       guides: derived.draft.guides,
+      plan: derived.draft.plan,
+      planArtifactId: derived.planArtifactId,
+      planUpdatedAt: derived.planUpdatedAt,
+      planStatusContent: derived.planStatusContent,
+      planStatusArtifactId: derived.planStatusArtifactId,
+      planRunStatus: derived.planRunStatus,
+      planStatusSummary: derived.planStatusSummary,
+      planStatusUpdatedAt: derived.planStatusUpdatedAt,
       files: derived.files,
     });
   }, []);
@@ -278,9 +342,21 @@ export function ProjectsWorkspacePanel() {
     if (!collab.selectedProjectId) {
       setConversations([]);
       setProjectArtifacts([]);
-      setDraft({ narratives: '', materials: '', guides: '' });
+      setDraft({ narratives: '', materials: '', guides: '', plan: '' });
       setAttachedFiles([]);
-      setCollabProjectContext({ narratives: '', materials: '', guides: '', files: [] });
+      setCollabProjectContext({
+        narratives: '',
+        materials: '',
+        guides: '',
+        plan: '',
+        planUpdatedAt: '',
+        planStatusContent: '',
+        planStatusArtifactId: '',
+        planRunStatus: 'idle',
+        planStatusSummary: '',
+        planStatusUpdatedAt: '',
+        files: [],
+      });
       setCollabDiscussionIndex([]);
       return;
     }
@@ -291,7 +367,7 @@ export function ProjectsWorkspacePanel() {
         toast.error('Failed to load project workspace');
       },
     );
-  }, [collab.selectedProjectId, loadConversations, loadProjectArtifacts]);
+  }, [collab.refreshToken, collab.selectedProjectId, loadConversations, loadProjectArtifacts]);
 
   const handleCreateFilesSelected = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const files = event.target.files;
@@ -480,6 +556,13 @@ export function ProjectsWorkspacePanel() {
         draft.guides,
         'Shared implementation guides and onboarding notes',
       );
+      await syncTextArtifact(
+        collab.selectedProjectId,
+        PROJECT_PLAN_KIND,
+        PROJECT_PLAN_FILE_NAME,
+        draft.plan,
+        'Shared active project plan synchronized from planning-oriented chat replies',
+      );
 
       const existingAttachmentArtifacts = projectArtifacts.filter(
         (artifact) => getSystemArtifactKind(artifact) === PROJECT_ATTACHMENT_KIND,
@@ -656,6 +739,40 @@ export function ProjectsWorkspacePanel() {
               onChange={(event) => setDraft((prev) => ({ ...prev, guides: event.target.value }))}
               placeholder="How this project should be built, maintained, and extended..."
               disabled={!canEditProject}
+            />
+
+            <div className="mt-2 mb-1 text-[11px] font-semibold text-bolt-elements-textSecondary">Active plan (.plan.md)</div>
+            <div className="mb-2 rounded-md border border-bolt-elements-borderColor bg-bolt-elements-background-depth-2 px-2 py-2 text-[11px] text-bolt-elements-textSecondary">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="rounded bg-bolt-elements-item-backgroundAccent px-2 py-0.5 text-[10px] font-semibold text-bolt-elements-textPrimary">
+                  Auto-sync active
+                </span>
+                <span>Plan updated: {planUpdatedLabel}</span>
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="rounded border border-bolt-elements-borderColor px-2 py-0.5 text-[10px] font-semibold text-bolt-elements-textPrimary">
+                  {formatProjectPlanRunStatus(collab.projectPlanRunStatus)}
+                </span>
+                <span>Tracking updated: {planStatusUpdatedLabel}</span>
+              </div>
+              <div className="mt-2 text-bolt-elements-textTertiary">
+                {collab.projectPlanStatusSummary || `${PROJECT_PLAN_STATUS_FILE_NAME} keeps execution tracking separate from ${PROJECT_PLAN_FILE_NAME}.`}
+              </div>
+            </div>
+            <textarea
+              className={`${fieldClassName} min-h-[110px] resize-y font-mono text-[11px]`}
+              value={draft.plan}
+              onChange={(event) => setDraft((prev) => ({ ...prev, plan: event.target.value }))}
+              placeholder="Discussion-mode objectives, file structure, and execution plan will sync here."
+              disabled={!canEditProject}
+            />
+
+            <div className="mt-2 mb-1 text-[11px] font-semibold text-bolt-elements-textSecondary">Execution tracking (.plan-status.md)</div>
+            <textarea
+              className={`${fieldClassName} min-h-[96px] resize-y font-mono text-[11px]`}
+              value={collab.projectPlanStatusContent}
+              readOnly
+              placeholder="Execution tracking updates automatically as requests start, complete, fail, or are aborted."
             />
 
             <div className="mt-2 rounded-md border border-dashed border-bolt-elements-borderColor p-2">

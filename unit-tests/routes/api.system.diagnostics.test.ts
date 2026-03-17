@@ -12,7 +12,8 @@ describe('/api/system/diagnostics', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     delete process.env.GITHUB_ACCESS_TOKEN;
-    delete process.env.NETLIFY_TOKEN;
+    delete process.env.PLESK_TOKEN;
+    delete process.env.CPANEL_TOKEN;
   });
 
   it('returns diagnostic payload with cookie and api statuses', async () => {
@@ -22,9 +23,9 @@ describe('/api/system/diagnostics', () => {
 
     const response = await loader({
       request: new Request('http://localhost/api/system/diagnostics', {
-        headers: { Cookie: 'githubToken=1;githubUsername=arva;netlifyToken=1' },
+        headers: { Cookie: 'githubToken=1;githubUsername=arva;pleskToken=1' },
       }),
-      context: { env: { GITHUB_ACCESS_TOKEN: 'x', NETLIFY_TOKEN: 'y' } },
+      context: { env: { GITHUB_ACCESS_TOKEN: 'x', PLESK_TOKEN: 'y' } },
     } as any);
 
     const typedResponse = response as Response;
@@ -33,15 +34,15 @@ describe('/api/system/diagnostics', () => {
     expect(typedResponse.status).toBe(200);
     expect(data.status).toBe('success');
     expect(data.environment.hasGithubToken).toBe(true);
-    expect(data.environment.hasNetlifyToken).toBe(true);
-    expect(data.cookies).toMatchObject({ hasGithubTokenCookie: true, hasGithubUsernameCookie: true, hasNetlifyCookie: true });
+    expect(data.environment.hasPleskToken).toBe(true);
+    expect(data.cookies).toMatchObject({ hasGithubTokenCookie: true, hasGithubUsernameCookie: true, hasPleskCookie: true });
     expect(data.externalApis.github.isReachable).toBe(true);
-    expect(data.externalApis.netlify.isReachable).toBe(true);
+    expect(data.externalApis.plesk.isReachable).toBe(true);
     expect(typedResponse.headers.get('Access-Control-Allow-Origin')).toBe('*');
   });
 
   it('marks external APIs unreachable when fetch throws', async () => {
-    fetchMock.mockRejectedValueOnce(new Error('github down')).mockRejectedValueOnce(new Error('netlify down'));
+    fetchMock.mockRejectedValueOnce(new Error('github down')).mockRejectedValueOnce(new Error('plesk down'));
 
     const response = await loader({
       request: new Request('http://localhost/api/system/diagnostics'),
@@ -53,8 +54,8 @@ describe('/api/system/diagnostics', () => {
 
     expect(typedResponse.status).toBe(200);
     expect(data.externalApis.github.isReachable).toBe(false);
-    expect(data.externalApis.netlify.isReachable).toBe(false);
+    expect(data.externalApis.plesk.isReachable).toBe(false);
     expect(data.externalApis.github.error).toContain('github down');
-    expect(data.externalApis.netlify.error).toContain('netlify down');
+    expect(data.externalApis.plesk.error).toContain('plesk down');
   });
 });

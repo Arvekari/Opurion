@@ -1,46 +1,44 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useStore } from '@nanostores/react';
-import { netlifyConnection } from '~/lib/stores/netlify';
-import { vercelConnection } from '~/lib/stores/vercel';
+import { pleskConnection } from '~/lib/stores/plesk';
+import { cpanelConnection } from '~/lib/stores/cpanel';
 import { isGitLabConnected } from '~/lib/stores/gitlabConnection';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { streamingState } from '~/lib/stores/streaming';
 import { classNames } from '~/utils/classNames';
 import { uiButtonClassTokens } from '~/components/ui/tokens';
 import { useState } from 'react';
-import { NetlifyDeploymentLink } from '~/components/chat/NetlifyDeploymentLink.client';
-import { VercelDeploymentLink } from '~/components/chat/VercelDeploymentLink.client';
-import { useVercelDeploy } from '~/components/deploy/VercelDeploy.client';
-import { useNetlifyDeploy } from '~/components/deploy/NetlifyDeploy.client';
+import { usePleskDeploy } from '~/components/deploy/PleskDeploy.client';
+import { useCpanelDeploy } from '~/components/deploy/CpanelDeploy.client';
 import { useGitHubDeploy } from '~/components/deploy/GitHubDeploy.client';
 import { useGitLabDeploy } from '~/components/deploy/GitLabDeploy.client';
 import { GitHubDeploymentDialog } from '~/components/deploy/GitHubDeploymentDialog';
 import { GitLabDeploymentDialog } from '~/components/deploy/GitLabDeploymentDialog';
 
 interface DeployButtonProps {
-  onVercelDeploy?: () => Promise<void>;
-  onNetlifyDeploy?: () => Promise<void>;
+  onPleskDeploy?: () => Promise<void>;
+  onCpanelDeploy?: () => Promise<void>;
   onGitHubDeploy?: () => Promise<void>;
   onGitLabDeploy?: () => Promise<void>;
 }
 
 export const DeployButton = ({
-  onVercelDeploy,
-  onNetlifyDeploy,
+  onPleskDeploy,
+  onCpanelDeploy,
   onGitHubDeploy,
   onGitLabDeploy,
 }: DeployButtonProps) => {
-  const netlifyConn = useStore(netlifyConnection);
-  const vercelConn = useStore(vercelConnection);
+  const pleskConn = useStore(pleskConnection);
+  const cpanelConn = useStore(cpanelConnection);
   const gitlabIsConnected = useStore(isGitLabConnected);
   const [activePreviewIndex] = useState(0);
   const previews = useStore(workbenchStore.previews);
   const activePreview = previews[activePreviewIndex];
   const [isDeploying, setIsDeploying] = useState(false);
-  const [deployingTo, setDeployingTo] = useState<'netlify' | 'vercel' | 'github' | 'gitlab' | null>(null);
+  const [deployingTo, setDeployingTo] = useState<'plesk' | 'cpanel' | 'github' | 'gitlab' | null>(null);
   const isStreaming = useStore(streamingState);
-  const { handleVercelDeploy } = useVercelDeploy();
-  const { handleNetlifyDeploy } = useNetlifyDeploy();
+  const { handlePleskDeploy } = usePleskDeploy();
+  const { handleCpanelDeploy } = useCpanelDeploy();
   const { handleGitHubDeploy } = useGitHubDeploy();
   const { handleGitLabDeploy } = useGitLabDeploy();
   const [showGitHubDeploymentDialog, setShowGitHubDeploymentDialog] = useState(false);
@@ -50,15 +48,15 @@ export const DeployButton = ({
   const [githubProjectName, setGithubProjectName] = useState('');
   const [gitlabProjectName, setGitlabProjectName] = useState('');
 
-  const handleVercelDeployClick = async () => {
+  const handlePleskDeployClick = async () => {
     setIsDeploying(true);
-    setDeployingTo('vercel');
+    setDeployingTo('plesk');
 
     try {
-      if (onVercelDeploy) {
-        await onVercelDeploy();
+      if (onPleskDeploy) {
+        await onPleskDeploy();
       } else {
-        await handleVercelDeploy();
+        await handlePleskDeploy();
       }
     } finally {
       setIsDeploying(false);
@@ -66,15 +64,15 @@ export const DeployButton = ({
     }
   };
 
-  const handleNetlifyDeployClick = async () => {
+  const handleCpanelDeployClick = async () => {
     setIsDeploying(true);
-    setDeployingTo('netlify');
+    setDeployingTo('cpanel');
 
     try {
-      if (onNetlifyDeploy) {
-        await onNetlifyDeploy();
+      if (onCpanelDeploy) {
+        await onCpanelDeploy();
       } else {
-        await handleNetlifyDeploy();
+        await handleCpanelDeploy();
       }
     } finally {
       setIsDeploying(false);
@@ -153,45 +151,43 @@ export const DeployButton = ({
               className={classNames(
                 'cursor-pointer flex items-center w-full px-4 py-2 text-sm text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive gap-2 rounded-md group relative',
                 {
-                  'opacity-60 cursor-not-allowed': isDeploying || !activePreview || !netlifyConn.user,
+                  'opacity-60 cursor-not-allowed': isDeploying || !activePreview || !pleskConn.user,
                 },
               )}
-              disabled={isDeploying || !activePreview || !netlifyConn.user}
-              onClick={handleNetlifyDeployClick}
+              disabled={isDeploying || !activePreview || !pleskConn.user}
+              onClick={handlePleskDeployClick}
             >
               <img
                 className="w-5 h-5"
                 height="24"
                 width="24"
                 crossOrigin="anonymous"
-                src="https://cdn.simpleicons.org/netlify"
+                src="https://cdn.simpleicons.org/plesk"
               />
               <span className="mx-auto">
-                {!netlifyConn.user ? 'No Netlify Account Connected' : 'Deploy to Netlify'}
+                {!pleskConn.user ? 'No Plesk Account Connected' : 'Deploy to Plesk'}
               </span>
-              {netlifyConn.user && <NetlifyDeploymentLink />}
             </DropdownMenu.Item>
 
             <DropdownMenu.Item
               className={classNames(
                 'cursor-pointer flex items-center w-full px-4 py-2 text-sm text-bolt-elements-textPrimary hover:bg-bolt-elements-item-backgroundActive gap-2 rounded-md group relative',
                 {
-                  'opacity-60 cursor-not-allowed': isDeploying || !activePreview || !vercelConn.user,
+                  'opacity-60 cursor-not-allowed': isDeploying || !activePreview || !cpanelConn.user,
                 },
               )}
-              disabled={isDeploying || !activePreview || !vercelConn.user}
-              onClick={handleVercelDeployClick}
+              disabled={isDeploying || !activePreview || !cpanelConn.user}
+              onClick={handleCpanelDeployClick}
             >
               <img
                 className="w-5 h-5 bg-black p-1 rounded"
                 height="24"
                 width="24"
                 crossOrigin="anonymous"
-                src="https://cdn.simpleicons.org/vercel/white"
-                alt="vercel"
+                src="https://cdn.simpleicons.org/cpanel/white"
+                alt="cpanel"
               />
-              <span className="mx-auto">{!vercelConn.user ? 'No Vercel Account Connected' : 'Deploy to Vercel'}</span>
-              {vercelConn.user && <VercelDeploymentLink />}
+              <span className="mx-auto">{!cpanelConn.user ? 'No cPanel Account Connected' : 'Deploy to cPanel'}</span>
             </DropdownMenu.Item>
 
             <DropdownMenu.Item

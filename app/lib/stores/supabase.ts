@@ -1,5 +1,12 @@
 import { atom } from 'nanostores';
-import type { SupabaseUser, SupabaseStats, SupabaseApiKey, SupabaseCredentials } from '~/types/supabase';
+import type {
+  SupabaseUser,
+  SupabaseStats,
+  SupabaseApiKey,
+  SupabaseCredentials,
+  DevelopmentPostgresConfig,
+  PostgrestConfig,
+} from '~/types/supabase';
 
 export interface SupabaseProject {
   id: string;
@@ -51,6 +58,8 @@ export interface SupabaseConnectionState {
   project?: SupabaseProject;
   credentials?: SupabaseCredentials;
   customEndpoint?: string;
+  developmentPostgres: DevelopmentPostgresConfig;
+  postgrest: PostgrestConfig;
 }
 
 const storage =
@@ -65,6 +74,23 @@ const savedCredentials = storage ? storage.getItem('supabaseCredentials') : null
 
 const parsedSavedConnection = savedConnection ? (JSON.parse(savedConnection) as Partial<SupabaseConnectionState>) : null;
 
+const defaultDevelopmentPostgres: DevelopmentPostgresConfig = {
+  enabled: import.meta.env?.VITE_DEV_POSTGRES_ENABLED === 'true',
+  host: import.meta.env?.VITE_DEV_POSTGRES_HOST || '',
+  port: import.meta.env?.VITE_DEV_POSTGRES_PORT || '5432',
+  database: import.meta.env?.VITE_DEV_POSTGRES_DATABASE || '',
+  username: import.meta.env?.VITE_DEV_POSTGRES_USERNAME || '',
+  password: import.meta.env?.VITE_DEV_POSTGRES_PASSWORD || '',
+  ssl: import.meta.env?.VITE_DEV_POSTGRES_SSL !== 'false',
+};
+
+const defaultPostgrest: PostgrestConfig = {
+  enabled: import.meta.env?.VITE_POSTGREST_ENABLED === 'true',
+  endpoint: import.meta.env?.VITE_POSTGREST_ENDPOINT || '',
+  schema: import.meta.env?.VITE_POSTGREST_SCHEMA || 'public',
+  apiKey: import.meta.env?.VITE_POSTGREST_API_KEY || '',
+};
+
 const initialState: SupabaseConnectionState = {
   enabled: parsedSavedConnection?.enabled === true,
   user: parsedSavedConnection?.user ?? null,
@@ -75,6 +101,14 @@ const initialState: SupabaseConnectionState = {
   project: parsedSavedConnection?.project,
   credentials: parsedSavedConnection?.credentials,
   customEndpoint: parsedSavedConnection?.customEndpoint,
+  developmentPostgres: {
+    ...defaultDevelopmentPostgres,
+    ...(parsedSavedConnection?.developmentPostgres || {}),
+  },
+  postgrest: {
+    ...defaultPostgrest,
+    ...(parsedSavedConnection?.postgrest || {}),
+  },
 };
 
 if (savedCredentials && !initialState.credentials) {
@@ -164,6 +198,8 @@ export function setSupabaseEnabled(enabled: boolean) {
     project: undefined,
     credentials: undefined,
     customEndpoint: undefined,
+    developmentPostgres: defaultDevelopmentPostgres,
+    postgrest: defaultPostgrest,
   });
 
   storage?.removeItem('supabase_connection');

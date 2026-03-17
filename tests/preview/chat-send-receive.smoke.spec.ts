@@ -44,7 +44,7 @@ test('chat GUI smoke: sends and receives assistant response', async ({ page, con
   }
 
   const textarea = page
-    .locator('textarea[placeholder="How can Bolt help you today?"], textarea[placeholder="What would you like to discuss?"]')
+    .locator('textarea[placeholder="How can Opurion help you today?"], textarea[placeholder="What would you like to discuss?"]')
     .first();
   await expect(textarea).toBeVisible({ timeout: 20000 });
 

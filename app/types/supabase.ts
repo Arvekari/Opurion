@@ -53,3 +53,20 @@ export interface SupabaseCredentials {
   supabaseUrl?: string;
   customEndpoint?: string;
 }
+
+export interface DevelopmentPostgresConfig {
+  enabled: boolean;
+  host: string;
+  port: string;
+  database: string;
+  username: string;
+  password: string;
+  ssl: boolean;
+}
+
+export interface PostgrestConfig {
+  enabled: boolean;
+  endpoint: string;
+  schema: string;
+  apiKey: string;
+}

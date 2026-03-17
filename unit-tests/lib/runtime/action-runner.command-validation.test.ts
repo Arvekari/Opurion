@@ -177,7 +177,7 @@ describe('ActionRunner start command validation', () => {
     vi.useRealTimers();
   });
 
-  it('keeps npm start commands when no pnpm lockfile exists', async () => {
+  it('rewrites npm start commands to pnpm when no pnpm lockfile exists', async () => {
     vi.useFakeTimers();
 
     const sharedShell = {
@@ -235,7 +235,7 @@ describe('ActionRunner start command validation', () => {
 
     expect(detachedShellExecute).toHaveBeenCalledWith(
       expect.stringContaining('start'),
-      'npm run dev',
+      'pnpm run dev',
       expect.any(Function),
     );
 
@@ -373,9 +373,96 @@ describe('ActionRunner start command validation', () => {
 
     expect(detachedShellExecute).toHaveBeenCalledWith(
       expect.stringContaining('start'),
-      'cd /workspace && pnpm run dev',
+      'pnpm run dev',
       expect.any(Function),
     );
+
+    vi.useRealTimers();
+  });
+
+  it('stops previously running start session before launching a new one', async () => {
+    vi.useFakeTimers();
+
+    const sharedShell = {
+      ready: vi.fn(async () => undefined),
+      terminal: {
+        cols: 80,
+        rows: 24,
+        write: vi.fn(),
+        reset: vi.fn(),
+        onData: vi.fn(),
+        input: vi.fn(),
+      },
+      process: {},
+      executeCommand: vi.fn(),
+    } as any;
+
+    const firstDetachedKill = vi.fn();
+    const firstDetachedTerminalInput = vi.fn();
+    const firstDetachedExecute = vi.fn(() => new Promise(() => undefined));
+
+    const secondDetachedKill = vi.fn();
+    const secondDetachedExecute = vi.fn(async () => ({ exitCode: 0, output: 'ready' }));
+
+    const newShellMock = vi.spyOn(shellModule, 'newBoltShellProcess');
+    newShellMock
+      .mockReturnValueOnce({
+        ready: vi.fn(async () => undefined),
+        init: vi.fn(async () => undefined),
+        terminal: { input: firstDetachedTerminalInput },
+        process: { kill: firstDetachedKill },
+        executeCommand: firstDetachedExecute,
+      } as any)
+      .mockReturnValueOnce({
+        ready: vi.fn(async () => undefined),
+        init: vi.fn(async () => undefined),
+        terminal: { input: vi.fn() },
+        process: { kill: secondDetachedKill },
+        executeCommand: secondDetachedExecute,
+      } as any);
+
+    const webcontainer = {
+      workdir: '/workspace',
+      fs: {
+        readFile: vi.fn(async () => '{"name":"demo"}'),
+      },
+    } as any;
+
+    const runner = new ActionRunner(Promise.resolve(webcontainer), () => sharedShell);
+
+    const firstAction: ActionCallbackData = {
+      artifactId: 'artifact-1',
+      messageId: 'message-1',
+      actionId: 'action-1',
+      action: {
+        type: 'start',
+        content: 'pnpm dev',
+      },
+    };
+
+    const secondAction: ActionCallbackData = {
+      artifactId: 'artifact-1',
+      messageId: 'message-2',
+      actionId: 'action-2',
+      action: {
+        type: 'start',
+        content: 'pnpm dev --host',
+      },
+    };
+
+    runner.addAction(firstAction);
+    const firstRunPromise = runner.runAction(firstAction);
+    await vi.advanceTimersByTimeAsync(2000);
+    await firstRunPromise;
+
+    runner.addAction(secondAction);
+    const secondRunPromise = runner.runAction(secondAction);
+    await vi.advanceTimersByTimeAsync(2000);
+    await secondRunPromise;
+
+    expect(firstDetachedTerminalInput).toHaveBeenCalledWith('\x03');
+    expect(firstDetachedKill).toHaveBeenCalled();
+    expect(secondDetachedExecute).toHaveBeenCalled();
 
     vi.useRealTimers();
   });

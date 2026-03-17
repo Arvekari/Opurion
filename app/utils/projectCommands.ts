@@ -640,6 +640,185 @@ function validateReactModuleExports(files: FileContent[], workingDirectory: stri
   return issues;
 }
 
+function formatDelimiterName(delimiter: string): string {
+  switch (delimiter) {
+    case '{':
+      return 'brace';
+    case '[':
+      return 'bracket';
+    case '(':
+      return 'parenthesis';
+    default:
+      return 'delimiter';
+  }
+}
+
+function getBasicSourceSyntaxIssue(content: string): string | undefined {
+  const stack: Array<{ delimiter: string; line: number }> = [];
+  let line = 1;
+  let index = 0;
+  let state: 'normal' | 'single-quote' | 'double-quote' | 'template-string' | 'line-comment' | 'block-comment' =
+    'normal';
+  let escaped = false;
+  let blockCommentStartLine = 1;
+  let stringStartLine = 1;
+
+  while (index < content.length) {
+    const char = content[index];
+    const nextChar = content[index + 1];
+
+    if (char === '\n') {
+      line += 1;
+
+      if (state === 'line-comment') {
+        state = 'normal';
+      }
+    }
+
+    if (state === 'line-comment') {
+      index += 1;
+      continue;
+    }
+
+    if (state === 'block-comment') {
+      if (char === '*' && nextChar === '/') {
+        state = 'normal';
+        index += 2;
+        continue;
+      }
+
+      index += 1;
+      continue;
+    }
+
+    if (state === 'single-quote' || state === 'double-quote' || state === 'template-string') {
+      if (escaped) {
+        escaped = false;
+        index += 1;
+        continue;
+      }
+
+      if (char === '\\') {
+        escaped = true;
+        index += 1;
+        continue;
+      }
+
+      if (
+        (state === 'single-quote' && char === "'") ||
+        (state === 'double-quote' && char === '"') ||
+        (state === 'template-string' && char === '`')
+      ) {
+        state = 'normal';
+      }
+
+      index += 1;
+      continue;
+    }
+
+    if (char === '/' && nextChar === '/') {
+      state = 'line-comment';
+      index += 2;
+      continue;
+    }
+
+    if (char === '/' && nextChar === '*') {
+      state = 'block-comment';
+      blockCommentStartLine = line;
+      index += 2;
+      continue;
+    }
+
+    if (char === "'") {
+      state = 'single-quote';
+      stringStartLine = line;
+      index += 1;
+      continue;
+    }
+
+    if (char === '"') {
+      state = 'double-quote';
+      stringStartLine = line;
+      index += 1;
+      continue;
+    }
+
+    if (char === '`') {
+      state = 'template-string';
+      stringStartLine = line;
+      index += 1;
+      continue;
+    }
+
+    if (char === '{' || char === '[' || char === '(') {
+      stack.push({ delimiter: char, line });
+      index += 1;
+      continue;
+    }
+
+    if (char === '}' || char === ']' || char === ')') {
+      const expectedDelimiter = char === '}' ? '{' : char === ']' ? '[' : '(';
+      const lastOpen = stack[stack.length - 1];
+
+      if (!lastOpen || lastOpen.delimiter !== expectedDelimiter) {
+        return `Unexpected '${char}' at line ${line}.`;
+      }
+
+      stack.pop();
+      index += 1;
+      continue;
+    }
+
+    index += 1;
+  }
+
+  if (state === 'block-comment') {
+    return `Unterminated block comment starting at line ${blockCommentStartLine}.`;
+  }
+
+  if (state === 'single-quote' || state === 'double-quote' || state === 'template-string') {
+    return `Unterminated string starting at line ${stringStartLine}.`;
+  }
+
+  const lastOpen = stack[stack.length - 1];
+
+  if (lastOpen) {
+    return `Unclosed ${formatDelimiterName(lastOpen.delimiter)} '${lastOpen.delimiter}' opened at line ${lastOpen.line}.`;
+  }
+
+  return undefined;
+}
+
+function validateSourceModuleSyntax(files: FileContent[], workingDirectory: string): string[] {
+  const issues: string[] = [];
+  const normalizedWorkingDirectory = workingDirectory.replace(/^\/+|\/+$/g, '');
+
+  const sourceFiles = files.filter((file) => {
+    const workspacePath = toWorkspaceRelativePath(file.path);
+    const extension = workspacePath.slice(workspacePath.lastIndexOf('.')).toLowerCase();
+
+    if (!NODE_SOURCE_EXTENSIONS.includes(extension) || workspacePath.endsWith('.d.ts')) {
+      return false;
+    }
+
+    if (!normalizedWorkingDirectory) {
+      return true;
+    }
+
+    return workspacePath.startsWith(`${normalizedWorkingDirectory}/`);
+  });
+
+  for (const file of sourceFiles) {
+    const syntaxIssue = getBasicSourceSyntaxIssue(file.content);
+
+    if (syntaxIssue) {
+      issues.push(`Source syntax issue in '${toWorkspaceRelativePath(file.path)}': ${syntaxIssue}`);
+    }
+  }
+
+  return issues;
+}
+
 function isViteConfigPath(workspacePath: string): boolean {
   return /(?:^|\/)vite\.config\.(?:js|mjs|cjs|ts|mts|cts)$/i.test(workspacePath);
 }
@@ -777,6 +956,7 @@ export async function validateProjectPreflight(
   issues.push(...validatePostcssJsonConfigs(files, normalizedWorkingDirectory));
   issues.push(...validateHtmlEntrypoints(files, normalizedWorkingDirectory));
   issues.push(...validateReactModuleExports(files, normalizedWorkingDirectory));
+  issues.push(...validateSourceModuleSyntax(files, normalizedWorkingDirectory));
 
   return {
     ok: issues.length === 0,
@@ -798,14 +978,14 @@ function buildStartCommand(packageManager: 'npm' | 'pnpm' | 'yarn', script: stri
 
 function buildInstallCommand(packageManager: 'npm' | 'pnpm' | 'yarn'): string {
   if (packageManager === 'yarn') {
-    return 'yarn install --non-interactive';
+    return 'yarn install';
   }
 
   if (packageManager === 'pnpm') {
-    return 'pnpm install --frozen-lockfile=false';
+    return 'pnpm install; pnpm fund';
   }
 
-  return 'pnpm install --frozen-lockfile=false';
+  return 'npm install';
 }
 
 export async function detectProjectCommands(files: FileContent[]): Promise<ProjectCommands> {
@@ -858,10 +1038,10 @@ export async function detectProjectCommands(files: FileContent[]): Promise<Proje
     let baseSetupCommand = buildInstallCommand(packageManager);
 
     if (isShadcnProject) {
-      baseSetupCommand += ' && npx shadcn@latest init';
+      baseSetupCommand += '; npx shadcn@latest init';
     }
 
-    const setupCommand = makeNonInteractive(makeCommandWithDirectoryPrefix(baseSetupCommand, packageDirectory));
+    const setupCommand = makeCommandWithDirectoryPrefix(baseSetupCommand, packageDirectory);
 
     if (availableCommand) {
       const startCommand = makeCommandWithDirectoryPrefix(
