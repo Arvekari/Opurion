@@ -11,6 +11,8 @@ const stopMock = vi.fn();
 const removeCookieMock = vi.fn();
 const abortAllActionsMock = vi.fn();
 const setChatStoreKeyMock = vi.fn();
+const toastErrorMock = vi.fn();
+let chatStatusMock: 'ready' | 'streaming' | 'submitted' = 'ready';
 
 const selectedProvider = { name: 'OpenAI' };
 
@@ -35,7 +37,7 @@ vi.mock('@nanostores/react', () => ({
 vi.mock('@ai-sdk/react', () => ({
   useChat: () => ({
     messages: [],
-    status: 'ready',
+    status: chatStatusMock,
     stop: stopMock,
     sendMessage: sendMessageMock,
     setMessages: vi.fn(),
@@ -57,6 +59,24 @@ vi.mock('../../../app/components/chat/BaseChat', () => ({
   BaseChat: (props: any) => (
     <div>
       <div data-testid="draft-input">{props.input}</div>
+      <div data-testid="message-list">
+        {(props.messages || []).map((message: any) => (
+          <div key={message.id || message.content}>
+            <span>{message.content}</span>
+            {message.annotations?.includes('queued') && (
+              <>
+                <span>Queued</span>
+                <button onClick={() => props.onEditQueuedMessage?.(message.id)} type="button">
+                  edit-queued
+                </button>
+                <button onClick={() => props.onRemoveQueuedMessage?.(message.id)} type="button">
+                  remove-queued
+                </button>
+              </>
+            )}
+          </div>
+        ))}
+      </div>
       <button onClick={(event) => props.sendMessage(event, 'hello world')} type="button">
         send
       </button>
@@ -163,6 +183,7 @@ vi.mock('../../../app/lib/stores/logs', () => ({
     logProvider: vi.fn(),
     logError: vi.fn(),
     logUserAction: vi.fn(),
+    logSystem: vi.fn(),
   },
 }));
 
@@ -172,7 +193,7 @@ vi.mock('../../../app/lib/stores/streaming', () => ({
 
 vi.mock('react-toastify', () => ({
   toast: {
-    error: vi.fn(),
+    error: (...args: any[]) => toastErrorMock(...args),
     warning: vi.fn(),
   },
 }));
@@ -185,6 +206,8 @@ describe('app/components/chat/Chat.client.tsx', () => {
     removeCookieMock.mockReset();
     abortAllActionsMock.mockReset();
     setChatStoreKeyMock.mockReset();
+    toastErrorMock.mockReset();
+    chatStatusMock = 'ready';
   });
 
   it('first send appends user message and clears draft input immediately', async () => {
@@ -291,5 +314,128 @@ describe('app/components/chat/Chat.client.tsx', () => {
     expect(text).toContain('Always reuse checkout flow components');
     expect(text).toContain('pricing-rules.md');
     expect(text).toContain('Discussion 1: Discovery');
+  });
+
+  it('queues a message while streaming and dispatches it when streaming completes', async () => {
+    chatStatusMock = 'streaming';
+
+    const view = render(
+      <ChatImpl
+        description="test"
+        initialMessages={[] as any}
+        storeMessageHistory={vi.fn(async () => {})}
+        importChat={vi.fn(async () => {})}
+        exportChat={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('send'));
+
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledTimes(0);
+    });
+
+    expect(screen.getByText('Queued')).toBeTruthy();
+    expect(screen.getByText(/hello world/)).toBeTruthy();
+
+    chatStatusMock = 'ready';
+    view.rerender(
+      <ChatImpl
+        description="test"
+        initialMessages={[] as any}
+        storeMessageHistory={vi.fn(async () => {})}
+        importChat={vi.fn(async () => {})}
+        exportChat={vi.fn()}
+      />,
+    );
+
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    expect(sendMessageMock.mock.calls[0][0].text).toContain('hello world');
+
+    await waitFor(() => {
+      expect(screen.queryByText('Queued')).toBeNull();
+    });
+  });
+
+  it('allows editing a queued message back into the composer', async () => {
+    chatStatusMock = 'streaming';
+
+    render(
+      <ChatImpl
+        description="test"
+        initialMessages={[] as any}
+        storeMessageHistory={vi.fn(async () => {})}
+        importChat={vi.fn(async () => {})}
+        exportChat={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('send'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Queued')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('edit-queued'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Queued')).toBeNull();
+    });
+
+    expect(screen.getByTestId('draft-input').textContent).toContain('hello world');
+  });
+
+  it('allows removing a queued message before dispatch', async () => {
+    chatStatusMock = 'streaming';
+
+    render(
+      <ChatImpl
+        description="test"
+        initialMessages={[] as any}
+        storeMessageHistory={vi.fn(async () => {})}
+        importChat={vi.fn(async () => {})}
+        exportChat={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('send'));
+
+    await waitFor(() => {
+      expect(screen.getByText('Queued')).toBeTruthy();
+    });
+
+    fireEvent.click(screen.getByText('remove-queued'));
+
+    await waitFor(() => {
+      expect(screen.queryByText('Queued')).toBeNull();
+    });
+
+    expect(sendMessageMock).toHaveBeenCalledTimes(0);
+  });
+
+  it('does not auto-timeout before the first response chunk arrives', async () => {
+    vi.useFakeTimers();
+    chatStatusMock = 'submitted';
+
+    render(
+      <ChatImpl
+        description="test"
+        initialMessages={[] as any}
+        storeMessageHistory={vi.fn(async () => {})}
+        importChat={vi.fn(async () => {})}
+        exportChat={vi.fn()}
+      />,
+    );
+
+    await vi.advanceTimersByTimeAsync(46_000);
+
+    expect(stopMock).toHaveBeenCalledTimes(0);
+    expect(setChatStoreKeyMock).not.toHaveBeenCalledWith('aborted', true);
+    expect(toastErrorMock).toHaveBeenCalledTimes(0);
+
+    vi.useRealTimers();
   });
 });

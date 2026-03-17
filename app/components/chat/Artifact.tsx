@@ -268,13 +268,16 @@ const ActionList = memo(({ actions }: ActionListProps) => {
                 </div>
                 {type === 'file' ? (
                   <div>
-                    Create{' '}
+                    {status === 'complete' ? 'Created ' : status === 'running' ? 'Writing ' : 'Create '}
                     <code
                       className="bg-bolt-elements-artifacts-inlineCode-background text-bolt-elements-artifacts-inlineCode-text px-1.5 py-1 rounded-md text-bolt-elements-item-contentAccent hover:underline cursor-pointer"
                       onClick={() => openArtifactInWorkbench(action.filePath)}
                     >
                       {action.filePath}
                     </code>
+                    {status === 'running' && (
+                      <span className="ml-2 text-xs text-bolt-elements-textSecondary">streaming...</span>
+                    )}
                   </div>
                 ) : type === 'shell' ? (
                   <div className="flex items-center w-full min-h-[28px]">

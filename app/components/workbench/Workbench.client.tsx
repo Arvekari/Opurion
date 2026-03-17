@@ -30,8 +30,9 @@ import { useChatHistory } from '~/lib/persistence';
 import { streamingState } from '~/lib/stores/streaming';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { uiButtonClassTokens } from '~/components/ui/tokens';
-import { detectProjectCommands } from '~/utils/projectCommands';
+import { detectProjectCommands, extractWorkingDirectoryFromCommand, validateProjectPreflight } from '~/utils/projectCommands';
 import { generateId } from '~/utils/fileUtils';
+import { webcontainer } from '~/lib/webcontainer';
 
 interface WorkspaceProps {
   chatStarted?: boolean;
@@ -76,6 +77,249 @@ const workbenchVariants = {
     },
   },
 } satisfies Variants;
+
+const COMMAND_RETRY_ATTEMPTS = 5;
+const COMMAND_RETRY_DELAY_MS = 1200;
+
+async function directoryExists(container: Awaited<typeof webcontainer>, targetPath: string): Promise<boolean> {
+  try {
+    await container.fs.readdir(targetPath, { withFileTypes: true });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function fileExists(container: Awaited<typeof webcontainer>, targetPath: string): Promise<boolean> {
+  try {
+    await container.fs.readFile(targetPath, 'utf-8');
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function toContainerProjectPath(workspaceRelativeDirectory: string): string {
+  const normalized = workspaceRelativeDirectory.replace(/^\/+|\/+$/g, '');
+  return normalized ? `/home/project/${normalized}` : '/home/project';
+}
+
+interface PackageJsonForSetupCheck {
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+  optionalDependencies?: Record<string, string>;
+}
+
+async function readPackageJson(
+  container: Awaited<typeof webcontainer>,
+  packageJsonPath: string,
+): Promise<PackageJsonForSetupCheck | undefined> {
+  try {
+    const content = await container.fs.readFile(packageJsonPath, 'utf-8');
+
+    if (typeof content !== 'string') {
+      return undefined;
+    }
+
+    return JSON.parse(content) as PackageJsonForSetupCheck;
+  } catch {
+    return undefined;
+  }
+}
+
+function getDeclaredPackageNames(packageJson: PackageJsonForSetupCheck): string[] {
+  const keys = [
+    ...Object.keys(packageJson.dependencies ?? {}),
+    ...Object.keys(packageJson.devDependencies ?? {}),
+    ...Object.keys(packageJson.optionalDependencies ?? {}),
+  ];
+
+  return Array.from(new Set(keys));
+}
+
+async function isPackageInstalled(
+  container: Awaited<typeof webcontainer>,
+  nodeModulesPath: string,
+  packageName: string,
+): Promise<boolean> {
+  const packagePath = packageName.replace(/\//g, '/');
+  const packageJsonPath = `${nodeModulesPath}/${packagePath}/package.json`;
+  return fileExists(container, packageJsonPath);
+}
+
+function formatActionFailureContent(error: unknown): string {
+  if (!error) {
+    return 'Unknown command failure.';
+  }
+
+  if (error instanceof Error) {
+    return error.message || 'Unknown command failure.';
+  }
+
+  return String(error);
+}
+
+function hasUnavailableCommandError(errorMessage: string): boolean {
+  const normalized = errorMessage.toLowerCase();
+  return normalized.includes('command not found') || normalized.includes('is not available in webcontainer');
+}
+
+function replaceFirstCommandToken(command: string, token: string, replacement: string): string | undefined {
+  const matcher = new RegExp(`(^|&&\\s*|;\\s*)${token}(?=\\s)`, 'i');
+
+  if (!matcher.test(command)) {
+    return undefined;
+  }
+
+  return command.replace(matcher, `$1${replacement}`);
+}
+
+function buildCommandFallbackCandidates(command: string, error: unknown): string[] {
+  const errorMessage = formatActionFailureContent(error);
+  const normalizedError = errorMessage.toLowerCase();
+  const hasMissingScriptError = /missing script/i.test(errorMessage);
+  const missingScriptMatch = errorMessage.match(/missing script:?\s*['\"]?([\w:-]+)['\"]?/i);
+  const missingScriptName = missingScriptMatch?.[1]?.toLowerCase();
+
+  if (!hasUnavailableCommandError(errorMessage) && !hasMissingScriptError) {
+    return [];
+  }
+
+  const candidates: string[] = [];
+  const pushCandidate = (value: string | undefined) => {
+    if (!value) {
+      return;
+    }
+
+    const trimmed = value.trim();
+
+    if (!trimmed || trimmed === command.trim()) {
+      return;
+    }
+
+    if (!candidates.includes(trimmed)) {
+      candidates.push(trimmed);
+    }
+  };
+
+  if (/\bnpm\b/i.test(normalizedError)) {
+    pushCandidate(replaceFirstCommandToken(command, 'npm', 'pnpm'));
+    pushCandidate(replaceFirstCommandToken(command, 'npm', 'yarn'));
+  }
+
+  if (/\bpnpm\b/i.test(normalizedError)) {
+    pushCandidate(replaceFirstCommandToken(command, 'pnpm', 'npm'));
+    pushCandidate(replaceFirstCommandToken(command, 'pnpm', 'yarn'));
+  }
+
+  if (/\byarn\b/i.test(normalizedError)) {
+    pushCandidate(replaceFirstCommandToken(command, 'yarn', 'pnpm'));
+    pushCandidate(replaceFirstCommandToken(command, 'yarn', 'npm'));
+  }
+
+  if (/\bnpx\b/i.test(normalizedError)) {
+    pushCandidate(command.replace(/(^|&&\s*|;\s*)npx(?:\s+--yes)?(?=\s)/i, '$1pnpm dlx'));
+    pushCandidate(command.replace(/(^|&&\s*|;\s*)npx(?:\s+--yes)?(?=\s)/i, '$1npm exec --yes'));
+  }
+
+  if (hasMissingScriptError) {
+    const scriptFallbackOrder = ['dev', 'start', 'preview'];
+    const remainingScripts = scriptFallbackOrder.filter((candidate) => candidate !== missingScriptName);
+
+    const npmRunMatch = command.match(/(^|&&\s*|;\s*)(npm|pnpm)\s+run\s+[\w:-]+/i);
+
+    if (npmRunMatch) {
+      const commandPrefix = npmRunMatch[1] ?? '';
+      const packageManager = (npmRunMatch[2] || 'npm').toLowerCase();
+
+      for (const fallbackScript of remainingScripts) {
+        pushCandidate(command.replace(/(^|&&\s*|;\s*)(npm|pnpm)\s+run\s+[\w:-]+/i, `${commandPrefix}${packageManager} run ${fallbackScript}`));
+      }
+    }
+
+    const yarnMatch = command.match(/(^|&&\s*|;\s*)yarn\s+[\w:-]+/i);
+
+    if (yarnMatch) {
+      const commandPrefix = yarnMatch[1] ?? '';
+
+      for (const fallbackScript of remainingScripts) {
+        pushCandidate(command.replace(/(^|&&\s*|;\s*)yarn\s+[\w:-]+/i, `${commandPrefix}yarn ${fallbackScript}`));
+      }
+    }
+  }
+
+  if (/\buvicorn\b/i.test(normalizedError)) {
+    const uvicornFallback = command.replace(/(^|&&\s*|;\s*)uvicorn(?=\s)/i, '$1python -m uvicorn');
+    pushCandidate(uvicornFallback);
+    pushCandidate(uvicornFallback.replace(/(^|&&\s*|;\s*)python\b/i, '$1python3'));
+  }
+
+  if (/\bpython\b/i.test(normalizedError)) {
+    pushCandidate(replaceFirstCommandToken(command, 'python', 'python3'));
+  }
+
+  if (/\bpython3\b/i.test(normalizedError)) {
+    pushCandidate(replaceFirstCommandToken(command, 'python3', 'python'));
+  }
+
+  return candidates;
+}
+
+async function delay(ms: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+interface DependencySetupCheckResult {
+  shouldRunSetup: boolean;
+  missingPackages: string[];
+}
+
+async function shouldRunDependencySetup(
+  commands: Awaited<ReturnType<typeof detectProjectCommands>>,
+): Promise<DependencySetupCheckResult> {
+  if (commands.type !== 'Node.js' || !commands.setupCommand) {
+    return { shouldRunSetup: false, missingPackages: [] };
+  }
+
+  const container = await webcontainer;
+  const commandWorkingDirectory = extractWorkingDirectoryFromCommand(commands.setupCommand || commands.startCommand);
+  const projectPath = toContainerProjectPath(commandWorkingDirectory);
+  const packageJsonPath = `${projectPath}/package.json`;
+  const nodeModulesPath = `${projectPath}/node_modules`;
+  const hasPackageJson = await fileExists(container, packageJsonPath);
+
+  if (!hasPackageJson) {
+    return { shouldRunSetup: false, missingPackages: [] };
+  }
+
+  const hasNodeModules = await directoryExists(container, nodeModulesPath);
+
+  if (!hasNodeModules) {
+    return { shouldRunSetup: true, missingPackages: [] };
+  }
+
+  const packageJson = await readPackageJson(container, packageJsonPath);
+
+  if (!packageJson) {
+    return { shouldRunSetup: true, missingPackages: [] };
+  }
+
+  const declaredPackages = getDeclaredPackageNames(packageJson);
+  const missingPackages: string[] = [];
+
+  for (const packageName of declaredPackages) {
+    const installed = await isPackageInstalled(container, nodeModulesPath, packageName);
+
+    if (!installed) {
+      missingPackages.push(packageName);
+    }
+  }
+
+  return {
+    shouldRunSetup: missingPackages.length > 0,
+    missingPackages,
+  };
+}
 
 const FileModifiedDropdown = memo(
   ({
@@ -316,10 +560,12 @@ export const Workbench = memo(
       lastAttemptAt: number;
       lastSignature?: string;
       setupAttemptedSignatures: Set<string>;
+      failedSignatures: Set<string>;
     }>({
       inFlight: false,
       lastAttemptAt: 0,
       setupAttemptedSignatures: new Set<string>(),
+      failedSignatures: new Set<string>(),
     });
 
     const setSelectedView = (view: WorkbenchViewType) => {
@@ -338,7 +584,7 @@ export const Workbench = memo(
         return;
       }
 
-      if (!showWorkbench || selectedView !== 'preview') {
+      if (!showWorkbench) {
         return;
       }
 
@@ -373,9 +619,16 @@ export const Workbench = memo(
           return;
         }
 
-        const signature = `${commands.setupCommand ?? ''}::${commands.startCommand}`;
+        const fileSignature = JSON.stringify(
+          candidateFiles.map((file) => [file.path, file.content.length, file.content.slice(0, 120)]),
+        );
+        const signature = `${commands.setupCommand ?? ''}::${commands.startCommand}::${fileSignature}`;
 
         if (state.lastSignature === signature && now - state.lastAttemptAt < 30000) {
+          return;
+        }
+
+        if (state.failedSignatures.has(signature)) {
           return;
         }
 
@@ -390,38 +643,179 @@ export const Workbench = memo(
         state.lastSignature = signature;
 
         const setupCommand = commands.setupCommand;
-        const shouldRunSetup = setupCommand && !state.setupAttemptedSignatures.has(signature);
+        const preflight = await validateProjectPreflight(candidateFiles, commands);
+
+        if (!preflight.ok) {
+          const failureContent = preflight.issues.map((issue, index) => `${index + 1}. ${issue}`).join('\n');
+          workbenchStore.actionAlert.set({
+            type: 'preview',
+            title: 'Project preflight failed',
+            description: 'Required package.json/dependency/entry checks failed before preview start.',
+            content: failureContent,
+            source: 'preview',
+          });
+          toast.warn('Project preflight failed before preview start; triggering automatic repair...');
+          state.failedSignatures.add(signature);
+          state.inFlight = false;
+          return;
+        }
+
+        const dependencyCheck = await shouldRunDependencySetup(commands);
+        const dependenciesNeedSetup = dependencyCheck.shouldRunSetup;
+        const shouldRunSetup =
+          setupCommand && (dependenciesNeedSetup || !state.setupAttemptedSignatures.has(signature));
+
+        if (dependenciesNeedSetup && dependencyCheck.missingPackages.length > 0) {
+          const packagePreview = dependencyCheck.missingPackages.slice(0, 8).join(', ');
+          const suffix = dependencyCheck.missingPackages.length > 8 ? ` +${dependencyCheck.missingPackages.length - 8} more` : '';
+          toast.info(`Installing missing dependencies before preview: ${packagePreview}${suffix}`);
+        }
 
         if (shouldRunSetup) {
-          const setupActionData = {
+          let setupCommandToRun = setupCommand;
+          const setupAttemptedCommands = new Set<string>([setupCommandToRun]);
+          let setupError: unknown;
+
+          for (let attempt = 1; attempt <= COMMAND_RETRY_ATTEMPTS; attempt++) {
+            const setupActionData = {
+              artifactId: artifact.id,
+              messageId: 'auto-preview-launch',
+              actionId: `auto-preview-setup-${generateId()}`,
+              action: {
+                type: 'shell' as const,
+                content: setupCommandToRun,
+              },
+            };
+
+            workbenchStore.addAction(setupActionData);
+
+            try {
+              await workbenchStore.runAction(setupActionData);
+              setupError = undefined;
+              break;
+            } catch (error) {
+              setupError = error;
+
+              const fallbackCommands = buildCommandFallbackCandidates(setupCommandToRun, error).filter(
+                (candidate) => !setupAttemptedCommands.has(candidate),
+              );
+
+              if (fallbackCommands.length > 0) {
+                setupCommandToRun = fallbackCommands[0];
+                setupAttemptedCommands.add(setupCommandToRun);
+                toast.info(`Retrying dependency setup with fallback command: ${setupCommandToRun}`);
+                continue;
+              }
+
+              if (attempt < COMMAND_RETRY_ATTEMPTS) {
+                toast.warn(`Dependency setup failed (attempt ${attempt}/${COMMAND_RETRY_ATTEMPTS}); retrying...`);
+                await delay(COMMAND_RETRY_DELAY_MS);
+              }
+            }
+          }
+
+          if (setupError) {
+            workbenchStore.actionAlert.set({
+              type: 'preview',
+              title: 'Dependency setup command failed',
+              description: 'The install command failed before preview start; triggering automatic repair.',
+              content: formatActionFailureContent(setupError),
+              source: 'preview',
+            });
+            toast.warn('Dependency setup failed; triggering automatic repair...');
+            state.failedSignatures.add(signature);
+            state.inFlight = false;
+            return;
+          }
+
+          state.setupAttemptedSignatures.add(signature);
+
+          if (dependenciesNeedSetup && dependencyCheck.missingPackages.length === 0) {
+            toast.info(`Validated dependencies before starting preview: ${setupCommandToRun}`);
+          }
+        }
+
+        const postSetupDependencyCheck = await shouldRunDependencySetup(commands);
+
+        if (postSetupDependencyCheck.shouldRunSetup) {
+          const unresolved = postSetupDependencyCheck.missingPackages;
+          const failureContent = unresolved.length
+            ? unresolved.slice(0, 20).map((name, index) => `${index + 1}. Missing installed package: ${name}`).join('\n')
+            : 'Dependency installation did not complete successfully. node_modules is still missing or unreadable.';
+
+          workbenchStore.actionAlert.set({
+            type: 'preview',
+            title: 'Dependency installation required',
+            description: 'Required packages from package.json are still not installed; retrying automatic repair.',
+            content: failureContent,
+            source: 'preview',
+          });
+
+          toast.warn('Dependencies are still missing after setup; triggering automatic repair...');
+          state.failedSignatures.add(signature);
+          state.inFlight = false;
+          return;
+        }
+
+        let startError: unknown;
+        let startCommandToRun = commands.startCommand;
+        const startAttemptedCommands = new Set<string>([startCommandToRun]);
+
+        for (let attempt = 1; attempt <= COMMAND_RETRY_ATTEMPTS; attempt++) {
+          const startActionData = {
             artifactId: artifact.id,
             messageId: 'auto-preview-launch',
-            actionId: `auto-preview-setup-${generateId()}`,
+            actionId: `auto-preview-start-${generateId()}`,
             action: {
-              type: 'shell' as const,
-              content: setupCommand,
+              type: 'start' as const,
+              content: startCommandToRun,
             },
           };
 
-          workbenchStore.addAction(setupActionData);
-          workbenchStore.runAction(setupActionData);
-          state.setupAttemptedSignatures.add(signature);
+          workbenchStore.addAction(startActionData);
+
+          try {
+            await workbenchStore.runAction(startActionData);
+            startError = undefined;
+            break;
+          } catch (error) {
+            startError = error;
+
+            const fallbackCommands = buildCommandFallbackCandidates(startCommandToRun, error).filter(
+              (candidate) => !startAttemptedCommands.has(candidate),
+            );
+
+            if (fallbackCommands.length > 0) {
+              startCommandToRun = fallbackCommands[0];
+              startAttemptedCommands.add(startCommandToRun);
+              toast.info(`Retrying start command with fallback command: ${startCommandToRun}`);
+              continue;
+            }
+
+            if (attempt < COMMAND_RETRY_ATTEMPTS) {
+              toast.warn(`Start command failed (attempt ${attempt}/${COMMAND_RETRY_ATTEMPTS}); retrying...`);
+              await delay(COMMAND_RETRY_DELAY_MS);
+            }
+          }
         }
 
-        const startActionData = {
-          artifactId: artifact.id,
-          messageId: 'auto-preview-launch',
-          actionId: `auto-preview-start-${generateId()}`,
-          action: {
-            type: 'start' as const,
-            content: commands.startCommand,
-          },
-        };
+        if (startError) {
+          workbenchStore.actionAlert.set({
+            type: 'preview',
+            title: 'Start command failed',
+            description: 'The preview start command failed; triggering automatic repair.',
+            content: formatActionFailureContent(startError),
+            source: 'preview',
+          });
+          toast.warn('Start command failed; triggering automatic repair...');
+          state.failedSignatures.add(signature);
+          state.inFlight = false;
+          return;
+        }
 
-        workbenchStore.addAction(startActionData);
-        workbenchStore.runAction(startActionData);
+        state.failedSignatures.delete(signature);
 
-        toast.info(`Auto-starting preview: ${commands.startCommand}`);
+        toast.info(`Auto-starting preview: ${startCommandToRun}`);
 
         setTimeout(() => {
           autoPreviewLaunchStateRef.current.inFlight = false;

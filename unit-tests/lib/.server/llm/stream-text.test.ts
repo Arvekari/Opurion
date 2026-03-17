@@ -64,4 +64,19 @@ describe('lib/.server/llm/stream-text baseline', () => {
     expect(bridged[0].content).toContain('Read every directive_part above as one instruction set.');
     expect(bridged[0].content).toContain('Create the landing page');
   });
+
+  it('caps bridged directive parts to provider-safe maximum', () => {
+    const longPrompt = Array.from({ length: 18 }, (_, index) => `section ${index + 1}\n${'x'.repeat(180)}`).join('\n\n');
+
+    const bridged = bridgeSystemPromptIntoMessages(
+      [{ role: 'user', content: 'Implement the requested changes' }],
+      longPrompt,
+      { splitIntoParts: true, maxPartChars: 120 },
+    );
+
+    const directivePartCount = (bridged[0].content.match(/<directive_part /g) || []).length;
+
+    expect(directivePartCount).toBeLessThanOrEqual(5);
+    expect(bridged[0].content).not.toContain('index="6"');
+  });
 });

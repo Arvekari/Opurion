@@ -454,6 +454,16 @@ This changelog is specific to Opurion and does not attempt to mirror upstream bo
 
 ---
 
+## Development Practises
+
+Development practises and linked engineering guidelines are documented in:
+
+`docs/development-practises.md`
+
+These practises should be followed for all new changes.
+
+---
+
 ## Credits
 
 - original foundation: [bolt.diy](https://github.com/stackblitz-labs/bolt.diy)

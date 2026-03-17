@@ -1141,7 +1141,7 @@ export async function downloadDebugLog(filename?: string): Promise<void> {
 
     const link = document.createElement('a');
     link.href = url;
-    link.download = filename || `bolt-debug-${new Date().toISOString().split('T')[0]}.txt`;
+    link.download = filename || `opurion-debug-${new Date().toISOString().split('T')[0]}.txt`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -1157,7 +1157,7 @@ export async function downloadDebugLog(filename?: string): Promise<void> {
 // Create a human-readable summary of the debug data
 function createDebugSummary(data: DebugLogData): string {
   const summary = [
-    '=== BOLT DIY DEBUG LOG SUMMARY ===',
+    '=== OPURION DEBUG LOG SUMMARY ===',
     `Generated: ${new Date(data.timestamp).toLocaleString()}`,
     `Session ID: ${data.sessionId}`,
     '',
@@ -1254,6 +1254,25 @@ export function captureUserAction(action: string, target?: string, data?: any): 
 export function getDebugLogger(): DebugLogger {
   return debugLogger;
 }
+
+declare module './debugLogger' {
+  interface DebugLogger {
+    getTerminalLogs(): TerminalEntry[];
+  }
+}
+
+DebugLogger.prototype.getTerminalLogs = function getTerminalLogs(): TerminalEntry[] {
+  try {
+    if (this._terminalLogTimer) {
+      clearTimeout(this._terminalLogTimer);
+      this._flushTerminalLogs();
+    }
+  } catch {
+    // Best-effort flush only.
+  }
+
+  return this._terminalLogs.toArray();
+};
 
 // Utility function to enable debug mode on demand
 export function enableDebugMode(): void {

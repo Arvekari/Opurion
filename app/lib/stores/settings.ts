@@ -64,6 +64,24 @@ const AUTO_ENABLED_KEY = 'auto_enabled_providers';
 // Add this helper function at the top of the file
 const isBrowser = typeof window !== 'undefined';
 
+function getCookieValue(name: string): string | null {
+  if (!isBrowser) {
+    return null;
+  }
+
+  const cookiePrefix = `${encodeURIComponent(name)}=`;
+
+  for (const cookiePart of document.cookie.split(';')) {
+    const trimmedPart = cookiePart.trim();
+
+    if (trimmedPart.startsWith(cookiePrefix)) {
+      return decodeURIComponent(trimmedPart.slice(cookiePrefix.length));
+    }
+  }
+
+  return null;
+}
+
 // Interface for configured provider info from server
 interface ConfiguredProvider {
   name: string;
@@ -281,7 +299,7 @@ const getInitialSettings = () => {
       return defaultValue;
     }
 
-    const stored = localStorage.getItem(key);
+    const stored = localStorage.getItem(key) ?? getCookieValue(key);
 
     if (stored === null) {
       return defaultValue;

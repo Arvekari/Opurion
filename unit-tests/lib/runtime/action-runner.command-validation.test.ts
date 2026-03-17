@@ -39,7 +39,7 @@ describe('ActionRunner start command validation', () => {
     };
 
     runner.addAction(actionData);
-    await runner.runAction(actionData);
+    await expect(runner.runAction(actionData)).rejects.toThrow('Missing package.json');
 
     expect(shellExecute).not.toHaveBeenCalled();
     expect(onAlert).toHaveBeenCalledWith(
@@ -107,6 +107,137 @@ describe('ActionRunner start command validation', () => {
     expect(detachedShellInit).toHaveBeenCalledWith(webcontainer, expect.any(Object));
     expect(detachedShellExecute).toHaveBeenCalledWith(expect.stringContaining('start'), 'pnpm dev', expect.any(Function));
     expect(detachedShellKill).toHaveBeenCalled();
+
+    vi.useRealTimers();
+  });
+
+  it('rewrites npx start commands to include --yes for non-interactive execution', async () => {
+    vi.useFakeTimers();
+
+    const sharedShellExecute = vi.fn();
+    const sharedShell = {
+      ready: vi.fn(async () => undefined),
+      terminal: {
+        cols: 80,
+        rows: 24,
+        write: vi.fn(),
+        reset: vi.fn(),
+        onData: vi.fn(),
+        input: vi.fn(),
+      },
+      process: {},
+      executeCommand: sharedShellExecute,
+    } as any;
+
+    const detachedShellExecute = vi.fn(async () => ({ exitCode: 0, output: 'ready' }));
+
+    vi.spyOn(shellModule, 'newBoltShellProcess').mockReturnValue({
+      ready: vi.fn(async () => undefined),
+      init: vi.fn(async () => undefined),
+      terminal: { input: vi.fn() },
+      process: { kill: vi.fn() },
+      executeCommand: detachedShellExecute,
+    } as any);
+
+    const webcontainer = {
+      workdir: '/workspace',
+      fs: {
+        readFile: vi.fn(async (path: string) => {
+          if (path === 'package.json') {
+            return '{"name":"demo"}';
+          }
+
+          return '';
+        }),
+      },
+    } as any;
+
+    const runner = new ActionRunner(Promise.resolve(webcontainer), () => sharedShell);
+    const actionData: ActionCallbackData = {
+      artifactId: 'artifact-1',
+      messageId: 'message-1',
+      actionId: 'action-1',
+      action: {
+        type: 'start',
+        content: 'npx vite --host 0.0.0.0 --port 4173',
+      },
+    };
+
+    runner.addAction(actionData);
+    const runPromise = runner.runAction(actionData);
+    await vi.advanceTimersByTimeAsync(2000);
+    await runPromise;
+
+    expect(detachedShellExecute).toHaveBeenCalledWith(
+      expect.stringContaining('start'),
+      'npx --yes vite --host 0.0.0.0 --port 4173',
+      expect.any(Function),
+    );
+
+    vi.useRealTimers();
+  });
+
+  it('rewrites npm start commands to pnpm for WebContainer compatibility', async () => {
+    vi.useFakeTimers();
+
+    const sharedShell = {
+      ready: vi.fn(async () => undefined),
+      terminal: {
+        cols: 80,
+        rows: 24,
+        write: vi.fn(),
+        reset: vi.fn(),
+        onData: vi.fn(),
+        input: vi.fn(),
+      },
+      process: {},
+      executeCommand: vi.fn(),
+    } as any;
+
+    const detachedShellExecute = vi.fn(async () => ({ exitCode: 0, output: 'ready' }));
+
+    vi.spyOn(shellModule, 'newBoltShellProcess').mockReturnValue({
+      ready: vi.fn(async () => undefined),
+      init: vi.fn(async () => undefined),
+      terminal: { input: vi.fn() },
+      process: { kill: vi.fn() },
+      executeCommand: detachedShellExecute,
+    } as any);
+
+    const webcontainer = {
+      workdir: '/workspace',
+      fs: {
+        readFile: vi.fn(async (path: string) => {
+          if (path === 'package.json') {
+            return '{"name":"demo"}';
+          }
+
+          throw new Error(`missing ${path}`);
+        }),
+      },
+    } as any;
+
+    const runner = new ActionRunner(Promise.resolve(webcontainer), () => sharedShell);
+    const actionData: ActionCallbackData = {
+      artifactId: 'artifact-1',
+      messageId: 'message-1',
+      actionId: 'action-1',
+      action: {
+        type: 'start',
+        content: 'npm run dev',
+      },
+    };
+
+    runner.addAction(actionData);
+    const runPromise = runner.runAction(actionData);
+    await vi.advanceTimersByTimeAsync(2000);
+    await runPromise;
+
+    expect(detachedShellExecute).toHaveBeenCalledWith(
+      expect.stringContaining('start'),
+      'pnpm run dev',
+      expect.any(Function),
+    );
 
     vi.useRealTimers();
   });

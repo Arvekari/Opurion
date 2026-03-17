@@ -10,6 +10,7 @@ import { newBoltShellProcess, type BoltShell } from '~/utils/shell';
 import type { ITerminal } from '~/types/terminal';
 
 const logger = createScopedLogger('ActionRunner');
+const START_ACTION_SETTLE_WINDOW_MS = 2000;
 
 export type ActionStatus = 'pending' | 'running' | 'complete' | 'aborted' | 'failed';
 
@@ -84,7 +85,7 @@ export function commandRequiresNodePackageManifest(command: string): boolean {
 
 export function getShellCommandExecutionContexts(command: string, baseDir: string): ShellCommandExecutionContext[] {
   const segments = command
-    .split(/&&|;/g)
+    .split(/&&|;|\r?\n/g)
     .map((segment) => segment.trim())
     .filter(Boolean);
   const contexts: ShellCommandExecutionContext[] = [];
@@ -103,6 +104,22 @@ export function getShellCommandExecutionContexts(command: string, baseDir: strin
   }
 
   return contexts;
+}
+
+function rewriteLegacyWorkspaceCd(command: string): string {
+  return command.replace(/(^|[\n;&]\s*)cd\s+(["']?)\/workspace(?:\2|(?=[\s;&\n]|$))/gi, '$1cd $2/home/project$2');
+}
+
+function ensureNpxNonInteractive(command: string): string {
+  return command.replace(/(^|[\n;&]\s*)npx(?!\s+--yes\b)/g, '$1npx --yes');
+}
+
+function rewriteNpmToPnpmForWebContainer(command: string): string {
+  return command
+    .replace(/(^|[\n;&]\s*)npm\s+(?:install|i)\b[^\n;&]*/gi, '$1pnpm install --frozen-lockfile=false')
+    .replace(/(^|[\n;&]\s*)npm\s+run\s+/gi, '$1pnpm run ')
+    .replace(/(^|[\n;&]\s*)npm\s+exec\s+/gi, '$1pnpm exec ')
+    .replace(/(^|[\n;&]\s*)npm\s+(start|dev|build|test|preview)\b/gi, '$1pnpm $2');
 }
 
 export class ActionRunner {
@@ -191,6 +208,7 @@ export class ActionRunner {
       })
       .catch((error) => {
         logger.error('Action execution promise failed:', error);
+        throw error;
       });
 
     await this.#currentExecutionPromise;
@@ -247,35 +265,34 @@ export class ActionRunner {
           break;
         }
         case 'start': {
-          // making the start app non blocking
+          const monitoredStart = this.#runStartAction(action)
+            .then(() => ({ ok: true as const }))
+            .catch((error) => ({ ok: false as const, error }));
 
-          this.#runStartAction(action)
-            .then(() => this.#updateAction(actionId, { status: 'complete' }))
-            .catch((err: Error) => {
-              if (action.abortSignal.aborted) {
-                return;
-              }
+          const settleOutcome = await Promise.race([
+            monitoredStart,
+            new Promise<{ ok: 'pending' }>((resolve) =>
+              setTimeout(() => resolve({ ok: 'pending' }), START_ACTION_SETTLE_WINDOW_MS),
+            ),
+          ]);
 
-              this.#updateAction(actionId, { status: 'failed', error: 'Action failed' });
-              logger.error(`[${action.type}]:Action failed\n\n`, err);
+          if (settleOutcome.ok === true) {
+            this.#updateAction(actionId, { status: 'complete' });
+            return;
+          }
 
-              if (!(err instanceof ActionCommandError)) {
-                return;
-              }
+          if (settleOutcome.ok === false) {
+            throw settleOutcome.error;
+          }
 
-              this.onAlert?.({
-                type: 'error',
-                title: 'Dev Server Failed',
-                description: err.header,
-                content: err.output,
-              });
-            });
+          monitoredStart.then((outcome) => {
+            if (outcome.ok) {
+              this.#updateAction(actionId, { status: 'complete' });
+              return;
+            }
 
-          /*
-           * adding a delay to avoid any race condition between 2 start actions
-           * i am up for a better approach
-           */
-          await new Promise((resolve) => setTimeout(resolve, 2000));
+            this.#handleStartActionFailure(actionId, action, outcome.error);
+          });
 
           return;
         }
@@ -327,6 +344,26 @@ export class ActionRunner {
       // re-throw the error to be caught in the promise chain
       throw error;
     }
+  }
+
+  #handleStartActionFailure(actionId: string, action: ActionState, error: unknown) {
+    if (action.abortSignal.aborted) {
+      return;
+    }
+
+    this.#updateAction(actionId, { status: 'failed', error: 'Action failed' });
+    logger.error(`[${action.type}]:Action failed\n\n`, error);
+
+    if (!(error instanceof ActionCommandError)) {
+      return;
+    }
+
+    this.onAlert?.({
+      type: 'error',
+      title: 'Dev Server Failed',
+      description: error.header,
+      content: error.output,
+    });
   }
 
   async #runShellAction(action: ActionState) {
@@ -527,9 +564,14 @@ export class ActionRunner {
     });
 
     const webcontainer = await this.#webcontainer;
+    const packageManager = await this.#resolveNodePackageManager();
+    const buildCommand =
+      packageManager === 'yarn'
+        ? { executable: 'yarn', args: ['build'] }
+        : { executable: packageManager, args: ['run', 'build'] };
 
     // Create a new terminal specifically for the build
-    const buildProcess = await webcontainer.spawn('npm', ['run', 'build']);
+    const buildProcess = await webcontainer.spawn(buildCommand.executable, buildCommand.args);
 
     let output = '';
     const outputPromise = buildProcess.output.pipeTo(
@@ -720,7 +762,24 @@ export class ActionRunner {
       details: string;
     };
   }> {
-    const trimmedCommand = command.trim();
+    const normalizedCommand = rewriteNpmToPnpmForWebContainer(ensureNpxNonInteractive(rewriteLegacyWorkspaceCd(command)));
+    const trimmedCommand = normalizedCommand.trim();
+
+    if (normalizedCommand !== command) {
+      const rewrittenWorkspace = rewriteLegacyWorkspaceCd(command);
+      const rewriteReason =
+        rewrittenWorkspace !== command
+          ? 'Replaced legacy /workspace path with /home/project'
+          : normalizedCommand !== ensureNpxNonInteractive(rewriteLegacyWorkspaceCd(command))
+            ? 'Rewrote npm command to pnpm for WebContainer compatibility'
+            : 'Added --yes to npx command to avoid interactive prompts';
+
+      return {
+        shouldModify: true,
+        modifiedCommand: normalizedCommand,
+        warning: rewriteReason,
+      };
+    }
 
     try {
       const webcontainer = await this.#webcontainer;
@@ -836,6 +895,22 @@ export class ActionRunner {
     }
 
     return { shouldModify: false };
+  }
+
+  async #resolveNodePackageManager(): Promise<'pnpm' | 'yarn' | 'npm'> {
+    const webcontainer = await this.#webcontainer;
+
+    try {
+      await webcontainer.fs.readFile('pnpm-lock.yaml', 'utf-8');
+      return 'pnpm';
+    } catch {}
+
+    try {
+      await webcontainer.fs.readFile('yarn.lock', 'utf-8');
+      return 'yarn';
+    } catch {}
+
+    return 'pnpm';
   }
 
   #createEnhancedShellError(

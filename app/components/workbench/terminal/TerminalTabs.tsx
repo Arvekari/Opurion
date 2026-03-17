@@ -9,6 +9,7 @@ import { classNames } from '~/utils/classNames';
 import { Terminal, type TerminalRef } from './Terminal';
 import { TerminalManager } from './TerminalManager';
 import { createScopedLogger } from '~/utils/logger';
+import { TerminalDiagnosticsPanel } from './TerminalDiagnosticsPanel';
 
 const logger = createScopedLogger('Terminal');
 
@@ -23,13 +24,15 @@ export const TerminalTabs = memo(() => {
   const terminalPanelRef = useRef<ImperativePanelHandle>(null);
   const terminalToggledByShortcut = useRef(false);
 
-  const [activeTerminal, setActiveTerminal] = useState(0);
+  const [activeTab, setActiveTab] = useState<string>('terminal-0');
   const [terminalCount, setTerminalCount] = useState(0);
+
+  const activeTerminal = activeTab.startsWith('terminal-') ? Number(activeTab.replace('terminal-', '')) || 0 : -1;
 
   const addTerminal = () => {
     if (terminalCount < MAX_TERMINALS) {
       setTerminalCount(terminalCount + 1);
-      setActiveTerminal(terminalCount);
+      setActiveTab(`terminal-${terminalCount}`);
     }
   };
 
@@ -56,9 +59,9 @@ export const TerminalTabs = memo(() => {
       setTerminalCount(terminalCount - 1);
 
       if (activeTerminal === index) {
-        setActiveTerminal(Math.max(0, index - 1));
+        setActiveTab(`terminal-${Math.max(0, index - 1)}`);
       } else if (activeTerminal > index) {
-        setActiveTerminal(activeTerminal - 1);
+        setActiveTab(`terminal-${activeTerminal - 1}`);
       }
     },
     [activeTerminal, terminalCount],
@@ -134,7 +137,7 @@ export const TerminalTabs = memo(() => {
         <div className="bg-bolt-elements-terminals-background h-full flex flex-col">
           <div className="flex items-center bg-bolt-elements-background-depth-2 border-y border-bolt-elements-borderColor gap-1.5 min-h-[34px] p-2">
             {Array.from({ length: terminalCount + 1 }, (_, index) => {
-              const isActive = activeTerminal === index;
+              const isActive = activeTab === `terminal-${index}`;
 
               return (
                 <React.Fragment key={index}>
@@ -150,10 +153,10 @@ export const TerminalTabs = memo(() => {
                             !isActive,
                         },
                       )}
-                      onClick={() => setActiveTerminal(index)}
+                      onClick={() => setActiveTab(`terminal-${index}`)}
                     >
                       <div className="i-ph:terminal-window-duotone text-lg" />
-                      Bolt Terminal
+                        Opurion Terminal
                     </button>
                   ) : (
                     <React.Fragment>
@@ -167,7 +170,7 @@ export const TerminalTabs = memo(() => {
                               !isActive,
                           },
                         )}
-                        onClick={() => setActiveTerminal(index)}
+                        onClick={() => setActiveTab(`terminal-${index}`)}
                       >
                         <div className="i-ph:terminal-window-duotone text-lg" />
                         Terminal {terminalCount > 1 && index}
@@ -186,27 +189,54 @@ export const TerminalTabs = memo(() => {
                 </React.Fragment>
               );
             })}
+            {[
+              { id: 'problems', label: 'Problems', icon: 'i-ph:warning-circle-duotone' },
+              { id: 'output', label: 'Output', icon: 'i-ph:list-bullets-duotone' },
+              { id: 'debug', label: 'Debug Console', icon: 'i-ph:bug-duotone' },
+            ].map((tab) => {
+              const isActive = activeTab === tab.id;
+
+              return (
+                <button
+                  key={tab.id}
+                  className={classNames(
+                    'flex items-center text-sm cursor-pointer gap-1.5 px-3 py-2 h-full whitespace-nowrap rounded-full',
+                    {
+                      'bg-bolt-elements-terminals-buttonBackground text-bolt-elements-textPrimary': isActive,
+                      'bg-bolt-elements-background-depth-2 text-bolt-elements-textSecondary hover:bg-bolt-elements-terminals-buttonBackground':
+                        !isActive,
+                    },
+                  )}
+                  onClick={() => setActiveTab(tab.id)}
+                >
+                  <div className={`${tab.icon} text-lg`} />
+                  {tab.label}
+                </button>
+              );
+            })}
             {terminalCount < MAX_TERMINALS && <IconButton icon="i-ph:plus" size="md" onClick={addTerminal} />}
-            <IconButton
-              icon="i-ph:arrow-clockwise"
-              title="Reset Terminal"
-              size="md"
-              onClick={() => {
-                const ref = terminalRefs.current.get(activeTerminal);
+            {activeTerminal >= 0 && (
+              <IconButton
+                icon="i-ph:arrow-clockwise"
+                title="Reset Terminal"
+                size="md"
+                onClick={() => {
+                  const ref = terminalRefs.current.get(activeTerminal);
 
-                if (ref?.getTerminal()) {
-                  const terminal = ref.getTerminal()!;
-                  terminal.clear();
-                  terminal.focus();
+                  if (ref?.getTerminal()) {
+                    const terminal = ref.getTerminal()!;
+                    terminal.clear();
+                    terminal.focus();
 
-                  if (activeTerminal === 0) {
-                    workbenchStore.attachBoltTerminal(terminal);
-                  } else {
-                    workbenchStore.attachTerminal(terminal);
+                    if (activeTerminal === 0) {
+                      workbenchStore.attachBoltTerminal(terminal);
+                    } else {
+                      workbenchStore.attachTerminal(terminal);
+                    }
                   }
-                }
-              }}
-            />
+                }}
+              />
+            )}
             <IconButton
               className="ml-auto"
               icon="i-ph:caret-down"
@@ -216,7 +246,7 @@ export const TerminalTabs = memo(() => {
             />
           </div>
           {Array.from({ length: terminalCount + 1 }, (_, index) => {
-            const isActive = activeTerminal === index;
+            const isActive = activeTab === `terminal-${index}`;
 
             logger.debug(`Starting bolt terminal [${index}]`);
 
@@ -270,6 +300,9 @@ export const TerminalTabs = memo(() => {
               );
             }
           })}
+          {activeTab === 'problems' && <TerminalDiagnosticsPanel view="problems" />}
+          {activeTab === 'output' && <TerminalDiagnosticsPanel view="output" />}
+          {activeTab === 'debug' && <TerminalDiagnosticsPanel view="debug" />}
         </div>
       </div>
     </Panel>

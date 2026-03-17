@@ -45,7 +45,7 @@ describe('lib/.server/llm/ollama-response-normalization', () => {
     expect(normalized).toContain('<boltArtifact');
     expect(normalized).toContain('<boltAction type="file" filePath="/index.html">');
     expect(normalized).toContain('<boltAction type="start">');
-    expect(normalized).toContain('npx vite --host 0.0.0.0 --port 4173');
+    expect(normalized).toContain('npx --yes vite --host 0.0.0.0 --port 4173');
     expect(normalized).toContain('<h1>Hello</h1>');
   });
 
@@ -63,6 +63,25 @@ describe('lib/.server/llm/ollama-response-normalization', () => {
     expect(normalized).toBeDefined();
     expect(normalized).toContain('filePath="/package.json"');
     expect(normalized).not.toContain('<boltAction type="start">');
+  });
+
+  it('does not synthesize generic JSON error payloads into package.json artifacts', () => {
+    const content = [
+      '```json',
+      JSON.stringify(
+        {
+          error:
+            'Build mode does not support narrative descriptions. Please provide specific implementation requests using Bolt syntax for file creation or modification.',
+        },
+        null,
+        2,
+      ),
+      '```',
+    ].join('\n');
+
+    const normalized = synthesizeBoltArtifactFromContent(content);
+
+    expect(normalized).toBeUndefined();
   });
 
   it('does not synthesize when bolt markup already exists', () => {
@@ -123,6 +142,30 @@ describe('lib/.server/llm/ollama-response-normalization', () => {
     expect(shouldRetryOllamaBuildNarrative('<boltArtifact id="x"></boltArtifact>')).toBe(false);
   });
 
+  it('triggers background re-ask for model error JSON payloads', () => {
+    const payload = JSON.stringify({
+      error:
+        'Build mode does not support narrative descriptions. Please provide specific implementation requests using Bolt syntax for file creation or modification.',
+    });
+
+    expect(shouldRetryOllamaBuildNarrative(payload)).toBe(true);
+  });
+
+  it('triggers background re-ask for narrative HTML with outline markers', () => {
+    const content = [
+      '<!DOCTYPE html>',
+      '<html lang="en">',
+      '<body>',
+      '<p>Here\'s an outline of what we\'ll include:</p>',
+      '<p>1. **About Us** 2. **Capabilities**</p>',
+      '<p>### Contact</p>',
+      '</body>',
+      '</html>',
+    ].join('\n');
+
+    expect(shouldRetryOllamaBuildNarrative(content)).toBe(true);
+  });
+
   it('synthesizes index.html for long plain narrative content', () => {
     const content = [
       'Welcome to Opurion.',
@@ -141,7 +184,7 @@ describe('lib/.server/llm/ollama-response-normalization', () => {
     expect(normalized).toContain('filePath="/index.html"');
     expect(normalized).toContain('<!DOCTYPE html>');
     expect(normalized).toContain('<boltAction type="start">');
-    expect(normalized).toContain('npx vite --host 0.0.0.0 --port 4173');
+    expect(normalized).toContain('npx --yes vite --host 0.0.0.0 --port 4173');
   });
 
   it('does not synthesize long narrative when file intent is unclear', () => {
@@ -212,6 +255,22 @@ describe('lib/.server/llm/ollama-response-normalization', () => {
 
     expect(normalized).toBeDefined();
     expect(normalized).toContain('filePath="/vite.config.ts"');
+  });
+
+  it('synthesizes vite.config.js as CommonJS config when filename is mentioned', () => {
+    const content = [
+      'Please create vite.config.js for local preview and keep the configuration simple, explicit, and readable for a generated project.',
+      'Set host to 0.0.0.0 and keep port 4173 so WebContainer preview binding is stable and does not depend on localhost defaults.',
+    ].join('\n');
+
+    const normalized = synthesizeBoltArtifactFromContent(content);
+
+    expect(normalized).toBeDefined();
+    expect(normalized).toContain('filePath="/vite.config.js"');
+    expect(normalized).toContain('module.exports = {');
+    expect(normalized).toContain("host: '0.0.0.0'");
+    expect(normalized).toContain('port: 4173');
+    expect(normalized).not.toContain('createServer');
   });
 
   it('recovers React scaffold shell output into App.tsx instead of generated-output.txt', () => {
@@ -330,7 +389,7 @@ describe('lib/.server/llm/ollama-response-normalization', () => {
 
     expect(preview).toBeDefined();
     expect(preview).toContain('<boltAction type="start">');
-    expect(preview).toContain('npx vite --host 0.0.0.0 --port 4173');
+    expect(preview).toContain('npx --yes vite --host 0.0.0.0 --port 4173');
   });
 
   it('prefers npm run dev when package.json dev script is present', () => {
@@ -423,15 +482,35 @@ export default function App(){ return <h1>Hello</h1>; }
     const essentials = synthesizeMissingProjectEssentialsForExistingArtifacts(partialReactArtifact);
 
     expect(essentials).toBeDefined();
+    expect(essentials).toContain('filePath="/src/main.js"');
     expect(essentials).toContain('filePath="/package.json"');
     expect(essentials).toContain('filePath="/index.html"');
+    expect(essentials).toContain('<script type="module" src="/src/main.js"></script>');
     expect(essentials).toContain('<boltAction type="start">');
     expect(essentials).toContain('npm run dev');
+  });
+
+  it('reuses an existing JavaScript entry file when synthesizing index.html', () => {
+    const partialReactArtifact = `<boltArtifact id="a" title="React UI" type="bundled">
+<boltAction type="file" filePath="/src/App.js">
+export default function App(){ return <h1>Hello</h1>; }
+</boltAction>
+<boltAction type="file" filePath="/src/index.js">
+import './index.css';
+</boltAction>
+</boltArtifact>`;
+
+    const essentials = synthesizeMissingProjectEssentialsForExistingArtifacts(partialReactArtifact);
+
+    expect(essentials).toBeDefined();
+    expect(essentials).toContain('<script type="module" src="/src/index.js"></script>');
+    expect(essentials).not.toContain('/src/main.tsx');
   });
 
   it('does not synthesize React essentials when already present', () => {
     const completeReactArtifact = `<boltArtifact id="a" title="React UI" type="bundled">
 <boltAction type="file" filePath="/src/App.jsx">export default function App(){ return <h1>Hello</h1>; }</boltAction>
+<boltAction type="file" filePath="/src/main.js">import React from 'react'; import ReactDOM from 'react-dom/client'; import App from './App.jsx'; ReactDOM.createRoot(document.getElementById('root')).render(<App />);</boltAction>
 <boltAction type="file" filePath="/package.json">{"name":"x","scripts":{"dev":"vite"}}</boltAction>
 <boltAction type="file" filePath="/index.html"><!DOCTYPE html><html></html></boltAction>
 <boltAction type="start">npm run dev</boltAction>

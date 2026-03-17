@@ -8,6 +8,11 @@ export interface ProjectCommands {
   followupMessage: string;
 }
 
+export interface ProjectPreflightResult {
+  ok: boolean;
+  issues: string[];
+}
+
 interface FileContent {
   content: string;
   path: string;
@@ -18,6 +23,26 @@ interface ParsedPackageJson {
   scripts: Record<string, string>;
   dependencies: Record<string, string>;
 }
+
+const NODE_SOURCE_EXTENSIONS = ['.js', '.jsx', '.ts', '.tsx', '.mjs', '.cjs'];
+const NODE_BUILTINS = new Set([
+  'assert',
+  'buffer',
+  'child_process',
+  'crypto',
+  'events',
+  'fs',
+  'http',
+  'https',
+  'net',
+  'os',
+  'path',
+  'stream',
+  'timers',
+  'url',
+  'util',
+  'zlib',
+]);
 
 function buildBuiltinPreviewServerCommand(simulatePhp = false): string {
   const phpTransform = simulatePhp
@@ -85,6 +110,16 @@ function makeCommandWithDirectoryPrefix(command: string, directory: string): str
   return `cd ${directory} && ${command}`;
 }
 
+export function extractWorkingDirectoryFromCommand(command?: string): string {
+  const match = command?.match(/^\s*cd\s+(["']?)(.+?)\1\s*&&/);
+
+  if (!match) {
+    return '';
+  }
+
+  return normalizeWorkspaceRelativeDirectory(match[2]);
+}
+
 function normalizeWorkspaceRelativeDirectory(directory: string): string {
   const normalized = toPosixPath(directory).replace(/\/+$/, '');
 
@@ -135,7 +170,411 @@ function detectPackageManager(files: FileContent[], packageDirectory: string): '
     return 'yarn';
   }
 
-  return 'npm';
+  return 'pnpm';
+}
+
+function toWorkspaceRelativePath(filePath: string): string {
+  const normalized = toPosixPath(filePath).replace(/^\/+/, '');
+
+  if (normalized.startsWith('home/project/')) {
+    return normalized.slice('home/project/'.length);
+  }
+
+  if (normalized === 'home/project') {
+    return '';
+  }
+
+  return normalized;
+}
+
+function toProjectRelativePath(filePath: string, workingDirectory: string): string {
+  const workspacePath = toWorkspaceRelativePath(filePath);
+
+  if (!workingDirectory) {
+    return workspacePath;
+  }
+
+  const prefix = `${workingDirectory.replace(/^\/+|\/+$/g, '')}/`;
+
+  if (workspacePath.startsWith(prefix)) {
+    return workspacePath.slice(prefix.length);
+  }
+
+  return workspacePath;
+}
+
+function parseStartScriptName(startCommand?: string): string | undefined {
+  if (!startCommand) {
+    return undefined;
+  }
+
+  const normalized = startCommand.replace(/^\s*cd\s+["']?.+?["']?\s*&&\s*/, '').trim();
+  const npmMatch = normalized.match(/^(?:npm|pnpm)\s+run\s+([\w:-]+)/);
+
+  if (npmMatch?.[1]) {
+    return npmMatch[1];
+  }
+
+  const yarnMatch = normalized.match(/^yarn\s+([\w:-]+)/);
+  return yarnMatch?.[1];
+}
+
+function getPreferredScriptName(scripts: Record<string, unknown>, preferredOrder: string[]): string | undefined {
+  return preferredOrder.find((name) => {
+    const value = scripts[name];
+    return typeof value === 'string' && value.trim().length > 0;
+  });
+}
+
+const SCRIPT_SYSTEM_COMMANDS = new Set([
+  'node',
+  'npm',
+  'pnpm',
+  'yarn',
+  'bun',
+  'deno',
+  'sh',
+  'bash',
+  'zsh',
+  'cmd',
+  'echo',
+  'true',
+  'false',
+  'cd',
+]);
+
+function getScriptRuntimePackage(scriptValue: string): string | undefined {
+  const firstSegment = scriptValue.split(/&&|\|\||;/)[0]?.trim();
+
+  if (!firstSegment) {
+    return undefined;
+  }
+
+  const tokens = firstSegment.split(/\s+/).filter(Boolean);
+
+  if (tokens.length === 0) {
+    return undefined;
+  }
+
+  let index = 0;
+
+  // Skip leading environment variable assignments: FOO=bar vite
+  while (index < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[index])) {
+    index++;
+  }
+
+  const token = tokens[index];
+
+  if (!token) {
+    return undefined;
+  }
+
+  if (token === 'npx') {
+    let npxIndex = index + 1;
+
+    while (npxIndex < tokens.length && tokens[npxIndex].startsWith('-')) {
+      npxIndex++;
+    }
+
+    return tokens[npxIndex];
+  }
+
+  if ((token === 'pnpm' || token === 'npm' || token === 'yarn') && tokens[index + 1] === 'exec') {
+    return tokens[index + 2];
+  }
+
+  if (token === 'cross-env') {
+    let envIndex = index + 1;
+
+    while (envIndex < tokens.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(tokens[envIndex])) {
+      envIndex++;
+    }
+
+    return tokens[envIndex];
+  }
+
+  if (
+    SCRIPT_SYSTEM_COMMANDS.has(token) ||
+    token.startsWith('./') ||
+    token.startsWith('../') ||
+    token.startsWith('/') ||
+    token.startsWith('node:')
+  ) {
+    return undefined;
+  }
+
+  return token;
+}
+
+function extractPackageName(specifier: string): string | undefined {
+  if (!specifier || specifier.startsWith('.') || specifier.startsWith('/') || specifier.startsWith('node:')) {
+    return undefined;
+  }
+
+  if (specifier.startsWith('http://') || specifier.startsWith('https://') || specifier.startsWith('data:')) {
+    return undefined;
+  }
+
+  if (specifier.startsWith('@vite/virtual') || specifier.startsWith('virtual:')) {
+    return undefined;
+  }
+
+  const cleaned = specifier.split('?')[0].split('#')[0];
+
+  if (cleaned.startsWith('@')) {
+    const [scope, name] = cleaned.split('/');
+    return scope && name ? `${scope}/${name}` : cleaned;
+  }
+
+  return cleaned.split('/')[0];
+}
+
+function extractImportedPackages(files: FileContent[], workingDirectory: string): Set<string> {
+  const packages = new Set<string>();
+  const importRegex = /(?:import\s+(?:[^'";]+\s+from\s+)?|require\s*\(|import\s*\()\s*['"]([^'"\n]+)['"]/g;
+
+  for (const file of files) {
+    const workspacePath = toWorkspaceRelativePath(file.path);
+    const extension = workspacePath.slice(workspacePath.lastIndexOf('.')).toLowerCase();
+
+    if (!NODE_SOURCE_EXTENSIONS.includes(extension)) {
+      continue;
+    }
+
+    if (workingDirectory) {
+      const dirPrefix = `${workingDirectory.replace(/^\/+|\/+$/g, '')}/`;
+
+      if (!workspacePath.startsWith(dirPrefix)) {
+        continue;
+      }
+    }
+
+    let match: RegExpExecArray | null;
+
+    while ((match = importRegex.exec(file.content)) !== null) {
+      const candidate = extractPackageName(match[1]);
+
+      if (!candidate || NODE_BUILTINS.has(candidate)) {
+        continue;
+      }
+
+      packages.add(candidate);
+    }
+  }
+
+  return packages;
+}
+
+function validateHtmlEntrypoints(files: FileContent[], workingDirectory: string): string[] {
+  const issues: string[] = [];
+  const htmlFiles = files.filter((file) => {
+    const workspacePath = toWorkspaceRelativePath(file.path);
+
+    if (!workspacePath.endsWith('index.html')) {
+      return false;
+    }
+
+    if (!workingDirectory) {
+      return true;
+    }
+
+    return workspacePath.startsWith(`${workingDirectory.replace(/^\/+|\/+$/g, '')}/`);
+  });
+
+  const workspacePaths = new Set(files.map((file) => toWorkspaceRelativePath(file.path)));
+
+  for (const htmlFile of htmlFiles) {
+    const projectRelativePath = toProjectRelativePath(htmlFile.path, workingDirectory);
+    const htmlDirectory = getDirectoryPath(projectRelativePath);
+    const scriptRegex = /<script[^>]*\ssrc=["']([^"']+)["'][^>]*>/gi;
+    let match: RegExpExecArray | null;
+
+    while ((match = scriptRegex.exec(htmlFile.content)) !== null) {
+      const src = match[1];
+
+      if (
+        !src ||
+        src.startsWith('http://') ||
+        src.startsWith('https://') ||
+        src.startsWith('//') ||
+        src.startsWith('data:')
+      ) {
+        continue;
+      }
+
+      const cleanSrc = src.split('?')[0].split('#')[0].replace(/^\.\//, '');
+      const candidateProjectPath = cleanSrc.startsWith('/')
+        ? cleanSrc.replace(/^\/+/, '')
+        : [htmlDirectory, cleanSrc].filter(Boolean).join('/');
+      const workspaceCandidate = workingDirectory
+        ? `${workingDirectory.replace(/^\/+|\/+$/g, '')}/${candidateProjectPath}`.replace(/\/+/g, '/')
+        : candidateProjectPath;
+
+      if (!workspacePaths.has(workspaceCandidate) && !workspacePaths.has(candidateProjectPath)) {
+        issues.push(`Broken HTML script link: '${src}' referenced by '${toWorkspaceRelativePath(htmlFile.path)}'`);
+      }
+    }
+  }
+
+  return issues;
+}
+
+function validatePostcssJsonConfigs(files: FileContent[], workingDirectory: string): string[] {
+  const issues: string[] = [];
+  const jsonConfigPattern = /(?:^|\/)(?:postcss\.config\.json|\.postcssrc|\.postcssrc\.json)$/i;
+
+  const postcssJsonFiles = files.filter((file) => {
+    const workspacePath = toWorkspaceRelativePath(file.path);
+
+    if (!jsonConfigPattern.test(workspacePath)) {
+      return false;
+    }
+
+    if (!workingDirectory) {
+      return true;
+    }
+
+    return workspacePath.startsWith(`${workingDirectory.replace(/^\/+|\/+$/g, '')}/`);
+  });
+
+  for (const configFile of postcssJsonFiles) {
+    try {
+      JSON.parse(configFile.content);
+    } catch {
+      issues.push(`Invalid PostCSS JSON config at '${toWorkspaceRelativePath(configFile.path)}'.`);
+    }
+  }
+
+  return issues;
+}
+
+function isViteConfigPath(workspacePath: string): boolean {
+  return /(?:^|\/)vite\.config\.(?:js|mjs|cjs|ts|mts|cts)$/i.test(workspacePath);
+}
+
+function isLikelyValidViteConfig(content: string): boolean {
+  const normalized = content.trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  if (normalized.includes('```') || /<bolt(?:Artifact|Action)\b/i.test(normalized)) {
+    return false;
+  }
+
+  return /module\.exports\s*=|export\s+default|defineConfig\s*\(/i.test(normalized);
+}
+
+export async function validateProjectPreflight(
+  files: FileContent[],
+  commands: Pick<ProjectCommands, 'type' | 'setupCommand' | 'startCommand'>,
+): Promise<ProjectPreflightResult> {
+  if (commands.type !== 'Node.js') {
+    return { ok: true, issues: [] };
+  }
+
+  const workingDirectory = extractWorkingDirectoryFromCommand(commands.startCommand || commands.setupCommand);
+  const normalizedWorkingDirectory = workingDirectory.replace(/^\/+|\/+$/g, '');
+  const packageJsonSuffix = normalizedWorkingDirectory ? `${normalizedWorkingDirectory}/package.json` : 'package.json';
+  const packageJsonFile = files.find((file) => toWorkspaceRelativePath(file.path).endsWith(packageJsonSuffix));
+
+  if (!packageJsonFile) {
+    return {
+      ok: false,
+      issues: [
+        `Missing package.json in '${normalizedWorkingDirectory || 'project root'}' required for Node.js start command.`,
+      ],
+    };
+  }
+
+  let packageJson: any;
+
+  try {
+    packageJson = JSON.parse(packageJsonFile.content);
+  } catch {
+    return {
+      ok: false,
+      issues: [`package.json at '${toWorkspaceRelativePath(packageJsonFile.path)}' is invalid JSON.`],
+    };
+  }
+
+  const issues: string[] = [];
+  const startScript = parseStartScriptName(commands.startCommand);
+  const scripts = (packageJson?.scripts || {}) as Record<string, unknown>;
+  const fallbackStartScript = getPreferredScriptName(scripts, ['dev', 'start', 'preview']);
+  const effectiveStartScript =
+    startScript && typeof scripts[startScript] === 'string' && scripts[startScript].trim().length > 0
+      ? startScript
+      : fallbackStartScript;
+
+  if (startScript && !effectiveStartScript) {
+    issues.push(`Missing scripts.${startScript} in package.json for start command '${commands.startCommand}'.`);
+  }
+
+  const declaredDependencies = new Set([
+    ...Object.keys(packageJson?.dependencies || {}),
+    ...Object.keys(packageJson?.devDependencies || {}),
+    ...Object.keys(packageJson?.optionalDependencies || {}),
+    ...Object.keys(packageJson?.peerDependencies || {}),
+  ]);
+
+  const importedPackages = extractImportedPackages(files, normalizedWorkingDirectory);
+  const missingDependencies = [...importedPackages].filter((dependency) => !declaredDependencies.has(dependency));
+
+  if (missingDependencies.length > 0) {
+    issues.push(`Missing dependencies in package.json: ${missingDependencies.slice(0, 12).join(', ')}`);
+  }
+
+  if (effectiveStartScript && typeof scripts[effectiveStartScript] === 'string') {
+    const runtimePackage = getScriptRuntimePackage(scripts[effectiveStartScript] as string);
+
+    if (runtimePackage && !declaredDependencies.has(runtimePackage)) {
+      issues.push(
+        `scripts.${effectiveStartScript} uses '${runtimePackage}' but it is not declared in package.json dependencies/devDependencies.`,
+      );
+    }
+  }
+
+  const startScriptValue = effectiveStartScript ? scripts[effectiveStartScript] : undefined;
+  const startCommandWithoutCd = (commands.startCommand || '').replace(/^\s*cd\s+["']?.+?["']?\s*&&\s*/, '').trim();
+  const startRuntimePackage = startScriptValue ? getScriptRuntimePackage(startScriptValue) : getScriptRuntimePackage(startCommandWithoutCd);
+  const usesVite =
+    startRuntimePackage === 'vite' ||
+    /\bnpx\s+(?:--yes\s+)?vite\b/i.test(startCommandWithoutCd) ||
+    (typeof startScriptValue === 'string' && /\bvite\b/i.test(startScriptValue));
+
+  if (usesVite) {
+    const viteConfigFiles = files.filter((file) => {
+      const workspacePath = toWorkspaceRelativePath(file.path);
+
+      if (!isViteConfigPath(workspacePath)) {
+        return false;
+      }
+
+      if (!normalizedWorkingDirectory) {
+        return true;
+      }
+
+      return workspacePath.startsWith(`${normalizedWorkingDirectory}/`);
+    });
+
+    for (const viteConfigFile of viteConfigFiles) {
+      if (!isLikelyValidViteConfig(viteConfigFile.content)) {
+        issues.push(
+          `Invalid Vite config at '${toWorkspaceRelativePath(viteConfigFile.path)}': config must export or return an object.`,
+        );
+      }
+    }
+  }
+
+  issues.push(...validatePostcssJsonConfigs(files, normalizedWorkingDirectory));
+  issues.push(...validateHtmlEntrypoints(files, normalizedWorkingDirectory));
+
+  return {
+    ok: issues.length === 0,
+    issues,
+  };
 }
 
 function buildStartCommand(packageManager: 'npm' | 'pnpm' | 'yarn', script: string): string {
@@ -159,7 +598,7 @@ function buildInstallCommand(packageManager: 'npm' | 'pnpm' | 'yarn'): string {
     return 'pnpm install --frozen-lockfile=false';
   }
 
-  return 'npm install';
+  return 'pnpm install --frozen-lockfile=false';
 }
 
 export async function detectProjectCommands(files: FileContent[]): Promise<ProjectCommands> {
@@ -196,12 +635,10 @@ export async function detectProjectCommands(files: FileContent[]): Promise<Proje
 
     parsedPackageJsons.sort((left, right) => getPathDepth(left.file.path) - getPathDepth(right.file.path));
 
-    const packageWithPreferredCommand = parsedPackageJsons.find((entry) =>
-      preferredCommands.some((command) => entry.scripts[command]),
-    );
+    const packageWithPreferredCommand = parsedPackageJsons.find((entry) => getPreferredScriptName(entry.scripts, preferredCommands));
 
     const selectedPackage = packageWithPreferredCommand || parsedPackageJsons[0];
-    const availableCommand = preferredCommands.find((command) => selectedPackage.scripts[command]);
+    const availableCommand = getPreferredScriptName(selectedPackage.scripts, preferredCommands);
     const packageDirectory = normalizeWorkspaceRelativeDirectory(getDirectoryPath(selectedPackage.file.path));
     const packageManager = detectPackageManager(files, packageDirectory);
 
@@ -295,7 +732,9 @@ export async function detectProjectCommands(files: FileContent[]): Promise<Proje
     return {
       type: 'Python',
       setupCommand: pythonSetupCommand,
-      followupMessage: 'Detected Python project files. An explicit server entrypoint could not be inferred safely.',
+      startCommand: 'python -m http.server 8000 --bind 0.0.0.0',
+      followupMessage:
+        'Detected Python project files but no explicit app entrypoint. Starting a Python static HTTP preview server as fallback.',
     };
   }
 

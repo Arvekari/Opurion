@@ -49,6 +49,7 @@ interface BaseChatProps {
   showChat?: boolean;
   chatStarted?: boolean;
   isStreaming?: boolean;
+  streamingState?: 'submitted' | 'streaming' | 'stalled';
   onStreamingChange?: (streaming: boolean) => void;
   messages?: Message[];
   description?: string;
@@ -90,6 +91,8 @@ interface BaseChatProps {
   onWebSearchResult?: (result: string) => void;
   attachmentLibrary?: Array<{ id: string; file: File; dataUrl: string }>;
   onReuseAttachment?: (entry: { id: string; file: File; dataUrl: string }) => void;
+  onEditQueuedMessage?: (queuedMessageId: string) => void;
+  onRemoveQueuedMessage?: (queuedMessageId: string) => void;
 }
 
 export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
@@ -99,6 +102,7 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       showChat = true,
       chatStarted = false,
       isStreaming = false,
+      streamingState,
       onStreamingChange,
       model,
       setModel,
@@ -142,6 +146,8 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       onWebSearchResult,
       attachmentLibrary,
       onReuseAttachment,
+      onEditQueuedMessage,
+      onRemoveQueuedMessage,
     },
     ref,
   ) => {
@@ -623,12 +629,15 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                           className="flex flex-col w-full flex-1 max-w-chat pb-4 mx-auto z-1"
                           messages={messages}
                           isStreaming={isStreaming}
+                          streamingState={streamingState}
                           append={append}
                           chatMode={chatMode}
                           setChatMode={setChatMode}
                           provider={provider}
                           model={model}
                           addToolResult={addToolResult}
+                          onEditQueuedMessage={onEditQueuedMessage}
+                          onRemoveQueuedMessage={onRemoveQueuedMessage}
                         />
                       ) : null
                     }

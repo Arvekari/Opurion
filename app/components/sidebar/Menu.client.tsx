@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { toast } from 'react-toastify';
 import { Dialog, DialogButton, DialogDescription, DialogRoot, DialogTitle } from '~/components/ui/Dialog';
 import { setThemeMode, themeModeStore } from '~/lib/stores/theme';
@@ -17,6 +17,105 @@ interface MenuProps {
   onOpenSettings: (tab?: 'profile' | 'settings') => void;
 }
 
+function getMessageFingerprint(message?: ChatHistoryItem['messages'][number]): string {
+  if (!message) {
+    return '';
+  }
+
+  const content = typeof message.content === 'string' ? message.content : '';
+  const parts = Array.isArray(message.parts)
+    ? message.parts
+        .map((part) => {
+          if (part.type === 'text') {
+            return part.text ?? '';
+          }
+
+          if (part.type === 'file') {
+            return part.filename ?? '';
+          }
+
+          return '';
+        })
+        .join(' ')
+    : '';
+
+  const normalizedContent = (content || parts).replace(/\s+/g, ' ').trim().toLowerCase();
+
+  return `${message.role}:${normalizedContent.slice(0, 180)}`;
+}
+
+function choosePreferredHistoryItem(current: ChatHistoryItem | undefined, candidate: ChatHistoryItem): ChatHistoryItem {
+  if (!current) {
+    return candidate;
+  }
+
+  const currentTime = Date.parse(current.timestamp || '');
+  const candidateTime = Date.parse(candidate.timestamp || '');
+  const hasValidCandidateTime = Number.isFinite(candidateTime);
+  const hasValidCurrentTime = Number.isFinite(currentTime);
+
+  if (hasValidCandidateTime && (!hasValidCurrentTime || candidateTime > currentTime)) {
+    return candidate;
+  }
+
+  if ((candidate.messages?.length || 0) > (current.messages?.length || 0)) {
+    return candidate;
+  }
+
+  return current;
+}
+
+function buildHistorySignature(item: ChatHistoryItem): string {
+  const firstMessage = item.messages?.[0];
+  const lastMessage = item.messages?.[item.messages.length - 1];
+  const messageCount = item.messages?.length || 0;
+  const description = (item.description || '').trim().toLowerCase();
+  const firstFingerprint = getMessageFingerprint(firstMessage);
+  const lastFingerprint = getMessageFingerprint(lastMessage);
+
+  return [description, messageCount, firstFingerprint, lastFingerprint].join('::');
+}
+
+export function dedupeAccidentalHistoryCopies(items: ChatHistoryItem[]): ChatHistoryItem[] {
+  const byIdentity = new Map<string, ChatHistoryItem>();
+  const bySignature = new Map<string, ChatHistoryItem>();
+
+  for (const item of items) {
+    const identityKey = (item.urlId || item.id || '').trim().toLowerCase();
+
+    if (identityKey) {
+      byIdentity.set(identityKey, choosePreferredHistoryItem(byIdentity.get(identityKey), item));
+      continue;
+    }
+
+    byIdentity.set(`fallback:${byIdentity.size}`, item);
+  }
+
+  for (const item of byIdentity.values()) {
+    const signature = buildHistorySignature(item);
+    bySignature.set(signature, choosePreferredHistoryItem(bySignature.get(signature), item));
+  }
+
+  return [...bySignature.values()].sort((left, right) => {
+    const rightTime = Date.parse(right.timestamp || '');
+    const leftTime = Date.parse(left.timestamp || '');
+
+    if (Number.isFinite(rightTime) && Number.isFinite(leftTime)) {
+      return rightTime - leftTime;
+    }
+
+    if (Number.isFinite(rightTime)) {
+      return 1;
+    }
+
+    if (Number.isFinite(leftTime)) {
+      return -1;
+    }
+
+    return 0;
+  });
+}
+
 function getInitials(name?: string): string {
   if (!name) return 'U';
   const parts = name.trim().split(/\s+/);
@@ -25,7 +124,7 @@ function getInitials(name?: string): string {
 }
 
 export const Menu = ({ collapsed, onToggle, onOpenSettings }: MenuProps) => {
-  const { exportChat } = useChatHistory();
+  const { exportChat, duplicateCurrentChat } = useChatHistory();
   const [list, setList] = useState<ChatHistoryItem[]>([]);
   const [dialogContent, setDialogContent] = useState<{ type: 'delete'; item: ChatHistoryItem } | null>(null);
   const [activeSection, setActiveSection] = useState<'chats' | 'projects' | 'artifacts' | 'code'>('chats');
@@ -42,6 +141,7 @@ export const Menu = ({ collapsed, onToggle, onOpenSettings }: MenuProps) => {
     if (db) {
       getAll(db)
         .then((items) => items.filter((item) => item.urlId && item.description))
+        .then((items) => dedupeAccidentalHistoryCopies(items))
         .then(setList)
         .catch((error) => toast.error(error.message));
     }
@@ -106,7 +206,6 @@ export const Menu = ({ collapsed, onToggle, onOpenSettings }: MenuProps) => {
     { key: 'code', label: 'Code', icon: '{ }' },
     { key: 'chats', label: 'Chats', icon: '💬', separator: true },
   ];
-
   return (
     <>
       <div
@@ -201,15 +300,13 @@ export const Menu = ({ collapsed, onToggle, onOpenSettings }: MenuProps) => {
 
           {/* Section nav items */}
           {navItems.map(({ key, label, icon, separator }) => (
-            <>
+            <Fragment key={key}>
               {separator && (
                 <div
-                  key={`sep-${key}`}
                   style={{ height: '1px', background: 'var(--bolt-elements-borderColor, #2b2b33)', margin: '4px 0' }}
                 />
               )}
               <button
-                key={key}
                 onClick={() => {
                   if (collapsed) onToggle();
                   setActiveSection(key);
@@ -233,7 +330,7 @@ export const Menu = ({ collapsed, onToggle, onOpenSettings }: MenuProps) => {
               >
                 {collapsed ? icon : label}
               </button>
-            </>
+            </Fragment>
           ))}
 
           {/* Chat history list (only when expanded and Chats active) */}
@@ -294,7 +391,7 @@ export const Menu = ({ collapsed, onToggle, onOpenSettings }: MenuProps) => {
                             e.preventDefault();
                             setDialogContent({ type: 'delete', item });
                           }}
-                          onDuplicate={loadEntries}
+                          onDuplicate={duplicateCurrentChat}
                           selectionMode={false}
                           isSelected={false}
                           onToggleSelection={() => {}}

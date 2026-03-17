@@ -5,12 +5,14 @@ const {
   generateTextMock,
   updateModelListMock,
   getModelInstanceMock,
+  getProviderMock,
   isReasoningModelMock,
 } = vi.hoisted(() => ({
   streamTextMock: vi.fn(),
   generateTextMock: vi.fn(),
   updateModelListMock: vi.fn(),
   getModelInstanceMock: vi.fn(() => 'model-instance'),
+  getProviderMock: vi.fn(() => ({ getModelInstance: vi.fn(() => 'model-instance') })),
   isReasoningModelMock: vi.fn(() => false),
 }));
 
@@ -27,6 +29,7 @@ vi.mock('~/lib/modules/llm/manager', () => ({
   LLMManager: {
     getInstance: vi.fn(() => ({
       updateModelList: updateModelListMock,
+      getProvider: getProviderMock,
     })),
   },
 }));
@@ -128,6 +131,7 @@ describe('/api/llmcall error handling', () => {
 
     const { PROVIDER_LIST } = await import('~/utils/constants');
     (PROVIDER_LIST as any[]).splice(0, PROVIDER_LIST.length);
+    getProviderMock.mockReturnValueOnce(null);
 
     const response = await action({
       request: new Request('http://localhost/api/llmcall', {

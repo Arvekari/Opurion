@@ -37,6 +37,13 @@ describe('streaming guard', () => {
     expect(isStreamingStalled(0, null, Date.now(), DEFAULT_STREAM_STALL_TIMEOUT_MS)).toBe(false);
   });
 
+  it('returns not stalled before the first streamed chunk arrives', () => {
+    const startedAt = 1_000;
+    const now = startedAt + DEFAULT_STREAM_STALL_TIMEOUT_MS + 5_000;
+
+    expect(isStreamingStalled(startedAt, null, now, DEFAULT_STREAM_STALL_TIMEOUT_MS)).toBe(false);
+  });
+
   it('suppresses streaming UI when stalled even if loading flags are true', () => {
     expect(
       resolveEffectiveStreamingState({

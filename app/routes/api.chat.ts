@@ -99,6 +99,123 @@ type BuildOutputParts = {
   passThroughText?: string;
 };
 
+function normalizePathLikeValue(value: string): string {
+  const trimmed = value.trim().replace(/^['"`]|['"`]$/g, '');
+
+  if (!trimmed || trimmed.includes('://')) {
+    return '';
+  }
+
+  const normalized = trimmed.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+/g, '/');
+
+  if (!normalized || normalized === '.' || normalized === '/') {
+    return '';
+  }
+
+  return normalized.startsWith('/') ? normalized : `/${normalized}`;
+}
+
+function extractRequestedFilePaths(requestContent: string): string[] {
+  if (!requestContent?.trim()) {
+    return [];
+  }
+
+  const matches = new Set<string>();
+  const text = requestContent;
+  const pushMatch = (candidate: string) => {
+    const normalized = normalizePathLikeValue(candidate);
+
+    if (!normalized || !/[.][a-z0-9]{1,10}$/i.test(normalized)) {
+      return;
+    }
+
+    matches.add(normalized.toLowerCase());
+  };
+
+  for (const match of text.matchAll(/`([^`\n]+\.[a-z0-9]{1,10})`/gi)) {
+    if (match[1]) {
+      pushMatch(match[1]);
+    }
+  }
+
+  for (const match of text.matchAll(/\b(?:create|add|write|update|modify|edit|implement)\s+(?:a\s+|an\s+|the\s+)?(?:file\s+)?(?:named\s+)?([/\w.-]+\.[a-z0-9]{1,10})\b/gi)) {
+    if (match[1]) {
+      pushMatch(match[1]);
+    }
+  }
+
+  for (const match of text.matchAll(/(?:^|\s)([/\w.-]+\.[a-z0-9]{1,10})(?=\s|$)/gi)) {
+    if (match[1]) {
+      pushMatch(match[1]);
+    }
+  }
+
+  return Array.from(matches);
+}
+
+function extractOutputFilePaths(content: string): Set<string> {
+  const outputPaths = new Set<string>();
+
+  for (const match of content.matchAll(/<boltAction\s+type="file"[^>]*filePath="([^"]+)"/gi)) {
+    if (match[1]) {
+      const normalized = normalizePathLikeValue(match[1]);
+
+      if (normalized) {
+        outputPaths.add(normalized.toLowerCase());
+      }
+    }
+  }
+
+  return outputPaths;
+}
+
+function getMissingRequestedFilePaths(requestedPaths: string[], outputContent: string): string[] {
+  if (requestedPaths.length === 0) {
+    return [];
+  }
+
+  const outputPaths = extractOutputFilePaths(outputContent);
+
+  return requestedPaths.filter((requestedPath) => {
+    const normalizedRequested = normalizePathLikeValue(requestedPath).toLowerCase();
+
+    if (!normalizedRequested) {
+      return false;
+    }
+
+    if (outputPaths.has(normalizedRequested)) {
+      return false;
+    }
+
+    const requestedBasename = normalizedRequested.split('/').pop();
+
+    if (!requestedBasename) {
+      return true;
+    }
+
+    for (const outputPath of outputPaths) {
+      if (outputPath.endsWith(`/${requestedBasename}`) || outputPath === `/${requestedBasename}`) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+}
+
+function buildOutputSnapshot(parts: BuildOutputParts, rawText: string): string {
+  return [
+    parts.normalizedArtifact,
+    parts.missingFileArtifact,
+    parts.previewStartAction,
+    parts.missingProjectEssentials,
+    parts.passThroughText,
+    rawText,
+  ]
+    .filter((segment): segment is string => typeof segment === 'string' && segment.trim().length > 0)
+    .join('\n');
+}
+
 function hasExecutableFileAction(content: string): boolean {
   return /<boltAction\s+type="file"[^>]*filePath="[^"]+"/i.test(content);
 }
@@ -245,6 +362,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
   const latestUserMessage = messages.filter((message) => message.role === 'user').slice(-1)[0];
   const requestModelInfo = latestUserMessage ? extractPropertiesFromMessage(latestUserMessage) : { model: undefined, provider: undefined };
+  const requestedFileTargets = extractRequestedFilePaths(latestUserMessage?.content || '');
 
   logger.info('Chat request received', {
     requestId: getRequestId(request),
@@ -726,7 +844,12 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             }
           }
 
-          if (shouldNormalizeCurrentRequest && shouldRetryOllamaBuildNarrative(streamedTextBuffer)) {
+          const initialRequestParts = collectBuildOutputParts(streamedTextBuffer, streamedTextBuffer);
+          const initialOutputSnapshot = buildOutputSnapshot(initialRequestParts, streamedTextBuffer);
+          const initialMissingRequestedTargets = getMissingRequestedFilePaths(requestedFileTargets, initialOutputSnapshot);
+          const shouldRetryForMissingTargets = requestedFileTargets.length > 0 && initialMissingRequestedTargets.length > 0;
+
+          if (shouldNormalizeCurrentRequest && (shouldRetryOllamaBuildNarrative(streamedTextBuffer) || shouldRetryForMissingTargets)) {
             const retryRoundLimit = getOllamaRecoveryRoundLimit({
               providerName: requestModelInfo.provider,
               chatMode,
@@ -734,12 +857,14 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               modelName: requestModelInfo.model,
             });
 
-            logger.warn('Ollama build-mode narrative response detected; running recovery rounds', {
+            logger.warn('Ollama build-mode response requires recovery rounds', {
               requestId: getRequestId(request),
               clientRequestId: resolvedClientRequestId,
               model: requestModelInfo.model,
               provider: requestModelInfo.provider,
               retryRoundLimit,
+              requestedFileTargets,
+              missingRequestedTargets: initialMissingRequestedTargets,
               originalResponsePreview: toLogPreview(streamedTextBuffer),
             });
 
@@ -748,10 +873,18 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
             let recovered = false;
 
             for (let retryRound = 1; retryRound <= retryRoundLimit; retryRound += 1) {
+              const missingTargetsForRound = getMissingRequestedFilePaths(
+                requestedFileTargets,
+                retryRound === 1 ? initialOutputSnapshot : lastRoundText,
+              );
+              const missingTargetsInstruction =
+                missingTargetsForRound.length > 0
+                  ? `Required requested file targets still missing: ${missingTargetsForRound.join(', ')}. Include those files explicitly as <boltAction type="file" filePath="..."> with complete content.`
+                  : '';
               const retryInstruction =
                 retryRound === 1
-                  ? `Build mode correction: your previous answer was narrative and not executable. Return ONLY executable output using one <boltArtifact> with <boltAction> blocks. Recover into concrete project files that match implementation intent (examples: /index.html, /package.json, /server.js, /main.py, /App.tsx, /index.php, /routes/web.php, /vite.config.ts). Prefer explicit file intent from your own output, and do not include prose outside the artifact.`
-                  : `Build mode correction round ${retryRound}: previous recovery output was still incomplete/non-executable. Continue from your last attempt and return one complete executable <boltArtifact> only, with full <boltAction> file contents and required start action.`;
+                  ? `Build mode correction: your previous answer was not fully executable for the original request. Return ONLY executable output using one <boltArtifact> with <boltAction> blocks. Recover into concrete project files that match implementation intent (examples: /index.html, /package.json, /server.js, /main.py, /App.tsx, /index.php, /routes/web.php, /vite.config.ts). ${missingTargetsInstruction} Do not include prose outside the artifact.`
+                  : `Build mode correction round ${retryRound}: previous recovery output was still incomplete/non-executable. Continue from your last attempt and return one complete executable <boltArtifact> only, with full <boltAction> file contents and required start action. ${missingTargetsInstruction}`;
 
               dataStream.writeData({
                 type: 'debugStream',
@@ -851,6 +984,8 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               }
 
               const retryParts = collectBuildOutputParts(retryTextBuffer, streamedTextBuffer);
+              const retryOutputSnapshot = buildOutputSnapshot(retryParts, retryTextBuffer);
+              const missingRequestedTargets = getMissingRequestedFilePaths(requestedFileTargets, retryOutputSnapshot);
 
               logger.info('Ollama background re-ask round completed', {
                 requestId: getRequestId(request),
@@ -859,6 +994,7 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
                 provider: requestModelInfo.provider,
                 retryRound,
                 retryRoundLimit,
+                missingRequestedTargets,
                 retryResponsePreview: toLogPreview(retryTextBuffer),
                 normalizedArtifactApplied: Boolean(retryParts.normalizedArtifact),
               });
@@ -880,8 +1016,10 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
               });
 
               const hasExecutableOutput = hasAssembledExecutableBuildOutput(retryParts);
+              const hasSatisfiedRequestedTargets = missingRequestedTargets.length === 0;
+              const canFinalizeRound = hasExecutableOutput && hasSatisfiedRequestedTargets;
 
-              if (hasExecutableOutput || retryRound === retryRoundLimit) {
+              if (canFinalizeRound || retryRound === retryRoundLimit) {
                 if (hasExecutableOutput) {
                   writeAssembledBuildOutput(retryParts, dataStream);
                 } else if (retryTextBuffer.trim().length > 0) {
@@ -893,7 +1031,9 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
                   label: 'response-retry',
                   status: 'complete',
                   order: progressCounter++,
-                  message: `Executable build actions generated (round ${retryRound}/${retryRoundLimit})`,
+                  message: canFinalizeRound
+                    ? `Executable build actions generated (round ${retryRound}/${retryRoundLimit})`
+                    : `Recovery ended at round ${retryRound}/${retryRoundLimit}; best available executable output emitted`,
                 } satisfies ProgressAnnotation);
 
                 if (retryPendingFinishPart) {

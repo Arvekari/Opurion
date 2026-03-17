@@ -2,9 +2,10 @@ import { useStore } from '@nanostores/react';
 import type { Message } from 'ai';
 import { useChat } from '@ai-sdk/react';
 import { useAnimate } from 'framer-motion';
-import { memo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BoltChatTransport } from '~/lib/chat/boltChatTransport';
 import { toast } from 'react-toastify';
+import { getDebugLogger } from '~/utils/debugLogger';
 import { useMessageParser, usePromptEnhancer, useShortcuts } from '~/lib/hooks';
 import { description, useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
@@ -55,6 +56,87 @@ const shouldRetryTransientSendError = (error: unknown) => {
   );
 };
 
+function showInfoToast(message: string) {
+  const maybeInfoToast = (toast as { info?: (content: string) => void }).info;
+
+  if (typeof maybeInfoToast === 'function') {
+    maybeInfoToast(message);
+    return;
+  }
+
+  logger.info(`Toast info unavailable: ${message}`);
+}
+
+function getWebContainerDependencyRepairHints(alertContent?: string): string[] {
+  const details = (alertContent || '').toLowerCase();
+  const hints: string[] = [];
+
+  const hasSqliteNativeIssue =
+    details.includes("cannot find package 'sqlite3'") ||
+    details.includes('cannot find package "sqlite3"') ||
+    details.includes('better-sqlite3') ||
+    details.includes('db.exec is not a function');
+  const hasFastApiContext = details.includes('fastapi') || details.includes('uvicorn') || details.includes('python');
+  const hasUnexpectedTokenHtml =
+    details.includes("unexpected token '<'") ||
+    details.includes('unexpected token <') ||
+    details.includes('application error');
+
+  if (hasSqliteNativeIssue) {
+    hints.push('- Requirement: SQLite support must remain enabled in-container; do not remove DB functionality as a workaround.');
+    hints.push('- WebContainer compatibility: for Node backends prefer `node:sqlite` (`DatabaseSync`) or another non-native SQLite path instead of native addons that fail to load.');
+    hints.push('- If DB adapter changes, update server code so used methods (for example `exec`) match the selected API.');
+  }
+
+  if (hasFastApiContext || hasSqliteNativeIssue) {
+    hints.push('- FastAPI + SQLite support is required in container previews; for Python use built-in `sqlite3` and ensure `uvicorn` startup still works.');
+  }
+
+  if (hasUnexpectedTokenHtml) {
+    hints.push('- Parser fix: `Unexpected token \'<\'` usually means HTML error content is being parsed as JSON/JS; verify API response `content-type` before parsing.');
+    hints.push('- Add guarded parsing in frontend/backend (`response.ok` + `content-type.includes("application/json")`) and surface raw text on non-JSON responses.');
+  }
+
+  return hints;
+}
+
+const AUTO_REPAIR_MIN_INTERVAL_MS = 45_000;
+const QUEUE_WATCHDOG_INTERVAL_MS = 1500;
+const QUEUE_WATCHDOG_STUCK_MS = 8000;
+const QUEUE_WATCHDOG_LOG_THROTTLE_MS = 15000;
+const CHAT_MODE_COOKIE_KEY = 'chatMode';
+
+function normalizePreviewAlertContent(content?: string): string {
+  return (content || '')
+    .replace(/URL:\s.*$/gim, '')
+    .replace(/Ready state:\s.*$/gim, '')
+    .replace(/\"reason\"\s*:\s*\"[^\"]+\"/gim, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function buildPreviewAutoRepairSignature(alert: { title: string; description: string; content?: string }): string {
+  const normalizedContent = normalizePreviewAlertContent(alert.content);
+  return `${alert.title}::${alert.description}::${normalizedContent.slice(0, 500)}`;
+}
+
+function buildStreamActivitySignature(messages: Message[]) {
+  return messages
+    .map((message) => {
+      const parts = (message as any).parts;
+      const partText = Array.isArray(parts)
+        ? parts
+            .filter((part: any) => part.type === 'text')
+            .map((part: any) => part.text ?? '')
+            .join('')
+        : '';
+      const content = typeof message.content === 'string' ? message.content : '';
+
+      return `${message.id}:${message.role}:${content}:${partText}`;
+    })
+    .join('|');
+}
+
 export function Chat() {
   renderLogger.trace('Chat');
 
@@ -104,6 +186,17 @@ interface ChatProps {
   importChat: (description: string, messages: Message[]) => Promise<void>;
   exportChat: () => void;
   description?: string;
+}
+
+interface QueuedChatMessage {
+  id: string;
+  editableText: string;
+  messageText: string;
+  imageDataList: string[];
+  uploadedFiles: File[];
+  conversationId?: string;
+  branchMode?: string;
+  queuedAtMs: number;
 }
 
 export const ChatImpl = memo(
@@ -157,11 +250,28 @@ export const ChatImpl = memo(
     const { showChat } = useStore(chatStore);
     const [animationScope, animate] = useAnimate();
     const [apiKeys, setApiKeys] = useState<Record<string, string>>({});
-    const [chatMode, setChatMode] = useState<'discuss' | 'build'>('build');
+    const [chatMode, setChatModeState] = useState<'discuss' | 'build'>('discuss');
     const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(null);
     const [isStalledStream, setIsStalledStream] = useState(false);
+    const queuedMessagesRef = useRef<QueuedChatMessage[]>([]);
+    const [queuedMessages, setQueuedMessages] = useState<QueuedChatMessage[]>([]);
+    const [queuedMessageCount, setQueuedMessageCount] = useState(0);
+    const [isDispatchingQueuedMessage, setIsDispatchingQueuedMessage] = useState(false);
+    const [queueDispatchTick, setQueueDispatchTick] = useState(0);
+    const lastQueueWatchdogLogAtRef = useRef(0);
+    const previewAutoRepairRef = useRef<{
+      attemptsBySignature: Map<string, number>;
+      lastAttemptBySignature: Map<string, number>;
+      inFlightSignature?: string;
+    }>({
+      attemptsBySignature: new Map<string, number>(),
+      lastAttemptBySignature: new Map<string, number>(),
+      inFlightSignature: undefined,
+    });
     const streamStartedAtRef = useRef<number | null>(null);
     const lastChunkReceivedAtRef = useRef<number | null>(null);
+    const lastStreamActivitySignatureRef = useRef<string>('');
+    const lastLoggedStreamingPhaseRef = useRef<'submitted' | 'streaming' | null>(null);
     const mcpSettings = useMCPStore((state) => state.settings);
     const collab = useStore(collabStore);
 
@@ -190,6 +300,19 @@ export const ChatImpl = memo(
 
     const streamStallTimeoutMs = getStreamingStallTimeoutMs(provider.name);
 
+    useEffect(() => {
+      const persistedChatMode = Cookies.get(CHAT_MODE_COOKIE_KEY);
+
+      if (persistedChatMode === 'build' || persistedChatMode === 'discuss') {
+        setChatModeState(persistedChatMode);
+      }
+    }, []);
+
+    const setChatMode = useCallback((mode: 'discuss' | 'build') => {
+      setChatModeState(mode);
+      Cookies.set(CHAT_MODE_COOKIE_KEY, mode, { expires: 30 });
+    }, []);
+
     // Create transport once; it reads chatBodyRef.current on every request.
     const chatTransportRef = useRef<BoltChatTransport | null>(null);
 
@@ -210,6 +333,7 @@ export const ChatImpl = memo(
       messages: initialMessages,
       onError: (e: unknown) => {
         setFakeLoading(false);
+        setQueueDispatchTick((current) => current + 1);
         handleError(e, 'chat');
       },
       onFinish: (eventOrMessage: any) => {
@@ -240,6 +364,7 @@ export const ChatImpl = memo(
         }
 
         logger.debug('Finished streaming');
+        setQueueDispatchTick((current) => current + 1);
 
         if (collab.selectedConversationId && msgContent) {
           void fetch('/api/collab/conversations', {
@@ -259,6 +384,38 @@ export const ChatImpl = memo(
 
     // v3 useChat no longer returns isLoading — derive from status
     const isLoading = status === 'streaming' || status === 'submitted';
+
+    useEffect(() => {
+      if (status === 'submitted' && lastLoggedStreamingPhaseRef.current !== 'submitted') {
+        lastLoggedStreamingPhaseRef.current = 'submitted';
+        logStore.logSystem('Model request submitted; waiting for first response chunk', {
+          component: 'Chat',
+          action: 'stream-status',
+          phase: 'submitted',
+          provider: provider.name,
+          model,
+        });
+
+        return;
+      }
+
+      if (status === 'streaming' && lastLoggedStreamingPhaseRef.current !== 'streaming') {
+        lastLoggedStreamingPhaseRef.current = 'streaming';
+        logStore.logSystem('Model response is actively streaming', {
+          component: 'Chat',
+          action: 'stream-status',
+          phase: 'streaming',
+          provider: provider.name,
+          model,
+        });
+
+        return;
+      }
+
+      if (status === 'ready') {
+        lastLoggedStreamingPhaseRef.current = null;
+      }
+    }, [model, provider.name, status]);
 
     // Compatibility shim: expose append() so BaseChat action buttons keep working
     const append = useCallback(
@@ -307,14 +464,18 @@ export const ChatImpl = memo(
     }, []);
 
     useEffect(() => {
+      const streamActivitySignature = buildStreamActivitySignature(messages);
+
+      if ((isLoading || fakeLoading) && streamActivitySignature !== lastStreamActivitySignatureRef.current) {
+        lastStreamActivitySignatureRef.current = streamActivitySignature;
+        lastChunkReceivedAtRef.current = Date.now();
+      } else if (!isLoading && !fakeLoading) {
+        lastStreamActivitySignatureRef.current = streamActivitySignature;
+      }
+
       if (collab.selectedConversationId) {
         parseMessages(messages, isLoading, chatMode);
         return;
-      }
-
-      // Track when chunks arrive during streaming
-      if (isLoading || fakeLoading) {
-        lastChunkReceivedAtRef.current = Date.now();
       }
 
       processSampledMessages({
@@ -378,7 +539,6 @@ export const ChatImpl = memo(
       } else {
         if (!streamStartedAtRef.current) {
           streamStartedAtRef.current = Date.now();
-          lastChunkReceivedAtRef.current = Date.now();
         }
 
         stallTimer = setTimeout(() => {
@@ -557,6 +717,12 @@ export const ChatImpl = memo(
       return parts;
     };
 
+    const setQueuedMessageState = useCallback((nextQueuedMessages: QueuedChatMessage[]) => {
+      queuedMessagesRef.current = nextQueuedMessages;
+      setQueuedMessages(nextQueuedMessages);
+      setQueuedMessageCount(nextQueuedMessages.length);
+    }, []);
+
     const filesToAttachments = async (files: File[]): Promise<Attachment[] | undefined> => {
       if (files.length === 0) {
         return undefined;
@@ -612,6 +778,46 @@ export const ChatImpl = memo(
 
         await new Promise((resolve) => setTimeout(resolve, 500));
         return chatSendMessage({ text: userMessage.content });
+      }
+    };
+
+    const sendPreparedMessage = async (payload: QueuedChatMessage, action: string) => {
+      const attachmentOptions =
+        payload.uploadedFiles.length > 0
+          ? { experimental_attachments: await filesToAttachments(payload.uploadedFiles) }
+          : undefined;
+
+      await Promise.resolve(
+        sendViaChatApi(
+          {
+            role: 'user',
+            content: payload.messageText,
+            parts: createMessageParts(payload.messageText, payload.imageDataList),
+          },
+          attachmentOptions,
+        ),
+      );
+
+      logStore.logProvider('Submitting message to /api/chat', {
+        component: 'Chat',
+        action,
+        provider: provider.name,
+        model,
+        hasAttachments: !!attachmentOptions,
+      });
+
+      if (payload.conversationId) {
+        void fetch('/api/collab/conversations', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            intent: 'addMessage',
+            conversationId: payload.conversationId,
+            role: 'user',
+            content: payload.messageText,
+            branchMode: payload.branchMode,
+          }),
+        });
       }
     };
 
@@ -678,6 +884,7 @@ export const ChatImpl = memo(
 
     const sendMessage = async (_event: React.UIEvent, messageInput?: string) => {
       const messageContent = messageInput || draftInput;
+      const originalComposerInput = messageContent;
       const hasAttachments = uploadedFiles.length > 0 || imageDataList.length > 0;
 
       logStore.logUserAction('Send requested', {
@@ -694,39 +901,12 @@ export const ChatImpl = memo(
         return;
       }
 
-      if (isLoading) {
-        // Recovery path: if UI is stuck in loading state with no visible messages,
-        // clear loading and continue with the new send instead of hard-aborting.
-        if (messages.length === 0 || fakeLoading) {
-          logStore.logSystem('Recovered from stuck loading state before send', {
-            component: 'Chat',
-            action: 'sendMessage:recover-stuck-loading',
-            isLoading,
-            fakeLoading,
-            isStalledStream,
-            messagesLength: messages.length,
-          });
-          stop();
-          setFakeLoading(false);
-          setIsStalledStream(false);
-        } else if (isStalledStream) {
-          stop();
-        } else {
-          abort();
-          return;
-        }
-      }
-
-      if (isStalledStream) {
-        setIsStalledStream(false);
-      }
-
       let finalMessageContent = messageContent;
 
       if (selectedElement) {
         console.log('Selected Element:', selectedElement);
 
-        const elementInfo = `<div class=\"__boltSelectedElement__\" data-element='${JSON.stringify(selectedElement)}'>${JSON.stringify(`${selectedElement.displayText}`)}</div>`;
+        const elementInfo = `<div class="__boltSelectedElement__" data-element='${JSON.stringify(selectedElement)}'>${JSON.stringify(`${selectedElement.displayText}`)}</div>`;
         finalMessageContent = messageContent + elementInfo;
       }
 
@@ -734,6 +914,47 @@ export const ChatImpl = memo(
 
       if (runtimeDiagnosticsPrefix) {
         finalMessageContent = `${runtimeDiagnosticsPrefix}\n\n${finalMessageContent}`;
+      }
+
+      if (isLoading || fakeLoading || isDispatchingQueuedMessage) {
+        const contextualContent = withCollabContext(finalMessageContent);
+        const messageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${contextualContent}`;
+        const queuedPayload: QueuedChatMessage = {
+          id: `queued-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          editableText: finalMessageContent,
+          messageText,
+          imageDataList: [...imageDataList],
+          uploadedFiles: [...uploadedFiles],
+          conversationId: collab.selectedConversationId || undefined,
+          branchMode: collab.branchMode,
+          queuedAtMs: Date.now(),
+        };
+
+        setQueuedMessageState([...queuedMessagesRef.current, queuedPayload]);
+        setQueueDispatchTick((current) => current + 1);
+
+        addToAttachmentLibrary([...uploadedFiles], [...imageDataList]);
+        setDraftInput('');
+        Cookies.remove(PROMPT_COOKIE_KEY);
+        setUploadedFiles([]);
+        setImageDataList([]);
+        resetEnhancer();
+        textareaRef.current?.blur();
+
+        logStore.logSystem('Message queued while response is in progress', {
+          component: 'Chat',
+          action: 'sendMessage:queued',
+          provider: provider.name,
+          model,
+          queuedCount: queuedMessagesRef.current.length,
+        });
+
+        showInfoToast(`Message queued (${queuedMessagesRef.current.length})`);
+        return;
+      }
+
+      if (isStalledStream) {
+        setIsStalledStream(false);
       }
 
       runAnimation();
@@ -836,21 +1057,28 @@ export const ChatImpl = memo(
         const userUpdateArtifact = filesToArtifacts(modifiedFiles, `${Date.now()}`);
         const contextualContent = withCollabContext(`${userUpdateArtifact}${finalMessageContent}`);
         const messageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${contextualContent}`;
+        const capturedImageDataList = [...imageDataList];
+        const capturedUploadedFiles = [...uploadedFiles];
 
-        const attachmentOptions =
-          uploadedFiles.length > 0 ? { experimental_attachments: await filesToAttachments(uploadedFiles) } : undefined;
+        setDraftInput('');
+        Cookies.remove(PROMPT_COOKIE_KEY);
+        setUploadedFiles([]);
+        setImageDataList([]);
+        resetEnhancer();
+        textareaRef.current?.blur();
 
         try {
-          await Promise.resolve(
-            sendViaChatApi(
-              {
-                role: 'user',
-                content: messageText,
-                parts: createMessageParts(messageText, imageDataList),
-              },
-              attachmentOptions,
-            ),
+          await sendPreparedMessage(
+            {
+              messageText,
+              imageDataList: capturedImageDataList,
+              uploadedFiles: capturedUploadedFiles,
+              conversationId: collab.selectedConversationId || undefined,
+              branchMode: collab.branchMode,
+            },
+            'sendMessage:append-modified-files',
           );
+          addToAttachmentLibrary(capturedUploadedFiles, capturedImageDataList);
         } catch (appendError) {
           logger.error('Message append failed (modified files path)', appendError);
           logStore.logError('Message append failed (modified files path)', appendError, {
@@ -860,55 +1088,43 @@ export const ChatImpl = memo(
             model,
           });
           handleError(appendError, 'chat');
+          setDraftInput(originalComposerInput ?? '');
+          setUploadedFiles(capturedUploadedFiles);
+          setImageDataList(capturedImageDataList);
           return;
-        }
-
-        logStore.logProvider('Submitting message update to /api/chat', {
-          component: 'Chat',
-          action: 'sendMessage:append-modified-files',
-          provider: provider.name,
-          model,
-          hasAttachments: !!attachmentOptions,
-        });
-
-        if (collab.selectedConversationId) {
-          void fetch('/api/collab/conversations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              intent: 'addMessage',
-              conversationId: collab.selectedConversationId,
-              role: 'user',
-              content: messageText,
-              branchMode: collab.branchMode,
-            }),
-          });
         }
 
         workbenchStore.resetAllFileModifications();
       } else {
         const contextualContent = withCollabContext(finalMessageContent);
         const messageText = `[Model: ${model}]\n\n[Provider: ${provider.name}]\n\n${contextualContent}`;
-
-        const attachmentOptions =
-          uploadedFiles.length > 0 ? { experimental_attachments: await filesToAttachments(uploadedFiles) } : undefined;
+        const capturedImageDataList = [...imageDataList];
+        const capturedUploadedFiles = [...uploadedFiles];
 
         console.log('🚀 Sending message via chat API:', {
           content: messageText.substring(0, 100),
-          hasAttachments: !!attachmentOptions,
+          hasAttachments: uploadedFiles.length > 0,
         });
 
+        setDraftInput('');
+        Cookies.remove(PROMPT_COOKIE_KEY);
+        setUploadedFiles([]);
+        setImageDataList([]);
+        resetEnhancer();
+        textareaRef.current?.blur();
+
         try {
-          await Promise.resolve(
-            sendViaChatApi(
-              {
-                role: 'user',
-                content: messageText,
-                parts: createMessageParts(messageText, imageDataList),
-              },
-              attachmentOptions,
-            ),
+          await sendPreparedMessage(
+            {
+              messageText,
+              imageDataList: capturedImageDataList,
+              uploadedFiles: capturedUploadedFiles,
+              conversationId: collab.selectedConversationId || undefined,
+              branchMode: collab.branchMode,
+            },
+            'sendMessage:append',
           );
+          addToAttachmentLibrary(capturedUploadedFiles, capturedImageDataList);
         } catch (appendError) {
           logger.error('Message append failed', appendError);
           logStore.logError('Message append failed', appendError, {
@@ -918,45 +1134,197 @@ export const ChatImpl = memo(
             model,
           });
           handleError(appendError, 'chat');
+          setDraftInput(originalComposerInput ?? '');
+          setUploadedFiles(capturedUploadedFiles);
+          setImageDataList(capturedImageDataList);
           return;
         }
 
-        logStore.logProvider('Submitting message to /api/chat', {
-          component: 'Chat',
-          action: 'sendMessage:append',
-          provider: provider.name,
-          model,
-          hasAttachments: !!attachmentOptions,
-        });
-
         console.log('✅ Append called, messages state should update soon');
+      }
+    };
 
-        if (collab.selectedConversationId) {
-          void fetch('/api/collab/conversations', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              intent: 'addMessage',
-              conversationId: collab.selectedConversationId,
-              role: 'user',
-              content: messageText,
-              branchMode: collab.branchMode,
-            }),
-          });
-        }
+    useEffect(() => {
+      const currentlyStreaming = isLoading || fakeLoading;
+
+      if (currentlyStreaming || isDispatchingQueuedMessage) {
+        return;
       }
 
-      setDraftInput('');
-      Cookies.remove(PROMPT_COOKIE_KEY);
+      const [nextMessage, ...remainingMessages] = queuedMessagesRef.current;
 
-      addToAttachmentLibrary([...uploadedFiles], [...imageDataList]);
-      setUploadedFiles([]);
-      setImageDataList([]);
+      if (!nextMessage) {
+        if (queuedMessageCount !== 0) {
+          setQueuedMessageCount(0);
+        }
 
-      resetEnhancer();
+        return;
+      }
 
-      textareaRef.current?.blur();
-    };
+      setQueuedMessageState(remainingMessages);
+      setIsDispatchingQueuedMessage(true);
+
+      sendPreparedMessage(nextMessage, 'sendMessage:queued-dispatch')
+        .catch((queuedError) => {
+          setQueuedMessageState([nextMessage, ...queuedMessagesRef.current]);
+          logger.error('Queued message dispatch failed', queuedError);
+          logStore.logError('Queued message dispatch failed', queuedError, {
+            component: 'Chat',
+            action: 'sendMessage:queued-dispatch',
+            provider: provider.name,
+            model,
+          });
+          handleError(queuedError, 'chat');
+        })
+        .finally(() => {
+          setIsDispatchingQueuedMessage(false);
+          setQueueDispatchTick((current) => current + 1);
+        });
+    }, [
+      fakeLoading,
+      handleError,
+      isDispatchingQueuedMessage,
+      isLoading,
+      model,
+      provider.name,
+      queueDispatchTick,
+      queuedMessageCount,
+    ]);
+
+    useEffect(() => {
+      if (isLoading || fakeLoading || isDispatchingQueuedMessage) {
+        return;
+      }
+
+      const timer = setInterval(() => {
+        if (isLoading || fakeLoading || isDispatchingQueuedMessage) {
+          return;
+        }
+
+        const queuedCount = queuedMessagesRef.current.length;
+
+        if (queuedCount === 0) {
+          if (queuedMessageCount !== 0) {
+            setQueuedMessageCount(0);
+          }
+
+          return;
+        }
+
+        const oldestQueuedMessage = queuedMessagesRef.current[0];
+
+        if (!oldestQueuedMessage) {
+          return;
+        }
+
+        const queuedForMs = Date.now() - oldestQueuedMessage.queuedAtMs;
+
+        if (queuedForMs < QUEUE_WATCHDOG_STUCK_MS) {
+          return;
+        }
+
+        const now = Date.now();
+
+        if (now - lastQueueWatchdogLogAtRef.current >= QUEUE_WATCHDOG_LOG_THROTTLE_MS) {
+          lastQueueWatchdogLogAtRef.current = now;
+          logger.warn('Queue watchdog detected stuck queued messages; forcing next dispatch', {
+            queuedCount,
+            queuedForMs,
+            provider: provider.name,
+            model,
+          });
+        }
+
+        const [nextMessage, ...remainingMessages] = queuedMessagesRef.current;
+
+        if (!nextMessage) {
+          return;
+        }
+
+        setQueuedMessageState(remainingMessages);
+        setIsDispatchingQueuedMessage(true);
+
+        sendPreparedMessage(nextMessage, 'sendMessage:queued-watchdog-dispatch')
+          .catch((queuedError) => {
+            setQueuedMessageState([nextMessage, ...queuedMessagesRef.current]);
+            logger.error('Queued message watchdog dispatch failed', queuedError);
+            logStore.logError('Queued message watchdog dispatch failed', queuedError, {
+              component: 'Chat',
+              action: 'sendMessage:queued-watchdog-dispatch',
+              provider: provider.name,
+              model,
+            });
+            handleError(queuedError, 'chat');
+          })
+          .finally(() => {
+            setIsDispatchingQueuedMessage(false);
+          });
+      }, QUEUE_WATCHDOG_INTERVAL_MS);
+
+      return () => {
+        clearInterval(timer);
+      };
+    }, [fakeLoading, handleError, isDispatchingQueuedMessage, isLoading, model, provider.name, queuedMessageCount, setQueuedMessageState]);
+
+    const handleRemoveQueuedMessage = useCallback(
+      (queuedMessageId: string) => {
+        const remainingMessages = queuedMessagesRef.current.filter((message) => message.id !== queuedMessageId);
+        setQueuedMessageState(remainingMessages);
+      },
+      [setQueuedMessageState],
+    );
+
+    const handleEditQueuedMessage = useCallback(
+      (queuedMessageId: string) => {
+        const queuedMessage = queuedMessagesRef.current.find((message) => message.id === queuedMessageId);
+
+        if (!queuedMessage) {
+          return;
+        }
+
+        const remainingMessages = queuedMessagesRef.current.filter((message) => message.id !== queuedMessageId);
+        setQueuedMessageState(remainingMessages);
+        setDraftInput(queuedMessage.editableText);
+        setUploadedFiles(queuedMessage.uploadedFiles);
+        setImageDataList(queuedMessage.imageDataList);
+
+        requestAnimationFrame(() => {
+          textareaRef.current?.focus();
+        });
+      },
+      [setQueuedMessageState],
+    );
+
+    const displayedMessages = useMemo(() => {
+      const normalizedMessages = messages.map((message: Message, i: number) => {
+        if (message.role === 'user') {
+          if (!message.content && (message as any).parts?.length) {
+            const textFromParts = (message as any).parts
+              .filter((p: any) => p.type === 'text')
+              .map((p: any) => p.text ?? '')
+              .join('');
+            return { ...message, content: textFromParts };
+          }
+
+          return message;
+        }
+
+        return {
+          ...message,
+          content: parsedMessages[i] || message.content || '',
+        };
+      });
+
+      const queuedMessagePreviews = queuedMessages.map((queuedMessage) => ({
+        id: queuedMessage.id,
+        role: 'user' as const,
+        content: queuedMessage.messageText,
+        parts: createMessageParts(queuedMessage.messageText, queuedMessage.imageDataList),
+        annotations: ['queued'],
+      }));
+
+      return [...normalizedMessages, ...queuedMessagePreviews];
+    }, [messages, parsedMessages, queuedMessages]);
 
     /**
      * Handles the change event for the textarea and updates the input state.
@@ -1039,11 +1407,124 @@ export const ChatImpl = memo(
       [draftInput],
     );
 
+    useEffect(() => {
+      if (!actionAlert || actionAlert.source !== 'preview') {
+        return;
+      }
+
+      const signature = buildPreviewAutoRepairSignature(actionAlert);
+      const attempts = previewAutoRepairRef.current.attemptsBySignature.get(signature) || 0;
+      const lastAttemptAt = previewAutoRepairRef.current.lastAttemptBySignature.get(signature) || 0;
+      const now = Date.now();
+
+      if (previewAutoRepairRef.current.inFlightSignature === signature) {
+        return;
+      }
+
+      if (lastAttemptAt > 0 && now - lastAttemptAt < AUTO_REPAIR_MIN_INTERVAL_MS) {
+        return;
+      }
+
+      if (attempts >= 2) {
+        return;
+      }
+
+      if (isLoading || fakeLoading) {
+        return;
+      }
+
+      previewAutoRepairRef.current.inFlightSignature = signature;
+      previewAutoRepairRef.current.attemptsBySignature.set(signature, attempts + 1);
+      previewAutoRepairRef.current.lastAttemptBySignature.set(signature, now);
+
+      workbenchStore.clearAlert();
+      showInfoToast(`Auto-repairing preview issue (attempt ${attempts + 1}/2)...`);
+
+      const dispatchAutoRepair = async () => {
+        let diagnosticsBundle = '';
+
+        if (attempts >= 1) {
+          try {
+            const [debugLog, eventLogs] = await Promise.all([
+              getDebugLogger().generateDebugLog(),
+              Promise.resolve(logStore.getLogs()),
+            ]);
+            const recentTerminal = debugLog.terminalLogs.slice(-20);
+            const recentErrors = debugLog.errors.slice(-10);
+            const recentEventLogs = eventLogs.slice(0, 25);
+
+            diagnosticsBundle = [
+              'Attached diagnostics from repeated auto-repair attempts:',
+              `- Terminal log entries: ${debugLog.terminalLogs.length}`,
+              `- Runtime errors: ${debugLog.errors.length}`,
+              `- Event logs: ${eventLogs.length}`,
+              '',
+              'Recent terminal logs:',
+              JSON.stringify(recentTerminal, null, 2),
+              '',
+              'Recent runtime errors:',
+              JSON.stringify(recentErrors, null, 2),
+              '',
+              'Recent event logs:',
+              JSON.stringify(recentEventLogs, null, 2),
+            ].join('\n');
+          } catch (diagnosticsError) {
+            logStore.logError('Failed to collect auto-repair diagnostics bundle', diagnosticsError, {
+              component: 'Chat',
+              action: 'preview-auto-repair:collect-diagnostics',
+              attempt: attempts + 1,
+            });
+          }
+        }
+
+        const repairPrompt = [
+          'Auto-repair request: preview validation failed. Diagnose and fix the project until preview renders correctly.',
+          'Constraints:',
+          '- Detect and fix root cause (build errors, invalid entrypoint content, parser errors, blank render states).',
+          '- Apply concrete file changes and rerun required setup/start steps.',
+          '- Do not ask user for confirmation; continue until preview is working.',
+          '- WebContainer working directory is /home/project — NEVER use /workspace or any other root.',
+          '- Do NOT run diagnostic-only commands like `which node` or `which yarn`; run install/start directly.',
+          '- Prefer `pnpm install` and `pnpm run dev` for WebContainer-based repairs unless the project already proves another package manager is required.',
+          ...getWebContainerDependencyRepairHints(actionAlert.content),
+          '',
+          `Alert title: ${actionAlert.title}`,
+          `Alert description: ${actionAlert.description}`,
+          `Alert details:\n${actionAlert.content || 'n/a'}`,
+          diagnosticsBundle ? `\n${diagnosticsBundle}` : '',
+        ]
+          .filter(Boolean)
+          .join('\n');
+
+        await Promise.resolve(sendMessage({} as any, repairPrompt));
+      };
+
+      dispatchAutoRepair()
+        .catch((error) => {
+          logStore.logError('Automatic preview repair dispatch failed', error, {
+            component: 'Chat',
+            action: 'preview-auto-repair',
+            attempt: attempts + 1,
+          });
+        })
+        .finally(() => {
+          previewAutoRepairRef.current.inFlightSignature = undefined;
+        });
+    }, [actionAlert, fakeLoading, isLoading, sendMessage]);
+
     const effectiveStreaming = resolveEffectiveStreamingState({
       isLoading,
       fakeLoading,
       stalled: isStalledStream,
     });
+
+    const streamingPhase: 'submitted' | 'streaming' | 'stalled' | undefined = isStalledStream
+      ? 'stalled'
+      : status === 'submitted'
+        ? 'submitted'
+        : effectiveStreaming
+          ? 'streaming'
+          : undefined;
 
     return (
       <BaseChat
@@ -1053,6 +1534,7 @@ export const ChatImpl = memo(
         showChat={showChat}
         chatStarted={chatStarted}
         isStreaming={effectiveStreaming}
+        streamingState={streamingPhase}
         onStreamingChange={(streaming) => {
           streamingState.set(streaming);
         }}
@@ -1072,25 +1554,7 @@ export const ChatImpl = memo(
         description={description}
         importChat={importChat}
         exportChat={exportChat}
-        messages={messages.map((message: Message, i: number) => {
-          if (message.role === 'user') {
-            // v3 UIMessages use parts instead of content — populate content for rendering
-            if (!message.content && (message as any).parts?.length) {
-              const textFromParts = (message as any).parts
-                .filter((p: any) => p.type === 'text')
-                .map((p: any) => p.text ?? '')
-                .join('');
-              return { ...message, content: textFromParts };
-            }
-
-            return message;
-          }
-
-          return {
-            ...message,
-            content: parsedMessages[i] || message.content || '',
-          };
-        })}
+        messages={displayedMessages}
         enhancePrompt={() => {
           enhancePrompt(
             draftInput,
@@ -1126,6 +1590,8 @@ export const ChatImpl = memo(
         addToolResult={addToolOutput}
         onWebSearchResult={handleWebSearchResult}
         attachmentLibrary={attachmentLibrary}
+        onEditQueuedMessage={handleEditQueuedMessage}
+        onRemoveQueuedMessage={handleRemoveQueuedMessage}
         onReuseAttachment={(entry) => {
           setUploadedFiles((prev) => [...prev, entry.file]);
           setImageDataList((prev) => [...prev, entry.dataUrl]);

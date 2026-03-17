@@ -1,4 +1,5 @@
 import { generateId } from 'ai';
+import { path } from '~/utils/path';
 
 type InferredFileTarget = {
   filePath: string;
@@ -167,6 +168,62 @@ export function hasBoltMarkup(content: string): boolean {
   return /<boltArtifact\b|<boltAction\b|&lt;boltArtifact\b|&lt;boltAction\b/i.test(content);
 }
 
+function isLikelyErrorPayload(content: string): boolean {
+  const trimmed = content.trim();
+
+  if (!trimmed) {
+    return false;
+  }
+
+  if (/\bBuild mode does not support narrative descriptions\b/i.test(trimmed)) {
+    return true;
+  }
+
+  const fencedJsonMatch = trimmed.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/i);
+  const candidate = fencedJsonMatch?.[1]?.trim() || trimmed;
+
+  if (!/^\{[\s\S]*\}$/.test(candidate)) {
+    return false;
+  }
+
+  try {
+    const parsed = JSON.parse(candidate) as Record<string, unknown>;
+
+    if (Array.isArray((parsed as any).artifacts) || Array.isArray((parsed as any).actions)) {
+      return false;
+    }
+
+    const errorValue = parsed.error;
+
+    return typeof errorValue === 'string' && errorValue.trim().length > 0;
+  } catch {
+    return false;
+  }
+}
+
+function isLikelyNarrativeHtml(content: string): boolean {
+  if (!/<!doctype html>|<html[\s>]/i.test(content)) {
+    return false;
+  }
+
+  const normalized = content.toLowerCase();
+
+  const narrativePhrases = [
+    "here's an outline",
+    'here is an outline',
+    'sample structure',
+    "we'll include",
+    'we will include',
+    'this structure provides',
+  ];
+
+  const hasNarrativePhrase = narrativePhrases.some((phrase) => normalized.includes(phrase));
+  const hasMarkdownResidue = /\*\*[^*]+\*\*|(^|\n)#{2,}\s+/m.test(content);
+  const hasOutlineListPattern = /<p>\s*\d+\.\s*\*\*/i.test(content);
+
+  return hasNarrativePhrase || hasMarkdownResidue || hasOutlineListPattern;
+}
+
 export function shouldRetryOllamaBuildNarrative(content: string): boolean {
   const trimmed = content.trim();
 
@@ -175,11 +232,15 @@ export function shouldRetryOllamaBuildNarrative(content: string): boolean {
   }
 
   if (/<!doctype html>|<html[\s>]/i.test(trimmed)) {
-    return false;
+    return isLikelyNarrativeHtml(trimmed);
   }
 
   if (trimmed.length < 24) {
     return false;
+  }
+
+  if (isLikelyErrorPayload(trimmed)) {
+    return true;
   }
 
   return !synthesizeBoltArtifactFromContent(trimmed);
@@ -203,7 +264,7 @@ export function synthesizePreviewStartActionForExistingArtifacts(content: string
     /<boltAction\s+type="file"[^>]*filePath="\/package\.json"[^>]*>\s*([\s\S]*?)\s*<\/boltAction>/i,
   );
 
-  let previewStartCommand = 'npx vite --host 0.0.0.0 --port 4173';
+  let previewStartCommand = 'npx --yes vite --host 0.0.0.0 --port 4173';
 
   if (packageJsonMatch?.[1]) {
     try {
@@ -231,7 +292,8 @@ export function synthesizeMissingProjectEssentialsForExistingArtifacts(content: 
   }
 
   const filePathMatches = Array.from(trimmed.matchAll(/<boltAction\s+type="file"[^>]*filePath="([^"]+)"/gi));
-  const filePaths = new Set(filePathMatches.map((match) => (match[1] || '').toLowerCase()));
+  const normalizedFilePaths = filePathMatches.map((match) => (match[1] || '').trim()).filter(Boolean);
+  const filePaths = new Set(normalizedFilePaths.map((filePath) => filePath.toLowerCase()));
 
   if (filePaths.size === 0) {
     return undefined;
@@ -240,8 +302,8 @@ export function synthesizeMissingProjectEssentialsForExistingArtifacts(content: 
   const hasPackageJson = filePaths.has('/package.json');
   const hasIndexHtml = filePaths.has('/index.html');
   const hasReactEntry =
-    Array.from(filePaths).some((filePath) => /(?:^|\/)app\.(?:tsx|jsx)$/i.test(filePath)) ||
-    Array.from(filePaths).some((filePath) => /(?:^|\/)main\.(?:tsx|jsx)$/i.test(filePath)) ||
+    Array.from(filePaths).some((filePath) => /(?:^|\/)app\.(?:tsx|jsx|ts|js)$/i.test(filePath)) ||
+    Array.from(filePaths).some((filePath) => /(?:^|\/)(?:main|index)\.(?:tsx|jsx|ts|js)$/i.test(filePath)) ||
     trimmed.includes("from 'react'") ||
     trimmed.includes('from "react"');
 
@@ -251,13 +313,38 @@ export function synthesizeMissingProjectEssentialsForExistingArtifacts(content: 
     return undefined;
   }
 
+  const existingEntryFile = normalizedFilePaths.find((filePath) => /(?:^|\/)(?:main|index)\.(?:tsx|jsx|ts|js)$/i.test(filePath));
+  const appFile = normalizedFilePaths.find((filePath) => /(?:^|\/)app\.(?:tsx|jsx|ts|js)$/i.test(filePath));
+  const synthesizedEntryFile = !existingEntryFile && appFile
+    ? path.join(path.dirname(appFile), /\.tsx?$/i.test(appFile) ? 'main.tsx' : 'main.js')
+    : undefined;
+  const htmlEntryFile = existingEntryFile || synthesizedEntryFile || '/src/main.tsx';
+
   const actions: string[] = [];
+
+  if (synthesizedEntryFile && appFile) {
+    const appImportPath = `./${path.basename(appFile)}`;
+    const isTypeScriptEntry = /\.tsx?$/i.test(synthesizedEntryFile);
+    const usesTypedAppImport = /\.tsx?$/i.test(appFile);
+
+    actions.push(`<boltAction type="file" filePath="${synthesizedEntryFile}">
+import React from 'react';
+import ReactDOM from 'react-dom/client';
+import App from '${appImportPath}';
+
+ReactDOM.createRoot(document.getElementById('root')${isTypeScriptEntry ? ' as HTMLElement' : ''}).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+);
+</boltAction>`);
+  }
 
   if (!hasPackageJson) {
     actions.push(`<boltAction type="file" filePath="/package.json">
 ${JSON.stringify(
   {
-    name: 'bolt-react-app',
+    name: 'opurion-react-app',
     private: true,
     version: '1.0.0',
     type: 'module',
@@ -295,7 +382,7 @@ ${JSON.stringify(
   </head>
   <body>
     <div id="root"></div>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="${htmlEntryFile}"></script>
   </body>
 </html>
 </boltAction>`);
@@ -610,8 +697,19 @@ export default function App() {
 `;
 }
 
-function narrativeToViteConfig(content: string): string {
+function narrativeToViteConfig(content: string, format: 'esm' | 'cjs' = 'esm'): string {
   const summary = sanitizeNarrativeForComment(content);
+
+  if (format === 'cjs') {
+    return `// ${summary}
+module.exports = {
+  server: {
+    host: '0.0.0.0',
+    port: 4173,
+  },
+};
+`;
+  }
 
   return `import { defineConfig } from 'vite';
 
@@ -637,6 +735,11 @@ function narrativeToPackageJson(content: string): string {
       scripts: {
         dev: 'vite',
         start: 'vite',
+        build: 'vite build',
+        preview: 'vite preview --host 0.0.0.0 --port 4173',
+      },
+      devDependencies: {
+        vite: '^5.4.8',
       },
     },
     null,
@@ -655,8 +758,16 @@ function synthesizeContentForTarget(filePath: string, narrative: string): string
     return narrativeToPackageJson(narrative);
   }
 
-  if (normalizedPath.endsWith('/vite.config.ts')) {
+  if (normalizedPath.endsWith('/vite.config.ts') || normalizedPath.endsWith('/vite.config.mts')) {
     return narrativeToViteConfig(narrative);
+  }
+
+  if (normalizedPath.endsWith('/vite.config.js') || normalizedPath.endsWith('/vite.config.cjs')) {
+    return narrativeToViteConfig(narrative, 'cjs');
+  }
+
+  if (normalizedPath.endsWith('/vite.config.mjs')) {
+    return narrativeToViteConfig(narrative, 'esm');
   }
 
   if (normalizedPath.endsWith('/routes/web.php')) {
@@ -905,7 +1016,7 @@ function buildArtifactPayload(filePath: string, code: string): string {
   const title = filePath.split('/').pop() || 'Generated file';
   const isReactEntry = /\/App\.(?:tsx|jsx)$|\/main\.(?:tsx|jsx)$/i.test(filePath);
   const shouldAutoPreview = filePath === '/index.html' || isReactEntry;
-  const previewCommand = isReactEntry ? 'npm run dev' : 'npx vite --host 0.0.0.0 --port 4173';
+  const previewCommand = isReactEntry ? 'npm run dev' : 'npx --yes vite --host 0.0.0.0 --port 4173';
   const previewStartAction = shouldAutoPreview
     ? `
 <boltAction type="start">
@@ -918,7 +1029,7 @@ ${previewCommand}
 <boltAction type="file" filePath="/package.json">
 ${JSON.stringify(
   {
-    name: 'bolt-react-app',
+    name: 'opurion-react-app',
     private: true,
     version: '1.0.0',
     type: 'module',
@@ -950,6 +1061,10 @@ ${JSON.stringify(
 
 export function synthesizeBoltArtifactFromContent(content: string): string | undefined {
   if (!content || hasBoltMarkup(content)) {
+    return undefined;
+  }
+
+  if (isLikelyErrorPayload(content)) {
     return undefined;
   }
 

@@ -17,16 +17,16 @@ export function isStreamingStalled(
   nowMs: number,
   timeoutMs = DEFAULT_STREAM_STALL_TIMEOUT_MS,
 ) {
-  // If stream never started or never received any data, can't determine stall
+  // If stream never started or never received any streamed data, defer to transport-level timeouts.
   if (!startedAtMs || startedAtMs <= 0) {
     return false;
   }
 
-  /*
-   * Use last chunk time if available, otherwise use start time
-   * This way we measure "time since last data" not "total elapsed time"
-   */
-  const relevantTimeMs = lastChunkAtMs && lastChunkAtMs > startedAtMs ? lastChunkAtMs : startedAtMs;
+  if (!lastChunkAtMs || lastChunkAtMs <= 0) {
+    return false;
+  }
+
+  const relevantTimeMs = lastChunkAtMs > startedAtMs ? lastChunkAtMs : startedAtMs;
 
   return nowMs - relevantTimeMs >= timeoutMs;
 }

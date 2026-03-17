@@ -110,4 +110,18 @@ export class EditorStore {
       });
     }
   }
+
+  ensureDocument(filePath: string, content: string, isBinary: boolean = false) {
+    const documents = this.documents.get();
+
+    if (documents[filePath]) {
+      return;
+    }
+
+    this.documents.setKey(filePath, {
+      value: content,
+      filePath,
+      isBinary,
+    });
+  }
 }

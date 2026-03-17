@@ -6,6 +6,7 @@ import {
   escapeBoltAActionTags,
   escapeBoltArtifactTags,
   escapeBoltTags,
+  validateProjectPreflight,
 } from '~/utils/projectCommands';
 
 vi.mock('~/utils/fileUtils', () => ({
@@ -27,8 +28,25 @@ describe('utils/projectCommands', () => {
     const result = await detectProjectCommands(files as any);
 
     expect(result.type).toBe('Node.js');
-    expect(result.startCommand).toBe('npm run dev');
-    expect(result.setupCommand).toContain('npm install --yes --no-audit --no-fund --silent');
+    expect(result.startCommand).toBe('pnpm run dev');
+    expect(result.setupCommand).toContain('pnpm install --frozen-lockfile=false');
+  });
+
+  it('ignores empty script values and chooses next valid preferred script', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: '   ', start: 'node server.js' },
+          dependencies: { express: '^4.0.0' },
+        }),
+      },
+    ];
+
+    const result = await detectProjectCommands(files as any);
+
+    expect(result.type).toBe('Node.js');
+    expect(result.startCommand).toBe('pnpm run start');
   });
 
   it('detects shadcn projects and appends init command', async () => {
@@ -48,7 +66,7 @@ describe('utils/projectCommands', () => {
 
     const result = await detectProjectCommands(files as any);
     expect(result.setupCommand).toContain('npx --yes shadcn@latest init');
-    expect(result.startCommand).toBe('npm run preview');
+    expect(result.startCommand).toBe('pnpm run preview');
   });
 
   it('handles invalid package.json by returning empty command set', async () => {
@@ -120,6 +138,16 @@ describe('utils/projectCommands', () => {
     expect(result.startCommand).toBe('uvicorn main:app --host 0.0.0.0 --port 8000');
   });
 
+  it('falls back to python static HTTP preview when no explicit Python entrypoint is inferred', async () => {
+    const files = [{ path: '/workspace/requirements.txt', content: 'requests\n' }];
+
+    const result = await detectProjectCommands(files as any);
+
+    expect(result.type).toBe('Python');
+    expect(result.setupCommand).toBe('python -m pip install -r requirements.txt');
+    expect(result.startCommand).toBe('python -m http.server 8000 --bind 0.0.0.0');
+  });
+
   it('creates assistant command message when commands exist', () => {
     const message = createCommandsMessage({
       type: 'Node.js',
@@ -160,5 +188,164 @@ describe('utils/projectCommands', () => {
     expect(commands).toContain('<boltAction type="shell">npm install</boltAction>');
     expect(commands).toContain('<boltAction type="start">npm run dev</boltAction>');
     expect(createCommandActionsString({ type: 'Node.js', followupMessage: '' })).toBe('');
+  });
+
+  it('fails preflight when start script runtime package is not declared', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+        }),
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain("scripts.dev uses 'vite' but it is not declared");
+  });
+
+  it('passes preflight when start script runtime package is declared', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+        }),
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('passes preflight when requested start script is missing but a fallback script exists', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { start: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+        }),
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.issues.join('\n')).not.toContain('Missing scripts.dev');
+  });
+
+  it('fails preflight when vite.config.js content is malformed', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+        }),
+      },
+      {
+        path: '/workspace/vite.config.js',
+        content: 'This is not a valid config export',
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain('Invalid Vite config');
+  });
+
+  it('passes preflight when vite.config.js exports an object', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+        }),
+      },
+      {
+        path: '/workspace/vite.config.js',
+        content: "module.exports = { server: { host: '0.0.0.0', port: 4173 } };",
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it('fails preflight when postcss.config.json is malformed JSON', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+        }),
+      },
+      {
+        path: '/workspace/postcss.config.json',
+        content: '{invalid-json',
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.issues.join('\n')).toContain('Invalid PostCSS JSON config');
+  });
+
+  it('passes preflight when postcss.config.json is valid JSON', async () => {
+    const files = [
+      {
+        path: '/workspace/package.json',
+        content: JSON.stringify({
+          scripts: { dev: 'vite --host 0.0.0.0 --port 4173' },
+          devDependencies: { vite: '^5.0.0' },
+        }),
+      },
+      {
+        path: '/workspace/postcss.config.json',
+        content: JSON.stringify({ plugins: { autoprefixer: {} } }),
+      },
+    ];
+
+    const result = await validateProjectPreflight(files as any, {
+      type: 'Node.js',
+      setupCommand: 'npm install',
+      startCommand: 'npm run dev',
+    });
+
+    expect(result.ok).toBe(true);
   });
 });

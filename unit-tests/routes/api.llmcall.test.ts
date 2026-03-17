@@ -27,6 +27,7 @@ vi.mock('~/lib/modules/llm/manager', () => ({
   LLMManager: {
     getInstance: vi.fn(() => ({
       updateModelList: updateModelListMock,
+      getProvider: vi.fn(() => ({ getModelInstance: getModelInstanceMock })),
     })),
   },
 }));

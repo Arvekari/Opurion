@@ -137,14 +137,41 @@ export default class OllamaProvider extends BaseProvider {
     const envRecord = this.convertEnvToRecord(serverEnv);
 
     const baseUrl = this._resolveBaseUrl(apiKeys, providerSettings?.[this.name], envRecord);
+    const numCtx = this.getDefaultNumCtx(serverEnv);
 
     logger.debug('Ollama Base Url used: ', baseUrl);
+    logger.debug(`Ollama num_ctx: ${numCtx}`);
+
+    // Wrap base fetch to inject num_ctx into the Ollama request body.
+    // Ollama's OpenAI-compat endpoint accepts model options under the "options" key.
+    const baseFetch = createStreamCompatibleFetch();
+    const ollamaFetch = (async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      if (init?.method === 'POST' && init?.body && typeof init.body === 'string') {
+        try {
+          const body = JSON.parse(init.body);
+
+          if (!body.options) {
+            body.options = {};
+          }
+
+          if (!body.options.num_ctx) {
+            body.options.num_ctx = numCtx;
+          }
+
+          init = { ...init, body: JSON.stringify(body) };
+        } catch {
+          // Leave body unchanged if JSON parsing fails
+        }
+      }
+
+      return baseFetch(input, init);
+    }) as typeof fetch;
 
     const ollamaProvider = createOpenAI({
       baseURL: `${baseUrl}/v1`,
       apiKey: 'ollama',
       name: 'ollama',
-      fetch: createStreamCompatibleFetch(),
+      fetch: ollamaFetch,
     });
 
     return ollamaProvider.chat(model);

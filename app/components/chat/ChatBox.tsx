@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useMemo, useState } from 'react';
 import { ClientOnly } from 'remix-utils/client-only';
 import { classNames } from '~/utils/classNames';
 import FilePreview from './FilePreview';
@@ -68,6 +68,11 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
   const liveTextareaValue = props.textareaRef?.current?.value ?? '';
   const hasMessageDraft = props.input.trim().length > 0 || liveTextareaValue.trim().length > 0;
   const hasAttachments = props.uploadedFiles.length > 0;
+  const [isAttachmentGalleryVisible, setIsAttachmentGalleryVisible] = useState(true);
+
+  const sortedAttachmentLibrary = useMemo(() => {
+    return [...(props.attachmentLibrary ?? [])].sort((left, right) => right.id.localeCompare(left.id));
+  }, [props.attachmentLibrary]);
 
   return (
     <div
@@ -91,51 +96,67 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
           props.setImageDataList?.(props.imageDataList.filter((_, i) => i !== index));
         }}
       />
-      {props.attachmentLibrary && props.attachmentLibrary.length > 0 && (
+      {sortedAttachmentLibrary.length > 0 && (
         <div className="mx-2 mb-1 p-2 bg-bolt-elements-background-depth-3 border border-bolt-elements-borderColor rounded-lg">
-          <div className="flex items-center gap-2 mb-1.5">
-            <div className="i-ph:paperclip text-bolt-elements-textTertiary text-xs" />
-            <span className="text-bolt-elements-textTertiary text-xs font-medium">Recent attachments</span>
+          <div className="flex items-center justify-between gap-2 mb-1.5">
+            <div className="flex items-center gap-2 min-w-0">
+              <div className="i-ph:images-square text-bolt-elements-textTertiary text-sm" />
+              <span className="text-bolt-elements-textTertiary text-xs font-medium">Attachment gallery</span>
+              <span className="text-[11px] text-bolt-elements-textTertiary/80">{sortedAttachmentLibrary.length}</span>
+            </div>
+            <button
+              type="button"
+              className="text-[11px] px-2 py-1 rounded-md border border-bolt-elements-borderColor text-bolt-elements-textTertiary hover:text-bolt-elements-textPrimary bg-transparent"
+              onClick={() => setIsAttachmentGalleryVisible((prev) => !prev)}
+              title={isAttachmentGalleryVisible ? 'Hide attachment gallery' : 'Show attachment gallery'}
+            >
+              {isAttachmentGalleryVisible ? 'Hide' : 'Show'}
+            </button>
           </div>
-          <div className="flex flex-row gap-2 overflow-x-auto pb-0.5">
-            {props.attachmentLibrary.map((entry) => {
-              const isQueued = props.uploadedFiles.some(
-                (f) => f.name === entry.file.name && f.size === entry.file.size,
-              );
 
-              return (
-                <div key={entry.id} className="relative flex-shrink-0">
-                  <img
-                    src={entry.dataUrl}
-                    alt={entry.file.name}
-                    className="h-14 w-14 object-cover rounded-md border border-bolt-elements-borderColor"
-                    title={entry.file.name}
-                  />
-                  <button
-                    onClick={() => {
-                      if (!isQueued) {
-                        props.onReuseAttachment?.(entry);
+          {isAttachmentGalleryVisible && (
+            <div className="grid grid-cols-4 sm:grid-cols-6 gap-2" data-testid="attachment-gallery-grid">
+              {sortedAttachmentLibrary.map((entry) => {
+                const isQueued = props.uploadedFiles.some(
+                  (f) => f.name === entry.file.name && f.size === entry.file.size,
+                );
+
+                return (
+                  <div key={entry.id} className="relative">
+                    <img
+                      src={entry.dataUrl}
+                      alt={entry.file.name}
+                      className="h-14 w-14 object-cover rounded-md border border-bolt-elements-borderColor"
+                      title={entry.file.name}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!isQueued) {
+                          props.onReuseAttachment?.(entry);
+                        }
+                      }}
+                      disabled={isQueued}
+                      className={
+                        'absolute inset-0 rounded-md flex items-center justify-center transition-colors ' +
+                        (isQueued
+                          ? 'bg-black/40 cursor-default'
+                          : 'bg-black/0 hover:bg-black/40 cursor-pointer')
                       }
-                    }}
-                    disabled={isQueued}
-                    className={
-                      'absolute inset-0 rounded-md flex items-center justify-center transition-colors ' +
-                      (isQueued
-                        ? 'bg-black/40 cursor-default'
-                        : 'bg-black/0 hover:bg-black/40 cursor-pointer')
-                    }
-                    title={isQueued ? 'Already queued' : 'Re-attach'}
-                  >
-                    {isQueued ? (
-                      <div className="i-ph:check-bold text-white text-lg" />
-                    ) : (
-                      <div className="i-ph:plus-bold text-white text-lg opacity-0 hover:opacity-100 transition-opacity" />
-                    )}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
+                      title={isQueued ? 'Already queued' : 'Re-attach image'}
+                      aria-label={isQueued ? `Already queued: ${entry.file.name}` : `Re-attach ${entry.file.name}`}
+                    >
+                      {isQueued ? (
+                        <div className="i-ph:check-bold text-white text-lg" />
+                      ) : (
+                        <div className="i-ph:plus-bold text-white text-lg opacity-0 hover:opacity-100 transition-opacity" />
+                      )}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
       <ClientOnly>
@@ -212,8 +233,16 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
 
               event.preventDefault();
 
+              const currentValue = (event.currentTarget as HTMLTextAreaElement).value;
+              const hasQueuedContent = currentValue.trim().length > 0 || hasAttachments;
+
               if (props.isStreaming) {
-                props.handleStop?.();
+                if (!hasQueuedContent) {
+                  props.handleStop?.();
+                  return;
+                }
+
+                props.handleSendMessage?.(event, currentValue);
                 return;
               }
 
@@ -221,8 +250,6 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
               if (event.nativeEvent.isComposing) {
                 return;
               }
-
-              const currentValue = (event.currentTarget as HTMLTextAreaElement).value;
               props.handleSendMessage?.(event, currentValue);
             }
           }}
@@ -287,12 +314,18 @@ export const ChatBox: React.FC<ChatBoxProps> = (props) => {
                     (!hasMessageDraft && !hasAttachments),
                 )}
                 onClick={(event) => {
+                  const currentValue = props.textareaRef?.current?.value ?? props.input;
+                  const hasQueuedContent = currentValue.trim().length > 0 || hasAttachments;
+
                   if (props.isStreaming) {
-                    props.handleStop?.();
+                    if (!hasQueuedContent) {
+                      props.handleStop?.();
+                      return;
+                    }
+
+                    props.handleSendMessage?.(event, currentValue);
                     return;
                   }
-
-                  const currentValue = props.textareaRef?.current?.value ?? props.input;
 
                   if (currentValue.trim().length > 0 || hasAttachments) {
                     props.handleSendMessage?.(event, currentValue);

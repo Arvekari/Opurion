@@ -79,6 +79,21 @@ function cleanEscapedTags(content: string) {
   return content.replace(/&lt;/g, '<').replace(/&gt;/g, '>');
 }
 
+/**
+ * Strip XML CDATA wrappers that LLMs sometimes emit around file content.
+ * e.g. `<![CDATA[{"name":"app"}]]>` → `{"name":"app"}`
+ */
+function stripCDATAWrapper(content: string): string {
+  const trimmed = content.trim();
+
+  if (trimmed.startsWith('<![CDATA[')) {
+    const inner = trimmed.slice('<![CDATA['.length);
+    return inner.endsWith(']]>') ? inner.slice(0, -3) : inner;
+  }
+
+  return content;
+}
+
 function pickEarliestIndex(
   ...candidates: Array<{
     index: number;
@@ -190,6 +205,7 @@ export class StreamingMessageParser {
               if (!currentAction.filePath.endsWith('.md')) {
                 content = cleanoutMarkdownSyntax(content);
                 content = cleanEscapedTags(content);
+                content = stripCDATAWrapper(content);
               }
 
               content += '\n';
@@ -222,6 +238,7 @@ export class StreamingMessageParser {
               if (!currentAction.filePath.endsWith('.md')) {
                 content = cleanoutMarkdownSyntax(content);
                 content = cleanEscapedTags(content);
+                content = stripCDATAWrapper(content);
               }
 
               this._options.callbacks?.onActionStream?.({

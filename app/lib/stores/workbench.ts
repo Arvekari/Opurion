@@ -18,6 +18,7 @@ import { description } from '~/lib/persistence';
 import Cookies from 'js-cookie';
 import { createSampler } from '~/utils/sampler';
 import type { ActionAlert, DeployAlert, SupabaseAlert } from '~/types/actions';
+import { WORK_DIR } from '~/utils/constants';
 
 const { saveAs } = fileSaver;
 
@@ -79,12 +80,26 @@ export class WorkbenchStore {
     }
   }
 
-  addToExecutionQueue(callback: () => Promise<void>) {
-    this.#globalExecutionQueue = this.#globalExecutionQueue
-      .then(() => callback())
+  addToExecutionQueue<T>(callback: () => Promise<T>): Promise<T> {
+    const queuedExecution = this.#globalExecutionQueue.then(() => callback());
+
+    this.#globalExecutionQueue = queuedExecution
+      .then(() => undefined)
       .catch((error) => {
         console.error('WorkbenchStore execution queue error (recovered):', error);
       });
+
+    return queuedExecution;
+  }
+
+  #resolveActionFilePath(workdir: string, filePath: string) {
+    const normalizedFilePath = filePath.startsWith(WORK_DIR)
+      ? filePath
+      : filePath.startsWith('/')
+        ? path.join(workdir, extractRelativePath(`${WORK_DIR}${filePath}`))
+        : path.join(workdir, extractRelativePath(filePath));
+
+    return path.normalize(normalizedFilePath);
   }
 
   get previews() {
@@ -352,6 +367,10 @@ export class WorkbenchStore {
       const success = await this.#filesStore.createFile(filePath, content);
 
       if (success) {
+        if (typeof content === 'string') {
+          this.#editorStore.ensureDocument(filePath, content, false);
+        }
+
         this.setSelectedFile(filePath);
 
         /*
@@ -529,7 +548,7 @@ export class WorkbenchStore {
   addAction(data: ActionCallbackData) {
     // this._addAction(data);
 
-    this.addToExecutionQueue(() => this._addAction(data));
+    return this.addToExecutionQueue(() => this._addAction(data));
   }
   async _addAction(data: ActionCallbackData) {
     const { artifactId } = data;
@@ -545,9 +564,9 @@ export class WorkbenchStore {
 
   runAction(data: ActionCallbackData, isStreaming: boolean = false) {
     if (isStreaming) {
-      this.actionStreamSampler(data, isStreaming);
+      return this.actionStreamSampler(data, isStreaming);
     } else {
-      this.addToExecutionQueue(() => this._runAction(data, isStreaming));
+      return this.addToExecutionQueue(() => this._runAction(data, isStreaming));
     }
   }
   async _runAction(data: ActionCallbackData, isStreaming: boolean = false) {
@@ -567,7 +586,7 @@ export class WorkbenchStore {
 
     if (data.action.type === 'file') {
       const wc = await webcontainer;
-      const fullPath = path.join(wc.workdir, data.action.filePath);
+      const fullPath = this.#resolveActionFilePath(wc.workdir, data.action.filePath);
 
       /*
        * For scoped locks, we would need to implement diff checking here
@@ -586,10 +605,12 @@ export class WorkbenchStore {
       const doc = this.#editorStore.documents.get()[fullPath];
 
       if (!doc) {
-        await artifact.runner.runAction(data, isStreaming);
+        await this.createFile(fullPath, data.action.content);
+      } else {
+        this.#editorStore.updateFile(fullPath, data.action.content);
       }
 
-      this.#editorStore.updateFile(fullPath, data.action.content);
+      await artifact.runner.runAction(data, isStreaming);
 
       if (!isStreaming && data.action.content) {
         await this.saveFile(fullPath);

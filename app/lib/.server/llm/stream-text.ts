@@ -1,7 +1,7 @@
 import { convertToModelMessages, streamText as _streamText, type Message } from 'ai';
 import { MAX_TOKENS, PROVIDER_COMPLETION_LIMITS, isReasoningModel, type FileMap } from './constants';
 import { getSystemPrompt } from '~/lib/common/prompts/prompts';
-import { DEFAULT_MODEL, DEFAULT_PROVIDER, MODIFICATIONS_TAG_NAME, PROVIDER_LIST, WORK_DIR } from '~/utils/constants';
+import { DEFAULT_MODEL, DEFAULT_PROVIDER, MODIFICATIONS_TAG_NAME, WORK_DIR } from '~/utils/constants';
 import type { IProviderSetting } from '~/types/model';
 import { PromptLibrary } from '~/lib/common/prompt-library';
 import { allowedHTMLElements } from '~/utils/markdown';
@@ -156,8 +156,31 @@ export function bridgeSystemPromptIntoMessages(
     return parts.filter(Boolean);
   };
 
+  const MAX_DIRECTIVE_PARTS = 5;
+  const normalizedSystemPrompt = systemPrompt.trim();
+  const baseMaxPartChars = Math.max(200, options?.maxPartChars ?? 900);
+
   const splitParts = options?.splitIntoParts
-    ? splitSystemPromptIntoParts(systemPrompt.trim(), Math.max(200, options?.maxPartChars ?? 900))
+    ? (() => {
+        let computedParts = splitSystemPromptIntoParts(normalizedSystemPrompt, baseMaxPartChars);
+
+        if (computedParts.length <= MAX_DIRECTIVE_PARTS) {
+          return computedParts;
+        }
+
+        let adaptiveMaxPartChars = Math.max(baseMaxPartChars, Math.ceil(normalizedSystemPrompt.length / MAX_DIRECTIVE_PARTS));
+
+        for (let attempt = 0; attempt < 4 && computedParts.length > MAX_DIRECTIVE_PARTS; attempt += 1) {
+          adaptiveMaxPartChars = Math.ceil(adaptiveMaxPartChars * 1.25);
+          computedParts = splitSystemPromptIntoParts(normalizedSystemPrompt, adaptiveMaxPartChars);
+        }
+
+        if (computedParts.length <= MAX_DIRECTIVE_PARTS) {
+          return computedParts;
+        }
+
+        return [...computedParts.slice(0, MAX_DIRECTIVE_PARTS - 1), computedParts.slice(MAX_DIRECTIVE_PARTS - 1).join('\n\n')];
+      })()
     : [];
 
   const bridgedSystemPrompt =
@@ -176,7 +199,7 @@ Read every directive_part above as one instruction set.
 All directive parts have equal force and must be followed together.
 If the active mode is build, implement instead of giving a chatty high-level answer.`
       : `<system_directives>
-${systemPrompt}
+    ${normalizedSystemPrompt}
 </system_directives>
 
 Follow the system directives above exactly.`;
@@ -314,7 +337,8 @@ export async function streamText(props: {
     return newMessage;
   });
 
-  const provider = PROVIDER_LIST.find((p) => p.name === currentProvider) || DEFAULT_PROVIDER;
+  const llmManager = LLMManager.getInstance(serverEnv as Record<string, string>);
+  const provider = llmManager.getProvider(currentProvider) || llmManager.getDefaultProvider();
   const staticModels = LLMManager.getInstance().getStaticModelListFromProvider(provider);
   let modelDetails = staticModels.find((m) => m.name === currentModel);
 
@@ -376,8 +400,11 @@ export async function streamText(props: {
 
   const dynamicMaxTokens = modelDetails ? getCompletionTokenLimit(modelDetails) : Math.min(MAX_TOKENS, 16384);
 
-  // Use model-specific limits directly - no artificial cap needed
-  const safeMaxTokens = dynamicMaxTokens;
+  // Cap at maxTokenAllowed so we never request more tokens than the model's context supports
+  const safeMaxTokens =
+    modelDetails?.maxTokenAllowed && modelDetails.maxTokenAllowed > 0
+      ? Math.min(dynamicMaxTokens, modelDetails.maxTokenAllowed)
+      : dynamicMaxTokens;
 
   logger.info(
     `Token limits for model ${modelDetails.name}: maxTokens=${safeMaxTokens}, maxTokenAllowed=${modelDetails.maxTokenAllowed}, maxCompletionTokens=${modelDetails.maxCompletionTokens}`,

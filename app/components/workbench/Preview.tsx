@@ -1,13 +1,23 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { useStore } from '@nanostores/react';
 import { IconButton } from '~/components/ui/IconButton';
+import { logStore } from '~/lib/stores/logs';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { PortDropdown } from './PortDropdown';
 import { ScreenshotSelector } from './ScreenshotSelector';
 import { expoUrlAtom } from '~/lib/stores/qrCodeStore';
 import { ExpoQrModal } from '~/components/workbench/ExpoQrModal';
 import type { ElementInfo } from './Inspector';
-import { createPreviewLoadFailedAlert, createPreviewTimeoutAlert, detectBlankPreview } from './preview-diagnostics';
+import {
+  createPreviewAlertFromHealth,
+  createPreviewLoadFailedAlert,
+  createPreviewRuntimeErrorAlert,
+  createPreviewTimeoutAlert,
+  detectBlankPreview,
+  detectPreviewBuildError,
+  type PreviewHealthPayload,
+  type PreviewRuntimeErrorPayload,
+} from './preview-diagnostics';
 
 type ResizeSide = 'left' | 'right' | null;
 
@@ -91,6 +101,12 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
   const expoUrl = useStore(expoUrlAtom);
   const [isExpoQrModalOpen, setIsExpoQrModalOpen] = useState(false);
   const previewLoadTimerRef = useRef<number | null>(null);
+  const previewStartupRef = useRef({
+    reloadAttempts: new Map<string, number>(),
+    blankReports: new Map<string, number>(),
+    lastSignature: '',
+    lastAlertSignature: '',
+  });
 
   useEffect(() => {
     if (!activePreview) {
@@ -106,6 +122,17 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
   }, [activePreview]);
 
   useEffect(() => {
+    previewStartupRef.current.blankReports.clear();
+    previewStartupRef.current.reloadAttempts.clear();
+    previewStartupRef.current.lastSignature = '';
+    previewStartupRef.current.lastAlertSignature = '';
+
+    const currentAlert = workbenchStore.alert.get();
+
+    if (currentAlert?.source === 'preview') {
+      workbenchStore.clearAlert();
+    }
+
     if (previewLoadTimerRef.current !== null) {
       window.clearTimeout(previewLoadTimerRef.current);
       previewLoadTimerRef.current = null;
@@ -116,7 +143,13 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
     }
 
     previewLoadTimerRef.current = window.setTimeout(() => {
-      workbenchStore.actionAlert.set(createPreviewTimeoutAlert(iframeUrl));
+      const timeoutAlert = createPreviewTimeoutAlert(iframeUrl);
+      const alertSignature = `${timeoutAlert.title}::${timeoutAlert.description}::${timeoutAlert.content || ''}`;
+
+      if (previewStartupRef.current.lastAlertSignature !== alertSignature) {
+        previewStartupRef.current.lastAlertSignature = alertSignature;
+        workbenchStore.actionAlert.set(timeoutAlert);
+      }
     }, 15000);
 
     return () => {
@@ -126,6 +159,117 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
       }
     };
   }, [iframeUrl]);
+
+  const reloadPreview = useCallback(() => {
+    if (iframeRef.current) {
+      iframeRef.current.src = iframeRef.current.src;
+    }
+  }, []);
+
+  const publishPreviewAlert = useCallback((alert: { title: string; description: string; content?: string }) => {
+    const alertSignature = `${alert.title}::${alert.description}::${alert.content || ''}`;
+
+    if (previewStartupRef.current.lastAlertSignature === alertSignature) {
+      return false;
+    }
+
+    previewStartupRef.current.lastAlertSignature = alertSignature;
+    workbenchStore.actionAlert.set(alert as any);
+    return true;
+  }, []);
+
+  const handlePreviewHealthEvent = useCallback(
+    (payload: PreviewHealthPayload) => {
+      const signature = JSON.stringify([
+        payload.status,
+        payload.url,
+        payload.reason,
+        payload.errorText,
+        payload.bodyText,
+        payload.title,
+      ]);
+
+      if (previewStartupRef.current.lastSignature === signature) {
+        return;
+      }
+
+      previewStartupRef.current.lastSignature = signature;
+
+      if (payload.status === 'ok') {
+        previewStartupRef.current.blankReports.delete(payload.url);
+
+        const currentAlert = workbenchStore.alert.get();
+
+        if (currentAlert?.source === 'preview') {
+          workbenchStore.clearAlert();
+        }
+
+        previewStartupRef.current.lastAlertSignature = '';
+
+        return;
+      }
+
+      if (payload.status === 'blank') {
+        const blankCount = (previewStartupRef.current.blankReports.get(payload.url) || 0) + 1;
+        const reloadCount = previewStartupRef.current.reloadAttempts.get(payload.url) || 0;
+
+        previewStartupRef.current.blankReports.set(payload.url, blankCount);
+
+        if (blankCount >= 2 && reloadCount < 2) {
+          previewStartupRef.current.reloadAttempts.set(payload.url, reloadCount + 1);
+          logStore.logWarning('Preview loaded blank startup content; reloading preview', {
+            url: payload.url,
+            blankCount,
+            reloadAttempt: reloadCount + 1,
+            reason: payload.reason,
+          });
+          reloadPreview();
+          return;
+        }
+      }
+
+      const alert = createPreviewAlertFromHealth(payload);
+
+      if (alert && publishPreviewAlert(alert)) {
+        logStore.logError('Preview health check failed', undefined, {
+          status: payload.status,
+          url: payload.url,
+          reason: payload.reason,
+          title: payload.title,
+          bodyText: payload.bodyText,
+          errorText: payload.errorText,
+        });
+      }
+    },
+    [publishPreviewAlert, reloadPreview],
+  );
+
+  const handlePreviewRuntimeErrorEvent = useCallback((payload: PreviewRuntimeErrorPayload) => {
+    const alert = createPreviewRuntimeErrorAlert(payload);
+    if (publishPreviewAlert(alert)) {
+      logStore.logError('Preview runtime error reported', undefined, payload as Record<string, unknown>);
+    }
+  }, [publishPreviewAlert]);
+
+  useEffect(() => {
+    const handleMessage = (event: MessageEvent) => {
+      if (event.source !== iframeRef.current?.contentWindow) {
+        return;
+      }
+
+      if (event.data?.type === 'PREVIEW_HEALTH' && event.data.payload) {
+        handlePreviewHealthEvent(event.data.payload as PreviewHealthPayload);
+      }
+
+      if (event.data?.type === 'PREVIEW_RUNTIME_ERROR' && event.data.payload) {
+        handlePreviewRuntimeErrorEvent(event.data.payload as PreviewRuntimeErrorPayload);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+
+    return () => window.removeEventListener('message', handleMessage);
+  }, [handlePreviewHealthEvent, handlePreviewRuntimeErrorEvent]);
 
   const handleIframeLoad = useCallback(() => {
     if (previewLoadTimerRef.current !== null) {
@@ -144,17 +288,41 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
       const detected = detectBlankPreview({
         url: iframe.contentWindow?.location?.href ?? iframe.src,
         readyState: documentRef?.readyState,
+        title: documentRef?.title,
         bodyText: documentRef?.body?.innerText,
         childElementCount: documentRef?.body?.childElementCount,
+        htmlSnippet: documentRef?.documentElement?.outerHTML?.slice(0, 4000),
       });
 
-      if (detected) {
-        workbenchStore.actionAlert.set(detected);
+      const buildError = detectPreviewBuildError({
+        url: iframe.contentWindow?.location?.href ?? iframe.src,
+        readyState: documentRef?.readyState,
+        title: documentRef?.title,
+        bodyText: documentRef?.body?.innerText,
+        childElementCount: documentRef?.body?.childElementCount,
+        htmlSnippet: documentRef?.documentElement?.outerHTML?.slice(0, 4000),
+      });
+
+      if (buildError) {
+        if (publishPreviewAlert(buildError)) {
+          logStore.logError('Preview DOM health detected a build error', undefined, {
+            url: iframe.contentWindow?.location?.href ?? iframe.src,
+            title: documentRef?.title,
+            bodyText: documentRef?.body?.innerText,
+          });
+        }
+      } else if (detected) {
+        if (publishPreviewAlert(detected)) {
+          logStore.logWarning('Preview DOM health detected blank content', {
+            url: iframe.contentWindow?.location?.href ?? iframe.src,
+            title: documentRef?.title,
+          });
+        }
       }
     } catch {
       // Cross-origin access should not break preview loading diagnostics.
     }
-  }, []);
+  }, [publishPreviewAlert]);
 
   const handleIframeError = useCallback(() => {
     if (previewLoadTimerRef.current !== null) {
@@ -163,9 +331,13 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
     }
 
     if (iframeUrl) {
-      workbenchStore.actionAlert.set(createPreviewLoadFailedAlert(iframeUrl));
+      const loadFailedAlert = createPreviewLoadFailedAlert(iframeUrl);
+
+      if (publishPreviewAlert(loadFailedAlert)) {
+        logStore.logError('Preview iframe failed to load', undefined, { url: iframeUrl });
+      }
     }
-  }, [iframeUrl]);
+  }, [iframeUrl, publishPreviewAlert]);
 
   const findMinPortIndex = useCallback(
     (minIndex: number, preview: { port: number }, index: number, array: { port: number }[]) => {
@@ -180,12 +352,6 @@ export const Preview = memo(({ setSelectedElement }: PreviewProps) => {
       setActivePreviewIndex(minPortIndex);
     }
   }, [previews, findMinPortIndex]);
-
-  const reloadPreview = () => {
-    if (iframeRef.current) {
-      iframeRef.current.src = iframeRef.current.src;
-    }
-  };
 
   const toggleFullscreen = async () => {
     if (!isFullscreen && containerRef.current) {

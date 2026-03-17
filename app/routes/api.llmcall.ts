@@ -2,7 +2,6 @@ import { type ActionFunctionArgs } from '@remix-run/cloudflare';
 import { isOpenAIResponsesModel, streamText } from '~/lib/.server/llm/stream-text';
 import type { IProviderSetting, ProviderInfo } from '~/types/model';
 import { generateText } from 'ai';
-import { PROVIDER_LIST } from '~/utils/constants';
 import { MAX_TOKENS, PROVIDER_COMPLETION_LIMITS, isReasoningModel } from '~/lib/.server/llm/constants';
 import { LLMManager } from '~/lib/modules/llm/manager';
 import type { ModelInfo } from '~/lib/modules/llm/types';
@@ -192,7 +191,8 @@ async function llmCallAction({ context, request }: ActionFunctionArgs) {
         });
       }
 
-      const providerInfo = PROVIDER_LIST.find((p) => p.name === provider.name);
+      const llmManager = LLMManager.getInstance(context.cloudflare?.env as any);
+      const providerInfo = llmManager.getProvider(provider.name);
 
       if (!providerInfo) {
         throw new Error('Provider not found');

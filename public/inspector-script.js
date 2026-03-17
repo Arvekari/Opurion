@@ -2,6 +2,101 @@
   let isInspectorActive = false;
   let inspectorStyle = null;
   let currentHighlight = null;
+  let lastHealthSignature = '';
+  let healthTimer = null;
+  let mutationObserver = null;
+
+  function postToParent(message) {
+    window.parent.postMessage(message, '*');
+  }
+
+  function getOverlayText() {
+    const viteOverlay = document.querySelector('vite-error-overlay');
+
+    if (viteOverlay) {
+      return (viteOverlay.shadowRoot ? viteOverlay.shadowRoot.textContent : viteOverlay.textContent || '').trim();
+    }
+
+    const overlayCandidate = document.querySelector('#vite-error-overlay, .vite-error-overlay, [data-vite-error-overlay]');
+    return (overlayCandidate && overlayCandidate.textContent ? overlayCandidate.textContent : '').trim();
+  }
+
+  function looksLikePreviewError(text) {
+    return /\[plugin:vite|vite:react-babel|failed to resolve import|unexpected token|pre-transform error|transform failed|parse5|internal server error|cannot find module/i.test(
+      text || ''
+    );
+  }
+
+  function getBodyText() {
+    return ((document.body && (document.body.innerText || document.body.textContent)) || '').trim();
+  }
+
+  function getRootHasContent() {
+    const root = document.querySelector('#root, #app, [data-reactroot], main');
+
+    if (!root) {
+      return false;
+    }
+
+    const text = (root.innerText || root.textContent || '').trim();
+    return text.length > 0 || root.children.length > 0;
+  }
+
+  function sendPreviewHealth(status, reason, extra) {
+    const payload = {
+      status,
+      reason,
+      url: window.location.href,
+      title: document.title || '',
+      readyState: document.readyState,
+      bodyText: getBodyText().slice(0, 4000),
+      childElementCount: document.body ? document.body.children.length : 0,
+      htmlSnippet: document.documentElement ? document.documentElement.outerHTML.slice(0, 4000) : '',
+      errorText: getOverlayText().slice(0, 4000),
+      ...(extra || {}),
+    };
+
+    const signature = JSON.stringify([payload.status, payload.reason, payload.url, payload.title, payload.bodyText, payload.errorText]);
+
+    if (signature === lastHealthSignature) {
+      return;
+    }
+
+    lastHealthSignature = signature;
+    postToParent({ type: 'PREVIEW_HEALTH', payload: payload });
+  }
+
+  function inspectPreviewHealth(reason) {
+    const overlayText = getOverlayText();
+    const bodyText = getBodyText();
+    const rootHasContent = getRootHasContent();
+    const titleText = (document.title || '').trim();
+    const combined = [overlayText, bodyText, titleText].filter(Boolean).join('\n');
+
+    if (looksLikePreviewError(combined)) {
+      sendPreviewHealth('error', reason, { errorText: combined.slice(0, 4000) });
+      return;
+    }
+
+    if (document.readyState === 'complete' && !rootHasContent && bodyText.length === 0) {
+      sendPreviewHealth('blank', reason);
+      return;
+    }
+
+    if (document.readyState === 'complete') {
+      sendPreviewHealth('ok', reason);
+    }
+  }
+
+  function scheduleHealthCheck(reason, delay) {
+    if (healthTimer) {
+      window.clearTimeout(healthTimer);
+    }
+
+    healthTimer = window.setTimeout(function() {
+      inspectPreviewHealth(reason);
+    }, delay);
+  }
 
   // Function to get relevant styles
   function getRelevantStyles(element) {
@@ -192,10 +287,10 @@
     const elementInfo = createElementInfo(target);
     
     // Send message to parent
-    window.parent.postMessage({
+    postToParent({
       type: 'INSPECTOR_HOVER',
       elementInfo: elementInfo
-    }, '*');
+    });
   }
 
   function handleClick(e) {
@@ -210,10 +305,10 @@
     const elementInfo = createElementInfo(target);
     
     // Send message to parent
-    window.parent.postMessage({
+    postToParent({
       type: 'INSPECTOR_CLICK',
       elementInfo: elementInfo
-    }, '*');
+    });
   }
 
   function handleMouseLeave() {
@@ -226,9 +321,9 @@
     }
     
     // Send message to parent
-    window.parent.postMessage({
+    postToParent({
       type: 'INSPECTOR_LEAVE'
-    }, '*');
+    });
   }
 
   // Function to activate/deactivate inspector
@@ -287,6 +382,59 @@
     }
   });
 
+  window.addEventListener('error', function(event) {
+    postToParent({
+      type: 'PREVIEW_RUNTIME_ERROR',
+      payload: {
+        url: window.location.href,
+        message: event.message || 'Preview runtime error',
+        stack: event.error && event.error.stack ? event.error.stack : '',
+        filename: event.filename || window.location.href,
+        line: event.lineno,
+        column: event.colno,
+      }
+    });
+    scheduleHealthCheck('window-error', 50);
+  });
+
+  window.addEventListener('unhandledrejection', function(event) {
+    const reason = event.reason || {};
+
+    postToParent({
+      type: 'PREVIEW_RUNTIME_ERROR',
+      payload: {
+        url: window.location.href,
+        message: reason.message || String(reason) || 'Unhandled preview rejection',
+        stack: reason.stack || '',
+      }
+    });
+    scheduleHealthCheck('unhandled-rejection', 50);
+  });
+
+  document.addEventListener('DOMContentLoaded', function() {
+    scheduleHealthCheck('dom-content-loaded', 250);
+  });
+
+  window.addEventListener('load', function() {
+    scheduleHealthCheck('window-load', 900);
+    window.setTimeout(function() {
+      inspectPreviewHealth('window-load-settled');
+    }, 1800);
+  });
+
+  if (document.documentElement && typeof MutationObserver !== 'undefined') {
+    mutationObserver = new MutationObserver(function() {
+      scheduleHealthCheck('dom-mutation', 300);
+    });
+
+    mutationObserver.observe(document.documentElement, {
+      childList: true,
+      subtree: true,
+      characterData: true,
+    });
+  }
+
   // Auto-inject if inspector is already active
-  window.parent.postMessage({ type: 'INSPECTOR_READY' }, '*');
+  postToParent({ type: 'INSPECTOR_READY' });
+  scheduleHealthCheck('script-injected', 500);
 })();

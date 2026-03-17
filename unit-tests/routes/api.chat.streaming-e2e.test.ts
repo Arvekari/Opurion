@@ -285,6 +285,56 @@ describe('api.chat streaming end-to-end regression', () => {
     expect(text).toContain('I am preparing the implementation now.');
   });
 
+  it('preserves progressive premium Opurion intro build output for the provided e2e prompt', async () => {
+    extractPropertiesFromMessageMock.mockReturnValue({ model: 'gpt-5.4', provider: 'OpenAI' });
+
+    streamTextMock.mockImplementationOnce(async () => ({
+      fullStream: (async function* () {
+        yield {
+          type: 'text-delta',
+          text: 'I am drafting a premium Opurion introduction experience now, starting with the hero and capability framing.\n\n',
+        };
+        yield {
+          type: 'text-delta',
+          text: '<boltArtifact id="opurion-intro" title="Opurion Introduction" type="bundled">\n<boltAction type="file" filePath="/src/App.jsx">\nexport default function App(){ return <main><section><h1>Opurion</h1><p>Cloud and private LLM orchestration with secure transactions, real-time integrations, and personalized workflows.</p><ul><li>Supported models</li><li>Private Ollama</li><li>Cloud LLM routing</li></ul></section></main>; }\n</boltAction>\n</boltArtifact>',
+        };
+        yield { type: 'finish', finishReason: 'stop', totalUsage: { promptTokens: 1, completionTokens: 1 } };
+      })(),
+    }));
+
+    const request = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          {
+            id: 'u1',
+            role: 'user',
+            content:
+              '[Model: gpt-5.4]\n\n[Provider: OpenAI]\n\ncreate, a modern page designed to provide a comprehensive set of your services and capabilities. As your digital assistant, I offer enhanced navigation, real-time data integration, secure transactions, and personalized user experiences.\nwell i wanted modern premium html5 fraphical introdcution page about opurion (you) and your capabilities supported models cloud and pitvate llm capabilities etc',
+          },
+        ],
+        files: {},
+        contextOptimization: false,
+        chatMode: 'build',
+        maxLLMSteps: 1,
+      }),
+    });
+
+    const response = (await action({ request, context: { cloudflare: { env: {} } } } as any)) as Response;
+    const text = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(text).toContain('premium Opurion introduction experience');
+    expect(text).toContain('<boltArtifact');
+    expect(text).toContain('/src/App.jsx');
+    expect(text).toContain('Supported models');
+    expect(text).toContain('Private Ollama');
+    expect(text).toContain('Cloud LLM routing');
+    expect(text).toContain('/package.json');
+    expect(text).toContain('/index.html');
+  });
+
   it('does not drop cloud build responses when only narrative text is returned', async () => {
     extractPropertiesFromMessageMock.mockReturnValue({ model: 'gpt-5.4', provider: 'OpenAI' });
 
@@ -369,5 +419,57 @@ describe('api.chat streaming end-to-end regression', () => {
     expect(text).toContain('/index.html');
     expect(text).toContain('npm run dev');
     expect(text).not.toContain('<div id="root"></div>');
+  });
+
+  it('continues recovery rounds until requested file target is produced', async () => {
+    extractPropertiesFromMessageMock.mockReturnValue({ model: 'tiny-coder-6.7b', provider: 'Ollama' });
+
+    streamTextMock
+      .mockImplementationOnce(async () => ({
+        fullStream: (async function* () {
+          yield {
+            type: 'text-delta',
+            text: '<boltArtifact id="a" title="Build"><boltAction type="file" filePath="/index.html"><!doctype html><html><body>Initial</body></html></boltAction></boltArtifact>',
+          };
+          yield { type: 'finish', finishReason: 'stop', totalUsage: { promptTokens: 1, completionTokens: 1 } };
+        })(),
+      }))
+      .mockImplementationOnce(async () => ({
+        fullStream: (async function* () {
+          yield {
+            type: 'text-delta',
+            text: '<boltArtifact id="b" title="About"><boltAction type="file" filePath="/about-me.md"># About Me - Opurion\nPrivate AI with Ollama.</boltAction></boltArtifact>',
+          };
+          yield { type: 'finish', finishReason: 'stop', totalUsage: { promptTokens: 1, completionTokens: 1 } };
+        })(),
+      }));
+
+    const request = new Request('http://localhost/api/chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        messages: [
+          {
+            id: 'u1',
+            role: 'user',
+            content:
+              '[Model: tiny-coder-6.7b]\n\n[Provider: Ollama]\n\nPlease create a modern premium page and create about-me.md introducing capabilities and private AI with Ollama.',
+          },
+        ],
+        files: {},
+        contextOptimization: false,
+        chatMode: 'build',
+        maxLLMSteps: 1,
+        ollamaBridgedSystemPromptSplit: false,
+      }),
+    });
+
+    const response = (await action({ request, context: { cloudflare: { env: {} } } } as any)) as Response;
+    const text = await response.text();
+
+    expect(response.status).toBe(200);
+    expect(streamTextMock).toHaveBeenCalledTimes(2);
+    expect(text).toContain('/about-me.md');
+    expect(text).toContain('Private AI with Ollama');
   });
 });

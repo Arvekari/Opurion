@@ -12,17 +12,17 @@ export function HeaderActionButtons({ chatStarted }: HeaderActionButtonsProps) {
   const [activePreviewIndex] = useState(0);
   const previews = useStore(workbenchStore.previews);
   const activePreview = previews[activePreviewIndex];
-  void chatStarted;
 
-  const shouldShowButtons = activePreview;
+  const shouldShowDeployButton = activePreview;
+  const shouldShowDebugTools = chatStarted || activePreview;
 
   return (
     <div className="flex items-center gap-1">
       {/* Deploy Button */}
-      {shouldShowButtons && <DeployButton />}
+      {shouldShowDeployButton && <DeployButton />}
 
       {/* Debug Tools */}
-      {shouldShowButtons && (
+      {shouldShowDebugTools && (
         <div className="flex border border-bolt-elements-borderColor rounded-md overflow-hidden text-sm">
           <button
             onClick={() =>

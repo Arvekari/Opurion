@@ -1,5 +1,5 @@
 import { useLoaderData, useNavigate, useSearchParams } from '@remix-run/react';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { atom } from 'nanostores';
 import { generateId, type JSONValue, type Message } from 'ai';
 import { toast } from 'react-toastify';
@@ -49,6 +49,7 @@ export function useChatHistory() {
   const [initialMessages, setInitialMessages] = useState<Message[]>([]);
   const [ready, setReady] = useState<boolean>(false);
   const [urlId, setUrlId] = useState<string | undefined>();
+  const chatIdReservationRef = useRef<Promise<string> | null>(null);
 
   useEffect(() => {
     if (!db) {
@@ -131,7 +132,7 @@ export function useChatHistory() {
                   role: 'assistant',
 
                   // Combine followup message and the artifact with files and command actions
-                  content: `Bolt Restored your chat from a snapshot. You can revert this message to load the full chat history.
+                  content: `Opurion restored your chat from a snapshot. You can revert this message to load the full chat history.
                   <boltArtifact id="restored-project-setup" title="Restored Project & Setup" type="bundled">
                   ${Object.entries(snapshot?.files || {})
                     .map(([key, value]) => {
@@ -256,6 +257,40 @@ ${value.content}
     // workbenchStore.files.setKey(snapshot?.files)
   }, []);
 
+  const ensureChatId = useCallback(
+    async (messages: Message[]): Promise<string | undefined> => {
+      const currentChatId = chatId.get();
+
+      if (currentChatId) {
+        return currentChatId;
+      }
+
+      if (!db) {
+        return undefined;
+      }
+
+      if (!chatIdReservationRef.current) {
+        chatIdReservationRef.current = (async () => {
+          const nextId = await getNextId(db);
+          chatId.set(nextId);
+
+          const hasAssistantMessage = messages.some((message) => message.role === 'assistant');
+
+          if (!urlId && hasAssistantMessage) {
+            navigateChat(nextId);
+          }
+
+          return nextId;
+        })().finally(() => {
+          chatIdReservationRef.current = null;
+        });
+      }
+
+      return chatIdReservationRef.current;
+    },
+    [db, urlId],
+  );
+
   return {
     ready: !mixedId || ready,
     initialMessages,
@@ -317,20 +352,10 @@ ${value.content}
         }
       }
 
-      if (!chatId.get()) {
-        const nextId = await getNextId(db);
-
-        chatId.set(nextId);
-
-        const hasAssistantMessage = messages.some((message) => message.role === 'assistant');
-
-        if (!urlId && hasAssistantMessage) {
-          navigateChat(nextId);
-        }
-      }
+      const ensuredChatId = await ensureChatId(messages);
 
       // Ensure chatId.get() is used for the final setMessages call
-      const finalChatId = chatId.get();
+      const finalChatId = chatId.get() || ensuredChatId;
 
       if (!finalChatId) {
         console.error('Cannot save messages, chat ID is not set.');

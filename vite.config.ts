@@ -1,10 +1,18 @@
 import { cloudflareDevProxyVitePlugin as remixCloudflareDevProxy, vitePlugin as remixVitePlugin } from '@remix-run/dev';
 import UnoCSS from 'unocss/vite';
+import path from 'node:path';
+import { createRequire } from 'node:module';
 import { defineConfig, type ViteDevServer } from 'vite';
 import { nodePolyfills } from 'vite-plugin-node-polyfills';
 import { optimizeCssModules } from 'vite-plugin-optimize-css-modules';
 import tsconfigPaths from 'vite-tsconfig-paths';
 import * as dotenv from 'dotenv';
+
+const require = createRequire(import.meta.url);
+const openAiPackageRoot = path.dirname(require.resolve('@ai-sdk/openai/package.json'));
+const openAiViteEntry = path.join(openAiPackageRoot, 'dist', 'index.mjs');
+const viteCacheRoot = process.env.LOCALAPPDATA || process.env.TEMP || process.cwd();
+const viteCacheDir = path.join(viteCacheRoot, 'Opurion', 'vite-cache');
 
 // Load environment variables from multiple files
 dotenv.config({ path: '.env.local' });
@@ -15,6 +23,12 @@ export default defineConfig((config) => {
   return {
     define: {
       'process.env.NODE_ENV': JSON.stringify(process.env.NODE_ENV),
+    },
+    cacheDir: viteCacheDir,
+    resolve: {
+      alias: {
+        '@ai-sdk/openai': openAiViteEntry,
+      },
     },
     build: {
       target: 'esnext',

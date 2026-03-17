@@ -4,6 +4,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { ChatBox } from '../../../app/components/chat/ChatBox';
 
+const fileOne = new File(['a'], 'shot-1.png', { type: 'image/png' });
+const fileTwo = new File(['b'], 'shot-2.png', { type: 'image/png' });
+
 const setShowWorkbenchMock = vi.fn();
 let showWorkbenchValue = false;
 
@@ -131,5 +134,36 @@ describe('app/components/chat/ChatBox.tsx', () => {
 
     expect(screen.queryByTitle('Show Workbench')).toBeNull();
     expect(screen.getByTitle('Switch to Discuss mode')).toBeTruthy();
+  });
+
+  it('renders attachment gallery with show/hide toggle and supports reattach', () => {
+    const onReuseAttachment = vi.fn();
+
+    render(
+      <ChatBox
+        {...buildBaseProps({
+          uploadedFiles: [],
+          imageDataList: [],
+          attachmentLibrary: [
+            { id: '2', file: fileTwo, dataUrl: 'data:image/png;base64,two' },
+            { id: '1', file: fileOne, dataUrl: 'data:image/png;base64,one' },
+          ],
+          onReuseAttachment,
+        })}
+      />,
+    );
+
+    expect(screen.getByText('Attachment gallery')).toBeTruthy();
+    expect(screen.getByTestId('attachment-gallery-grid')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Hide' }));
+    expect(screen.queryByTestId('attachment-gallery-grid')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show' }));
+    expect(screen.getByTestId('attachment-gallery-grid')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Re-attach shot-2.png' }));
+    expect(onReuseAttachment).toHaveBeenCalledTimes(1);
+    expect(onReuseAttachment.mock.calls[0][0].file.name).toBe('shot-2.png');
   });
 });

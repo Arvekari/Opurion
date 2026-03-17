@@ -248,7 +248,7 @@ describe('chat input regression guard', () => {
     );
 
     fireEvent.keyDown(screen.getByRole('textbox'), { key: 'Enter', code: 'Enter' });
-    expect(handleSendMessage).toHaveBeenCalledTimes(0);
-    expect(handleStop).toHaveBeenCalledTimes(1);
+    expect(handleSendMessage).toHaveBeenCalledTimes(1);
+    expect(handleStop).toHaveBeenCalledTimes(0);
   });
 });

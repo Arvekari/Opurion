@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Opurion — Premium AI Introduction</title>
+    <meta
+      name="description"
+      content="Opurion introduction page: capabilities, supported models, cloud and private LLM options, security, and real-time assistant services."
+    />
+    <style>
+      :root {
+        --bg: #070b14;
+        --panel: #0f172a;
+        --panel-2: #131d34;
+        --text: #e8edf7;
+        --muted: #a5b2cb;
+        --brand: #7dd3fc;
+        --brand-2: #818cf8;
+        --line: rgba(148, 163, 184, 0.22);
+        --ok: #34d399;
+        --warn: #fbbf24;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Inter", "Segoe UI", Arial, sans-serif;
+        color: var(--text);
+        background:
+          radial-gradient(1200px 500px at 10% -10%, rgba(99, 102, 241, 0.2), transparent 55%),
+          radial-gradient(900px 500px at 100% 0%, rgba(56, 189, 248, 0.18), transparent 50%),
+          var(--bg);
+        line-height: 1.65;
+      }
+
+      .container {
+        width: min(1120px, 92%);
+        margin: 0 auto;
+      }
+
+      header {
+        position: sticky;
+        top: 0;
+        z-index: 20;
+        backdrop-filter: blur(10px);
+        background: rgba(7, 11, 20, 0.72);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .nav {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 0;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        font-weight: 700;
+        letter-spacing: 0.3px;
+      }
+
+      .dot {
+        width: 12px;
+        height: 12px;
+        border-radius: 999px;
+        background: linear-gradient(135deg, var(--brand), var(--brand-2));
+        box-shadow: 0 0 28px rgba(125, 211, 252, 0.6);
+      }
+
+      .nav-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 14px;
+      }
+
+      .nav-links a {
+        color: var(--muted);
+        text-decoration: none;
+        font-size: 0.95rem;
+      }
+
+      .nav-links a:hover {
+        color: var(--text);
+      }
+
+      .hero {
+        padding: 80px 0 46px;
+      }
+
+      .hero-card {
+        background: linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(14, 25, 46, 0.88));
+        border: 1px solid var(--line);
+        border-radius: 20px;
+        padding: 40px;
+        box-shadow: 0 24px 60px rgba(2, 8, 23, 0.45);
+      }
+
+      .tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        border: 1px solid rgba(125, 211, 252, 0.35);
+        background: rgba(15, 23, 42, 0.8);
+        color: #c5f0ff;
+        padding: 7px 12px;
+        border-radius: 999px;
+        font-size: 0.82rem;
+        letter-spacing: 0.2px;
+      }
+
+      h1 {
+        margin: 18px 0 10px;
+        font-size: clamp(1.95rem, 4.3vw, 3.15rem);
+        line-height: 1.15;
+      }
+
+      .subtitle {
+        color: var(--muted);
+        max-width: 820px;
+        font-size: 1.04rem;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 18px;
+        margin-top: 26px;
+      }
+
+      .card {
+        background: linear-gradient(180deg, var(--panel), var(--panel-2));
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        padding: 20px;
+      }
+
+      .col-4 {
+        grid-column: span 4;
+      }
+
+      .col-6 {
+        grid-column: span 6;
+      }
+
+      .col-12 {
+        grid-column: span 12;
+      }
+
+      h2 {
+        margin: 8px 0 10px;
+        font-size: 1.35rem;
+      }
+
+      h3 {
+        margin: 0 0 8px;
+        font-size: 1.06rem;
+      }
+
+      p {
+        margin: 0 0 13px;
+      }
+
+      ul {
+        margin: 0;
+        padding-left: 18px;
+      }
+
+      li {
+        margin-bottom: 7px;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      .pill-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .pill {
+        border: 1px solid var(--line);
+        background: rgba(30, 41, 59, 0.6);
+        border-radius: 999px;
+        font-size: 0.82rem;
+        color: #cfe0ff;
+        padding: 6px 10px;
+      }
+
+      .accent {
+        color: #d7f6ff;
+      }
+
+      .kpi {
+        font-size: 1.45rem;
+        font-weight: 700;
+        margin-bottom: 6px;
+      }
+
+      .ok {
+        color: var(--ok);
+      }
+
+      .warn {
+        color: var(--warn);
+      }
+
+      footer {
+        margin-top: 28px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        padding: 24px 0 36px;
+        font-size: 0.92rem;
+      }
+
+      @media (max-width: 900px) {
+        .col-4,
+        .col-6 {
+          grid-column: span 12;
+        }
+
+        .hero-card {
+          padding: 26px;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="container nav">
+        <div class="brand"><span class="dot" aria-hidden="true"></span> Opurion</div>
+        <nav class="nav-links" aria-label="Introduction navigation">
+          <a href="#capabilities">Capabilities</a>
+          <a href="#models">Models</a>
+          <a href="#security">Security</a>
+          <a href="#experience">Experience</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="hero" id="intro">
+        <div class="hero-card">
+          <div class="tag">Modern AI Operations • Cloud + Private LLM Ready</div>
+          <h1>Welcome to Opurion, your premium AI assistant for reliable, secure, and high-impact execution.</h1>
+          <p class="subtitle">
+            Opurion is designed as more than a chatbot. It is a practical digital partner built for real production workflows: guided navigation,
+            context-aware generation, secure command orchestration, real-time feedback loops, and intelligent model routing across both cloud and
+            private large language model environments. The goal is simple: faster outcomes with fewer failures, and a user experience that feels
+            precise, modern, and consistently trustworthy.
+          </p>
+        </div>
+      </section>
+
+      <section id="capabilities" class="grid">
+        <article class="card col-4">
+          <h3>Enhanced Navigation</h3>
+          <p class="muted">
+            Opurion maps complex work into clear actions. It helps users move through setup, diagnostics, implementation, and validation with
+            reduced friction. Smart command suggestions and contextual prompts keep workflows focused and prevent common dead ends.
+          </p>
+          <div class="pill-row">
+            <span class="pill">Workflow guidance</span>
+            <span class="pill">Task sequencing</span>
+            <span class="pill">Context continuity</span>
+          </div>
+        </article>
+
+        <article class="card col-4">
+          <h3>Real-Time Data Integration</h3>
+          <p class="muted">
+            With event-driven updates and runtime awareness, Opurion can react to current system state instead of stale assumptions. This means
+            smarter troubleshooting, better suggestions, and adaptive responses that align with what is actually happening right now.
+          </p>
+          <div class="pill-row">
+            <span class="pill">Live context signals</span>
+            <span class="pill">Streaming feedback</span>
+            <span class="pill">Operational telemetry</span>
+          </div>
+        </article>
+
+        <article class="card col-4">
+          <h3>Secure Transactions</h3>
+          <p class="muted">
+            Security is not an afterthought. Opurion emphasizes guarded operations, scoped actions, and explicit error handling so users can execute
+            sensitive tasks with confidence. Built-in checks support safer automation in enterprise and individual workflows.
+          </p>
+          <div class="pill-row">
+            <span class="pill">Guardrails</span>
+            <span class="pill">Safer command flow</span>
+            <span class="pill">Failure controls</span>
+          </div>
+        </article>
+
+        <article class="card col-12">
+          <h2>Comprehensive Service Layer</h2>
+          <p>
+            Opurion brings together planning, implementation support, operational recovery, and user-centric presentation in one cohesive assistant.
+            It supports software teams, founders, analysts, operators, and technical creators who need more than generic answers. From your first
+            prompt to final deployment checks, Opurion maintains intent, tracks execution quality, and helps ensure that generated outcomes remain
+            actionable. This includes robust handling of setup friction, command fallback strategies, compatibility guidance, and recovery prompts
+            when preview or runtime validation fails. In practical terms, this means less time guessing and more time delivering.
+          </p>
+          <p>
+            The assistant also supports personalized behavior through conversational context and task memory, giving each user a more relevant and
+            efficient experience over time. You can move between discovery and execution without switching tools or resetting context. For teams,
+            this translates into improved consistency, clearer handoffs, and stronger collaboration around the same source of operational truth.
+          </p>
+        </article>
+      </section>
+
+      <section id="models" class="grid">
+        <article class="card col-6">
+          <h2>Supported Model Ecosystem</h2>
+          <p>
+            Opurion is model-flexible by design. It can work with major cloud providers for high-capability production tasks and also with private
+            or self-hosted providers for data-sensitive environments. This hybrid architecture gives organizations the freedom to choose the right
+            balance of performance, latency, privacy, and cost.
+          </p>
+          <ul>
+            <li><span class="accent">Cloud LLM support:</span> high-availability routing for advanced reasoning and broad capability coverage.</li>
+            <li><span class="accent">Private LLM support:</span> on-prem or local inference paths for controlled data governance.</li>
+            <li><span class="accent">Provider switching:</span> resilient fallback behavior when one provider is unavailable or suboptimal.</li>
+            <li><span class="accent">Workload fit:</span> different models can be selected per task type, risk profile, or budget target.</li>
+          </ul>
+        </article>
+
+        <article class="card col-6">
+          <h2>Cloud + Private Strategy</h2>
+          <p>
+            The premium value of Opurion is not only model access, but model orchestration. In cloud-first workflows, teams can unlock speed and
+            reach with rich capability sets. In private-first workflows, teams can prioritize sovereignty, local policy control, and predictable
+            compliance boundaries. Opurion supports both patterns and mixed deployments where needed.
+          </p>
+          <p>
+            This dual capability is especially useful for organizations that run customer-facing innovation while also protecting internal logic,
+            proprietary data, or regulated workflows. Opurion gives you a practical path to modern AI adoption without forcing a one-size-fits-all
+            infrastructure decision.
+          </p>
+        </article>
+      </section>
+
+      <section id="security" class="grid">
+        <article class="card col-4">
+          <div class="kpi ok">Trusted by Design</div>
+          <p class="muted">
+            Validation-first behavior helps reduce operational risk, especially during project setup and preview execution.
+          </p>
+        </article>
+        <article class="card col-4">
+          <div class="kpi">Adaptive Routing</div>
+          <p class="muted">Fallback-aware command and provider logic keeps execution moving even when one path fails.</p>
+        </article>
+        <article class="card col-4">
+          <div class="kpi warn">Human-Centered Control</div>
+          <p class="muted">Automation assists the user, but transparency remains central so decisions stay understandable.</p>
+        </article>
+
+        <article class="card col-12" id="experience">
+          <h2>Personalized User Experience</h2>
+          <p>
+            Opurion is built to feel premium not just visually, but behaviorally. Interactions are context-rich, concise, and execution-focused.
+            The assistant can tailor responses to your project state, preferred tools, and past interaction patterns, making each session more
+            relevant than the last. Instead of generic, disconnected replies, Opurion aims to provide high signal: what matters now, why it matters,
+            and what to do next.
+          </p>
+          <p>
+            Whether you are onboarding a new codebase, validating preview readiness, optimizing task flow, or managing multi-provider AI execution,
+            Opurion gives you a modern control surface for dependable progress. It combines speed with safeguards, flexibility with structure, and
+            intelligence with practical outcomes. In short, Opurion is your trusted AI partner for building, fixing, navigating, and scaling digital
+            work with confidence.
+          </p>
+        </article>
+      </section>
+    </main>
+
+    <footer>
+      <div class="container">
+        © <span id="year"></span> Opurion. Premium AI assistant experience for cloud and private LLM operations.
+      </div>
+    </footer>
+
+    <script>
+      document.getElementById('year').textContent = new Date().getFullYear();
+    </script>
+  </body>
+</html>
