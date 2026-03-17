@@ -1,4 +1,4 @@
-# Opurion
+<img width="1183" height="421" alt="Opurion" src="https://github.com/user-attachments/assets/542f7c90-1003-45ef-852d-75fff8c2f1fa" />
 
 **Opurion** is a structured and modular fork of the original [bolt.diy](https://github.com/stackblitz-labs/bolt.diy).
 
