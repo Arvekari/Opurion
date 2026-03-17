@@ -1092,14 +1092,19 @@ export const ChatImpl = memo(
         content: string;
         parts?: Array<TextUIPart | FileUIPart>;
       },
-      _attachmentOptions?: { experimental_attachments?: Attachment[] | undefined },
+      attachmentOptions?: { experimental_attachments?: Attachment[] | undefined },
     ) => {
       if (typeof chatSendMessage !== 'function') {
         throw new TypeError('Chat SDK sendMessage is not available');
       }
 
+      const payload = {
+        text: userMessage.content,
+        parts: userMessage.parts,
+      };
+
       try {
-        return await chatSendMessage({ text: userMessage.content });
+        return await chatSendMessage(payload, attachmentOptions);
       } catch (error) {
         if (!shouldRetryTransientSendError(error)) {
           throw error;
@@ -1114,7 +1119,7 @@ export const ChatImpl = memo(
         });
 
         await new Promise((resolve) => setTimeout(resolve, 500));
-        return chatSendMessage({ text: userMessage.content });
+        return chatSendMessage(payload, attachmentOptions);
       }
     };
 

@@ -84,6 +84,16 @@ vi.mock('../../../app/components/chat/BaseChat', () => ({
       <button onClick={(event) => props.sendMessage(event, 'hello world')} type="button">
         send
       </button>
+      <button
+        onClick={() => {
+          const imageFile = new File(['mock-image'], 'showroom.png', { type: 'image/png' });
+          props.setUploadedFiles?.([imageFile]);
+          props.setImageDataList?.(['data:image/png;base64,QUJDRA==']);
+        }}
+        type="button"
+      >
+        attach-image
+      </button>
       <button onClick={() => props.handleStop?.()} type="button">
         stop
       </button>
@@ -291,6 +301,46 @@ describe('app/components/chat/Chat.client.tsx', () => {
     expect(appendMock).not.toHaveBeenCalled();
     expect(sendMessageMock.mock.calls[0][0]).toMatchObject({
       text: expect.stringContaining('hello world'),
+    });
+  });
+
+  it('forwards uploaded image payload as message parts and experimental attachments', async () => {
+    render(
+      <ChatImpl
+        description="test"
+        initialMessages={[] as any}
+        storeMessageHistory={vi.fn(async () => {})}
+        importChat={vi.fn(async () => {})}
+        exportChat={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByText('attach-image'));
+    fireEvent.click(screen.getByText('send'));
+
+    await waitFor(() => {
+      expect(sendMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    const payload = sendMessageMock.mock.calls[0][0];
+    const options = sendMessageMock.mock.calls[0][1];
+
+    expect(payload.text).toContain('hello world');
+    expect(Array.isArray(payload.parts)).toBe(true);
+    expect(payload.parts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: 'text' }),
+        expect.objectContaining({ type: 'file', mimeType: 'image/png' }),
+      ]),
+    );
+
+    expect(options).toMatchObject({
+      experimental_attachments: [
+        expect.objectContaining({
+          name: 'showroom.png',
+          contentType: 'image/png',
+        }),
+      ],
     });
   });
 

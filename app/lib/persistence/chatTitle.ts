@@ -22,6 +22,31 @@ function truncateTitle(value: string): string {
   return `${value.slice(0, MAX_CHAT_TITLE_LENGTH - 3).trimEnd()}...`;
 }
 
+function extractAssistantHeader(rawAssistantText: string): string | undefined {
+  if (!rawAssistantText) {
+    return undefined;
+  }
+
+  const artifactTitleMatch =
+    rawAssistantText.match(/<boltArtifact[^>]*\btitle="([^"]+)"/i) ||
+    rawAssistantText.match(/<boltArtifact[^>]*\btitle='([^']+)'/i);
+
+  if (artifactTitleMatch?.[1]?.trim()) {
+    return artifactTitleMatch[1].trim();
+  }
+
+  const firstMarkdownHeader = rawAssistantText
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find((line) => /^#{1,6}\s+/.test(line));
+
+  if (firstMarkdownHeader) {
+    return firstMarkdownHeader.replace(/^#{1,6}\s+/, '').trim();
+  }
+
+  return undefined;
+}
+
 export function extractMessageText(message: Message): string {
   if (typeof message.content === 'string' && message.content.trim()) {
     return message.content;
@@ -46,9 +71,12 @@ export function deriveChatTitleFromMessages(messages: Message[], fallbackTitle?:
   );
   const firstUserMessage = messages.find((message) => message.role === 'user' && !message.annotations?.includes('no-store'));
 
+  const assistantRawText =
+    firstAssistantMessage && typeof firstAssistantMessage.content === 'string' ? firstAssistantMessage.content : '';
+  const assistantHeader = extractAssistantHeader(assistantRawText);
   const assistantText = firstAssistantMessage ? extractMessageText(firstAssistantMessage) : '';
   const userText = firstUserMessage ? extractMessageText(firstUserMessage) : '';
-  const rawText = userText || assistantText || fallbackTitle;
+  const rawText = assistantHeader || assistantText || userText || fallbackTitle;
 
   if (!rawText) {
     return fallbackTitle;

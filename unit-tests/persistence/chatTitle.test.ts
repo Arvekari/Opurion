@@ -12,13 +12,26 @@ function createMessage(overrides: Partial<Message>): Message {
 }
 
 describe('persistence/chatTitle', () => {
-  it('derives the title from the first stored user topic when available', () => {
+  it('derives the title from the first assistant markdown header when available', () => {
     const title = deriveChatTitleFromMessages([
       createMessage({ role: 'user', content: 'Build an Expo app for field inspections with offline sync and photo uploads' }),
-      createMessage({ role: 'assistant', content: 'Topic: Field Inspection App with Offline Sync' }),
+      createMessage({ role: 'assistant', content: '# Field Inspection App with Offline Sync\n\nTopic details...' }),
     ]);
 
-    expect(title).toBe('Build an Expo app for field inspections with offline sync and photo uploads');
+    expect(title).toBe('Field Inspection App with Offline Sync');
+  });
+
+  it('derives the title from boltArtifact title in the first assistant response', () => {
+    const title = deriveChatTitleFromMessages([
+      createMessage({ role: 'user', content: 'Create multilingual beauty website' }),
+      createMessage({
+        role: 'assistant',
+        content:
+          '<boltArtifact id="app" title="Sahar Beauty Premium Multilingual Web Application" type="bundled">...</boltArtifact>',
+      }),
+    ]);
+
+    expect(title).toBe('Sahar Beauty Premium Multilingual Web Application');
   });
 
   it('removes markup and truncates long prompts', () => {

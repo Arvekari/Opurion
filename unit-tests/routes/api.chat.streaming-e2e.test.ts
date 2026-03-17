@@ -5,6 +5,7 @@ const {
   resolveApiKeysMock,
   resolveProviderSettingsMock,
   resolveCustomPromptMock,
+  parseCookiesMock,
   processMcpMessagesForRequestMock,
   extractPropertiesFromMessageMock,
 } = vi.hoisted(() => ({
@@ -12,6 +13,7 @@ const {
   resolveApiKeysMock: vi.fn(),
   resolveProviderSettingsMock: vi.fn(),
   resolveCustomPromptMock: vi.fn(),
+  parseCookiesMock: vi.fn(() => ({})),
   processMcpMessagesForRequestMock: vi.fn(),
   extractPropertiesFromMessageMock: vi.fn(),
 }));
@@ -63,6 +65,7 @@ vi.mock('~/lib/api/cookies', () => ({
   resolveApiKeys: resolveApiKeysMock,
   resolveProviderSettings: resolveProviderSettingsMock,
   resolveCustomPrompt: resolveCustomPromptMock,
+  parseCookies: parseCookiesMock,
 }));
 
 vi.mock('~/lib/.server/agents/agentRunService', () => ({

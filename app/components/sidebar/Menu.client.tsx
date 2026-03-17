@@ -11,6 +11,7 @@ import { useStore } from '@nanostores/react';
 import { profileStore } from '~/lib/stores/profile';
 import { ProjectsWorkspacePanel } from './ProjectsWorkspacePanel';
 import { ArtifactsMarketplacePanel } from './ArtifactsMarketplacePanel';
+import { MaterialGalleryPanel } from './MaterialGalleryPanel';
 
 interface MenuProps {
   collapsed: boolean;
@@ -273,7 +274,7 @@ export const Menu = ({ collapsed, onToggle, onOpenSettings }: MenuProps) => {
   const { exportChat, duplicateCurrentChat } = useChatHistory();
   const [list, setList] = useState<ChatHistoryItem[]>([]);
   const [dialogContent, setDialogContent] = useState<{ type: 'delete'; item: ChatHistoryItem } | null>(null);
-  const [activeSection, setActiveSection] = useState<'chats' | 'projects' | 'artifacts' | 'code'>('chats');
+  const [activeSection, setActiveSection] = useState<'chats' | 'projects' | 'artifacts' | 'materials' | 'code'>('chats');
   const [loggingOut, setLoggingOut] = useState(false);
   const profile = useStore(profileStore);
   const themeMode = useStore(themeModeStore);
@@ -384,13 +385,14 @@ export const Menu = ({ collapsed, onToggle, onOpenSettings }: MenuProps) => {
 
   // Ordered: Projects / Artifacts / Code — gap — Chats
   const navItems: Array<{
-    key: 'projects' | 'artifacts' | 'code' | 'chats';
+    key: 'projects' | 'artifacts' | 'materials' | 'code' | 'chats';
     label: string;
     icon: string;
     separator?: boolean;
   }> = [
     { key: 'projects', label: 'Projects', icon: '📁' },
     { key: 'artifacts', label: 'Artifacts', icon: '📦' },
+    { key: 'materials', label: 'Material Gallery', icon: '🖼️' },
     { key: 'code', label: 'Code', icon: '{ }' },
     { key: 'chats', label: 'Chats', icon: '💬', separator: true },
   ];
@@ -623,6 +625,7 @@ export const Menu = ({ collapsed, onToggle, onOpenSettings }: MenuProps) => {
             <div style={{ marginTop: '8px', overflowY: 'auto', maxHeight: '100%' }}>
               {activeSection === 'projects' && <ProjectsWorkspacePanel />}
               {activeSection === 'artifacts' && <ArtifactsMarketplacePanel />}
+              {activeSection === 'materials' && <MaterialGalleryPanel chats={list} activeChatId={activeChatId} />}
               {activeSection === 'code' && (
                 <div
                   style={{

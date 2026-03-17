@@ -14,6 +14,13 @@ import { extractPropertiesFromMessage } from '~/lib/.server/llm/utils';
 import type { DesignScheme } from '~/types/design-scheme';
 import { MCPService } from '~/lib/services/mcpService';
 import { StreamRecoveryManager } from '~/lib/.server/llm/stream-recovery';
+import {
+  readPersistedMemory,
+  readPersistedMemoryForUser,
+  searchUserVectors,
+  upsertUserVector,
+} from '~/lib/.server/persistence';
+import { getCurrentUserFromRequest } from '~/lib/.server/auth';
 import { resolveApiKeys, resolveCustomPrompt, resolveProviderSettings } from '~/lib/api/cookies';
 import { AgentRunService } from '~/lib/.server/agents/agentRunService';
 import { processMcpMessagesForRequest } from '~/integrations/mcp/adapter';
@@ -33,6 +40,9 @@ export async function action(args: ActionFunctionArgs) {
 }
 
 const logger = createScopedLogger('api.chat');
+
+const VECTOR_EMBEDDING_DIMENSIONS = 128;
+const VECTOR_NAMESPACE = 'chat:coherence';
 
 function toLogPreview(content: string, maxChars = 1200): string {
   const normalized = content.replace(/\s+/g, ' ').trim();
@@ -57,6 +67,61 @@ function extractModelSizeInBillions(modelName?: string): number | undefined {
 
   const parsed = Number.parseFloat(match[1]);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function hashTokenToIndex(token: string, dimensions: number): number {
+  let hash = 2166136261;
+
+  for (let index = 0; index < token.length; index += 1) {
+    hash ^= token.charCodeAt(index);
+    hash += (hash << 1) + (hash << 4) + (hash << 7) + (hash << 8) + (hash << 24);
+  }
+
+  return Math.abs(hash >>> 0) % dimensions;
+}
+
+function buildLocalTextEmbedding(text: string, dimensions = VECTOR_EMBEDDING_DIMENSIONS): number[] {
+  const vector = new Array(dimensions).fill(0);
+  const tokens = text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length > 1)
+    .slice(0, 512);
+
+  if (tokens.length === 0) {
+    return vector;
+  }
+
+  for (const token of tokens) {
+    const index = hashTokenToIndex(token, dimensions);
+    vector[index] += 1;
+  }
+
+  const magnitude = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0));
+
+  if (magnitude <= 0) {
+    return vector;
+  }
+
+  return vector.map((value) => value / magnitude);
+}
+
+function buildRetrievedMemoryPrompt(snippets: Array<{ content: string; score: number }>): string | undefined {
+  if (snippets.length === 0) {
+    return undefined;
+  }
+
+  const lines = snippets
+    .slice(0, 5)
+    .map((snippet, index) => `${index + 1}. (${snippet.score.toFixed(3)}) ${snippet.content.slice(0, 400)}`);
+
+  return [
+    '[Retrieved Long-Term Chat Memory]',
+    'Use these past user preferences/details when relevant. Do not mention retrieval unless asked.',
+    ...lines,
+  ].join('\n');
 }
 
 function getOllamaRecoveryRoundLimit(params: {
@@ -391,6 +456,14 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
   });
 
   const cookieHeader = request.headers.get('Cookie');
+  const env = context.cloudflare?.env as Record<string, any> | undefined;
+  const currentUser = await getCurrentUserFromRequest(request, env);
+  const persistedMemory = currentUser
+    ? await readPersistedMemoryForUser(currentUser.userId, env)
+    : await readPersistedMemory(env);
+  const vectorProviderOverride = persistedMemory?.dbConfig?.provider;
+  const vectorUserId = currentUser?.userId || 'global-anonymous';
+
   const apiKeys = await resolveApiKeys(cookieHeader, context.cloudflare?.env as any);
   const providerSettings: Record<string, IProviderSetting> = await resolveProviderSettings(
     cookieHeader,
@@ -468,6 +541,76 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
           messages,
           dataStream,
         });
+
+        const latestUserText = (latestUserMessage?.content || '').trim();
+
+        if (latestUserText.length > 0) {
+          dataStream.writeData({
+            type: 'progress',
+            label: 'memory',
+            status: 'in-progress',
+            order: progressCounter++,
+            message: 'Retrieving Long-Term Memory',
+          } satisfies ProgressAnnotation);
+
+          const queryEmbedding = buildLocalTextEmbedding(latestUserText);
+
+          try {
+            const matches = await searchUserVectors(
+              {
+                userId: vectorUserId,
+                namespace: VECTOR_NAMESPACE,
+                queryEmbedding,
+                limit: 6,
+              },
+              env,
+              { providerOverride: vectorProviderOverride },
+            );
+
+            const relevantMatches = matches.filter((match) => match.score >= 0.22 && match.content?.trim().length > 0);
+            const memoryPrompt = buildRetrievedMemoryPrompt(relevantMatches);
+
+            if (memoryPrompt) {
+              processedMessages.unshift({
+                id: generateId(),
+                role: 'system',
+                content: memoryPrompt,
+              } as any);
+            }
+
+            await upsertUserVector(
+              {
+                userId: vectorUserId,
+                namespace: VECTOR_NAMESPACE,
+                sourceId: latestUserMessage?.id || generateId(),
+                content: latestUserText,
+                embedding: queryEmbedding,
+                metadata: {
+                  chatMode,
+                  provider: requestModelInfo.provider,
+                  model: requestModelInfo.model,
+                  capturedAt: new Date().toISOString(),
+                },
+              },
+              env,
+              { providerOverride: vectorProviderOverride },
+            );
+          } catch (memoryError) {
+            logger.warn('Vector memory retrieval/upsert failed (continuing without long-term memory)', {
+              requestId: getRequestId(request),
+              error: memoryError instanceof Error ? memoryError.message : String(memoryError),
+            });
+          }
+
+          dataStream.writeData({
+            type: 'progress',
+            label: 'memory',
+            status: 'complete',
+            order: progressCounter++,
+            message: 'Long-Term Memory Ready',
+          } satisfies ProgressAnnotation);
+        }
+
         const planStepId = agentRunService.beginStep(agentRun.runId, 'plan', 'Plan request and select context');
         emitAgentRun();
 

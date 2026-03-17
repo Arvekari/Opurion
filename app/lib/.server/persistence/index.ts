@@ -41,6 +41,20 @@ function usePostgrest(env?: Record<string, any>): boolean {
   return getPersistenceRuntimeStatus(env).activeProvider === 'postgrest';
 }
 
+type VectorProviderOverride = 'sqlite' | 'postgres' | undefined;
+
+function resolveVectorProvider(env?: Record<string, any>, providerOverride?: VectorProviderOverride): 'sqlite' | 'postgrest' {
+  if (providerOverride === 'sqlite') {
+    return 'sqlite';
+  }
+
+  if (providerOverride === 'postgres') {
+    return postgrest.isPostgrestEnabled(env) ? 'postgrest' : 'sqlite';
+  }
+
+  return usePostgrest(env) ? 'postgrest' : 'sqlite';
+}
+
 export function isSqlitePersistenceEnabled(env?: Record<string, any>): boolean {
   return !usePostgrest(env) && sqlite.isSqlitePersistenceEnabled(env);
 }
@@ -151,8 +165,10 @@ export async function upsertUserVector(
     metadata?: Record<string, any>;
   },
   env?: Record<string, any>,
+  options?: { providerOverride?: VectorProviderOverride },
 ) {
-  return usePostgrest(env) ? postgrest.upsertUserVector(input, env) : sqlite.upsertUserVector(input, env);
+  const provider = resolveVectorProvider(env, options?.providerOverride);
+  return provider === 'postgrest' ? postgrest.upsertUserVector(input, env) : sqlite.upsertUserVector(input, env);
 }
 
 export async function searchUserVectors(
@@ -163,8 +179,10 @@ export async function searchUserVectors(
     limit?: number;
   },
   env?: Record<string, any>,
+  options?: { providerOverride?: VectorProviderOverride },
 ) {
-  return usePostgrest(env) ? postgrest.searchUserVectors(input, env) : sqlite.searchUserVectors(input, env);
+  const provider = resolveVectorProvider(env, options?.providerOverride);
+  return provider === 'postgrest' ? postgrest.searchUserVectors(input, env) : sqlite.searchUserVectors(input, env);
 }
 
 export async function createCollabProject(input: { ownerUserId: string; name: string }, env?: Record<string, any>) {
