@@ -24,7 +24,7 @@ That link is intentionally preserved here, because the original project provided
 
 ### Main workspace
 
-<img width="1400" height="883" alt="Bolt2-main" src="https://github.com/user-attachments/assets/6a7e51de-8982-4594-889e-f67d7d4f7317" />
+<img width="1801" height="1050" alt="start-upscreen" src="https://github.com/user-attachments/assets/22c574d0-a991-44e1-9c47-9cf9007159f4" />
 
 ### Updated workspace / UI direction
 
